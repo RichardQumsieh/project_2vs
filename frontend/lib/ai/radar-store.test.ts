@@ -6,6 +6,7 @@ import {
   isConversationAllowed,
   listPendingFindings,
   parseRadarStoreState,
+  radarStoreUserKey,
   setConversationAllowed,
   snoozeFinding,
   upsertFindings,
@@ -32,6 +33,13 @@ function sampleFinding(
 }
 
 describe("radar store state helpers", () => {
+  it("keys IndexedDB Radar state per user and rejects empty keys", () => {
+    expect(radarStoreUserKey("user-a")).toBe("user-a");
+    expect(radarStoreUserKey("user-b")).toBe("user-b");
+    expect(radarStoreUserKey("user-a")).not.toBe(radarStoreUserKey("user-b"));
+    expect(radarStoreUserKey("   ")).toBe("");
+  });
+
   it("isolates allowlists and rejects malformed persisted payloads", () => {
     const allowed = setConversationAllowed(
       emptyRadarStoreState(),

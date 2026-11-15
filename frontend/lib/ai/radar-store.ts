@@ -55,6 +55,11 @@ const maxTaskDrafts = 200;
 const maxTitleCharacters = 160;
 const maxExcerptCharacters = 280;
 
+/** IndexedDB object-store key — one Radar state blob per signed-in user. */
+export function radarStoreUserKey(userId: string) {
+  return userId.trim();
+}
+
 interface RadarDB extends DBSchema {
   stores: {
     key: string;
@@ -432,12 +437,13 @@ async function getRadarDb() {
 }
 
 export async function loadRadarStore(userId: string): Promise<RadarStoreState> {
-  if (!userId) {
+  const key = radarStoreUserKey(userId);
+  if (!key) {
     return emptyRadarStoreState();
   }
   try {
     const db = await getRadarDb();
-    const stored = await db.get("stores", userId);
+    const stored = await db.get("stores", key);
     return parseRadarStoreState(stored);
   } catch {
     return emptyRadarStoreState();
@@ -448,12 +454,13 @@ export async function saveRadarStore(
   userId: string,
   state: RadarStoreState,
 ): Promise<boolean> {
-  if (!userId) {
+  const key = radarStoreUserKey(userId);
+  if (!key) {
     return false;
   }
   try {
     const db = await getRadarDb();
-    await db.put("stores", parseRadarStoreState(state), userId);
+    await db.put("stores", parseRadarStoreState(state), key);
     return true;
   } catch {
     return false;

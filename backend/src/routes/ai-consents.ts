@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { requireUser } from "../auth.js";
+import { userIsConversationMember } from "../conversation-membership.js";
 import { prisma } from "../db.js";
 import { denyUnlessOwner } from "../task-authorization.js";
 import { createAiConsentSchema } from "../schemas.js";
@@ -12,6 +13,16 @@ export async function aiConsentRoutes(app: FastifyInstance) {
     const parsed = createAiConsentSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid AI consent" });
+    }
+
+    if (parsed.data.conversationId) {
+      const member = await userIsConversationMember(
+        parsed.data.conversationId,
+        session.sub,
+      );
+      if (!member) {
+        return reply.code(404).send({ error: "Not found" });
+      }
     }
 
     const consent = await prisma.aiAuthorizationConsent.create({

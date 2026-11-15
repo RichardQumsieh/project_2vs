@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { requireUser } from "../auth.js";
+import { userIsConversationMember } from "../conversation-membership.js";
 import { prisma } from "../db.js";
 import { denyUnlessOwner } from "../task-authorization.js";
 import { bumpTaskMetric } from "../task-metrics.js";
@@ -142,6 +143,17 @@ export async function taskRoutes(app: FastifyInstance) {
       if (!ownership.ok) {
         bumpTaskMetric("tasks_authz_denied_count");
         return reply.code(ownership.status).send({ error: ownership.error });
+      }
+    }
+
+    if (parsed.data.conversationId) {
+      const member = await userIsConversationMember(
+        parsed.data.conversationId,
+        session.sub,
+      );
+      if (!member) {
+        bumpTaskMetric("tasks_authz_denied_count");
+        return reply.code(404).send({ error: "Not found" });
       }
     }
 

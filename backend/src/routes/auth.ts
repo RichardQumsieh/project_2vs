@@ -603,13 +603,21 @@ export async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      const totpValid = resetToken.user.totpSecret
-        ? /^\d{6}$/.test(parsed.data.code) &&
-          await verifyTotp(
-            decryptTotpSecret(resetToken.user.totpSecret),
-            parsed.data.code,
-          )
-        : false;
+      // Password reset always requires an enrolled authenticator factor.
+      // Incomplete TOTP setup must not reset with the email link alone.
+      if (!resetToken.user.totpSecret) {
+        return reply.code(400).send({
+          error:
+            "Finish authenticator setup before resetting your password, or contact support if you are locked out.",
+        });
+      }
+
+      const totpValid =
+        /^\d{6}$/.test(parsed.data.code) &&
+        (await verifyTotp(
+          decryptTotpSecret(resetToken.user.totpSecret),
+          parsed.data.code,
+        ));
 
       const passwordHash = await argon2.hash(
         parsed.data.password,
@@ -635,7 +643,7 @@ export async function authRoutes(app: FastifyInstance) {
           return false;
         }
 
-        if (!totpValid && resetToken.user.totpSecret) {
+        if (!totpValid) {
           const consumedCode = await tx.recoveryCode.updateMany({
             where: {
               userId: resetToken.userId,

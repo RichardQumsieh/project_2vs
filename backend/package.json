@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch --env-file=.env src/index.ts",
     "build": "tsc",
-    "test": "tsx --test tests/research-provider.test.ts tests/message-envelopes.test.ts tests/message-pagination.test.ts tests/message-deletion.test.ts tests/media-upload.test.ts tests/conversation-visibility.test.ts tests/user-discovery.test.ts tests/url-reputation.test.ts tests/call-signaling.test.ts tests/device-recovery.test.ts tests/trusted-browser.test.ts tests/task-authorization.test.ts tests/task-metrics.test.ts",
+    "test": "tsx --test tests/research-provider.test.ts tests/message-envelopes.test.ts tests/message-pagination.test.ts tests/message-deletion.test.ts tests/media-upload.test.ts tests/conversation-visibility.test.ts tests/user-discovery.test.ts tests/url-reputation.test.ts tests/call-signaling.test.ts tests/device-recovery.test.ts tests/trusted-browser.test.ts tests/task-authorization.test.ts tests/task-metrics.test.ts tests/conversation-membership.test.ts",
     "start": "node --env-file=.env dist/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

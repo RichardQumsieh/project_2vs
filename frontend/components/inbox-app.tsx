@@ -865,6 +865,10 @@ function ThreadConversation({
           return;
         }
         setRadarStore((previous) => {
+          const existingIds = new Set(previous.findings.map((item) => item.id));
+          const newlyProposed = findings.filter(
+            (finding) => !existingIds.has(finding.id),
+          ).length;
           const next = upsertFindings(previous, findings);
           radarStoreRef.current = next;
           void saveRadarStore(userId, next).then((ok) => {
@@ -872,15 +876,17 @@ function ThreadConversation({
               ok ? null : "Could not save Radar findings in this browser.",
             );
           });
-          return next;
-        });
-        setRadarCounters((previous) => {
-          const next = bumpRadarCounter(
-            previous,
-            "findingsProposed",
-            findings.length,
-          );
-          saveRadarClientCounters(userId, next);
+          if (newlyProposed > 0) {
+            setRadarCounters((counters) => {
+              const bumped = bumpRadarCounter(
+                counters,
+                "findingsProposed",
+                newlyProposed,
+              );
+              saveRadarClientCounters(userId, bumped);
+              return bumped;
+            });
+          }
           return next;
         });
       },
@@ -3201,7 +3207,11 @@ function ThreadConversation({
               <input
                 type="checkbox"
                 checked={conversationRadarAllowed}
-                disabled={!assistantSettings || !activeUserId}
+                disabled={
+                  !assistantSettings ||
+                  !activeUserId ||
+                  !assistantSettings.radarAnalysisEnabled
+                }
                 onChange={(event) => {
                   void persistRadarStore(
                     setConversationAllowed(
@@ -3218,6 +3228,9 @@ function ThreadConversation({
                 </span>
                 <span className="mt-1 block text-xs text-white/50">
                   Required in addition to the device-wide analysis toggle. Findings stay pending until you approve, edit, or dismiss them.
+                  {!assistantSettings?.radarAnalysisEnabled
+                    ? " Enable analysis above first."
+                    : ""}
                 </span>
               </span>
             </label>

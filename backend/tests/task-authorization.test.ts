@@ -78,5 +78,23 @@ describe("task and reminder schemas", () => {
       }).success,
       false,
     );
+    assert.equal(
+      createAiConsentSchema.safeParse({
+        scope: "CONVERSATION_ANALYSIS",
+        conversationId: "not-a-uuid",
+      }).success,
+      false,
+    );
+  });
+
+  it("rejects chat plaintext fields on task create payloads", () => {
+    assert.equal(
+      createTaskSchema.safeParse({
+        title: "Send proposal",
+        plaintext: "I'll send it tomorrow",
+        excerpt: "I'll send it",
+      }).success,
+      false,
+    );
   });
 });
