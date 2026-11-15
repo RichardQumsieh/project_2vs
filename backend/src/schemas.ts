@@ -330,3 +330,66 @@ export const createMediaUploadSchema = z.object({
 export const mediaIdParamSchema = z.object({
   mediaId: z.string().uuid(),
 });
+
+const optionalIsoDateTime = z
+  .string()
+  .trim()
+  .max(40)
+  .refine((value) => !Number.isNaN(Date.parse(value)), "Invalid date")
+  .optional();
+
+export const createProjectSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+}).strict();
+
+export const createTaskSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  dueAt: optionalIsoDateTime,
+  projectId: z.string().uuid().optional(),
+  source: z.enum(["MANUAL", "RADAR"]).optional().default("MANUAL"),
+  clientDraftId: z.string().trim().min(1).max(80).optional(),
+  conversationId: z.string().uuid().optional(),
+  status: z.enum(["OPEN", "DONE", "DISMISSED"]).optional().default("OPEN"),
+}).strict();
+
+export const updateTaskSchema = z.object({
+  title: z.string().trim().min(1).max(160).optional(),
+  dueAt: optionalIsoDateTime.nullable(),
+  projectId: z.string().uuid().nullable().optional(),
+  status: z.enum(["OPEN", "DONE", "DISMISSED"]).optional(),
+}).strict().refine(
+  (value) =>
+    value.title !== undefined ||
+    value.dueAt !== undefined ||
+    value.projectId !== undefined ||
+    value.status !== undefined,
+  "At least one field is required",
+);
+
+export const createReminderSchema = z.object({
+  remindAt: z
+    .string()
+    .trim()
+    .max(40)
+    .refine((value) => !Number.isNaN(Date.parse(value)), "Invalid date"),
+  taskId: z.string().uuid().optional(),
+}).strict();
+
+export const updateReminderSchema = z.object({
+  remindAt: z
+    .string()
+    .trim()
+    .max(40)
+    .refine((value) => !Number.isNaN(Date.parse(value)), "Invalid date")
+    .optional(),
+  status: z.enum(["SCHEDULED", "CANCELLED", "FIRED"]).optional(),
+}).strict().refine(
+  (value) => value.remindAt !== undefined || value.status !== undefined,
+  "At least one field is required",
+);
+
+export const createAiConsentSchema = z.object({
+  scope: z.enum(["CLOUD_AI", "CONVERSATION_ANALYSIS"]),
+  conversationId: z.string().uuid().optional(),
+  evidenceVersion: z.number().int().min(1).max(100).optional().default(1),
+}).strict();

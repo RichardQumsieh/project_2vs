@@ -14,6 +14,8 @@ import { urlSafetyRoutes } from "./routes/url-safety.js";
 import { registerCallIceServerRoute } from "./call-signaling.js";
 import { mediaRoutes } from "./routes/media.js";
 import { discoveryRoutes } from "./routes/discovery.js";
+import { taskRoutes } from "./routes/tasks.js";
+import { aiConsentRoutes } from "./routes/ai-consents.js";
 import { registerRealtime } from "./ws.js";
 
 const app = Fastify({ logger: true });
@@ -59,6 +61,8 @@ await app.register(mediaRoutes);
 await app.register(discoveryRoutes);
 await app.register(researchRoutes);
 await app.register(urlSafetyRoutes);
+await app.register(taskRoutes);
+await app.register(aiConsentRoutes);
 await registerCallIceServerRoute(app);
 await registerRealtime(app);
 

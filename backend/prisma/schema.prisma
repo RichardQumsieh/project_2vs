@@ -12,6 +12,28 @@ enum ConversationType {
   GROUP
 }
 
+enum TaskStatus {
+  OPEN
+  DONE
+  DISMISSED
+}
+
+enum TaskSource {
+  MANUAL
+  RADAR
+}
+
+enum ReminderStatus {
+  SCHEDULED
+  CANCELLED
+  FIRED
+}
+
+enum AiConsentScope {
+  CLOUD_AI
+  CONVERSATION_ANALYSIS
+}
+
 model User {
   id                 String    @id @default(uuid())
   username           String    @unique
@@ -39,6 +61,10 @@ model User {
   archiveMessages      AccountArchiveMessage[] @relation("ArchiveOwner")
   archivedSentMessages AccountArchiveMessage[] @relation("ArchiveSender")
   messageDeletions     MessageDeletion[]        @relation("MessageDeletionActor")
+  projects             Project[]
+  tasks                Task[]
+  reminders            Reminder[]
+  aiConsents           AiAuthorizationConsent[]
 
   @@index([interests], type: Gin)
 }
@@ -262,4 +288,69 @@ model MessageDeletion {
 
   @@id([conversationId, logicalMessageId])
   @@index([conversationId, deletedAt, logicalMessageId])
+}
+
+model Project {
+  id           String   @id @default(uuid())
+  ownerUserId  String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  owner User   @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@index([ownerUserId, updatedAt])
+}
+
+model Task {
+  id              String     @id @default(uuid())
+  ownerUserId     String
+  projectId       String?
+  title           String
+  dueAt           DateTime?
+  status          TaskStatus @default(OPEN)
+  source          TaskSource @default(MANUAL)
+  clientDraftId   String?
+  conversationId  String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  owner     User       @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  project   Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  reminders Reminder[]
+
+  @@unique([ownerUserId, clientDraftId])
+  @@index([ownerUserId, status, updatedAt])
+  @@index([ownerUserId, dueAt])
+}
+
+model Reminder {
+  id          String         @id @default(uuid())
+  ownerUserId String
+  taskId      String?
+  remindAt    DateTime
+  status      ReminderStatus @default(SCHEDULED)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  owner User  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  task  Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId, remindAt])
+  @@index([ownerUserId, status])
+}
+
+model AiAuthorizationConsent {
+  id               String         @id @default(uuid())
+  userId           String
+  scope            AiConsentScope
+  conversationId   String?
+  grantedAt        DateTime       @default(now())
+  revokedAt        DateTime?
+  evidenceVersion  Int            @default(1)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, scope, revokedAt])
 }

@@ -567,6 +567,100 @@ export const api = {
         body: JSON.stringify({ query }),
         signal,
       }),
+
+  listTasks: () =>
+    request<{
+      tasks: {
+        id: string;
+        title: string;
+        dueAt: string | null;
+        status: "OPEN" | "DONE" | "DISMISSED";
+        source: "MANUAL" | "RADAR";
+        clientDraftId: string | null;
+        conversationId: string | null;
+        projectId: string | null;
+        createdAt: string;
+        updatedAt: string;
+      }[];
+    }>("/tasks"),
+
+  createTask: (body: {
+    title: string;
+    dueAt?: string;
+    projectId?: string;
+    source?: "MANUAL" | "RADAR";
+    clientDraftId?: string;
+    conversationId?: string;
+    status?: "OPEN" | "DONE" | "DISMISSED";
+  }) =>
+    request<{
+      task: {
+        id: string;
+        title: string;
+        dueAt: string | null;
+        status: "OPEN" | "DONE" | "DISMISSED";
+        source: "MANUAL" | "RADAR";
+        clientDraftId: string | null;
+        conversationId: string | null;
+        projectId: string | null;
+        createdAt: string;
+        updatedAt: string;
+      };
+      deduped?: boolean;
+    }>("/tasks", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  listProjects: () =>
+    request<{
+      projects: {
+        id: string;
+        name: string;
+        createdAt: string;
+        updatedAt: string;
+      }[];
+    }>("/projects"),
+
+  createProject: (body: { name: string }) =>
+    request<{
+      project: {
+        id: string;
+        name: string;
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>("/projects", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  listReminders: () =>
+    request<{
+      reminders: {
+        id: string;
+        taskId: string | null;
+        remindAt: string;
+        status: "SCHEDULED" | "CANCELLED" | "FIRED";
+        createdAt: string;
+        updatedAt: string;
+      }[];
+    }>("/reminders"),
+
+  createReminder: (body: { remindAt: string; taskId?: string }) =>
+    request<{
+      reminder: {
+        id: string;
+        taskId: string | null;
+        remindAt: string;
+        status: "SCHEDULED" | "CANCELLED" | "FIRED";
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>("/reminders", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
 
 export function wsUrl() {

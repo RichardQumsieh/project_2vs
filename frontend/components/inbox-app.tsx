@@ -126,6 +126,7 @@ import {
   type RadarStoreState,
 } from "@/lib/ai/radar-store";
 import { createRadarRuntime, type RadarRuntime } from "@/lib/ai/radar-runtime";
+import { syncAcceptedTaskDraft } from "@/lib/ai/radar-sync";
 import {
   generateSuggestedReplies,
   type SuggestionRequest,
@@ -1948,6 +1949,22 @@ function ThreadConversation({
           });
           if (!(await saveRadarStore(activeUserId, next))) {
             throw new Error("Could not save the local Radar task in this browser.");
+          }
+          const draft = next.taskDrafts.find(
+            (item) => item.findingId === action.findingId,
+          );
+          if (draft) {
+            try {
+              await syncAcceptedTaskDraft(draft, (payload) =>
+                api.createTask(payload),
+              );
+            } catch (error) {
+              setRadarStoreError(
+                error instanceof Error
+                  ? `Saved locally, but server sync failed: ${error.message}`
+                  : "Saved locally, but server sync failed.",
+              );
+            }
           }
         },
         dismissFinding: async (action) => {
