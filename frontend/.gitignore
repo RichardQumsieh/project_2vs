@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+.vitest-cache/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+*.node
+.DS_Store

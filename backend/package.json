@@ -1,0 +1,39 @@
+{
+  "name": "messenger-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "build": "tsc",
+    "test": "tsx --test tests/research-provider.test.ts tests/message-envelopes.test.ts tests/message-pagination.test.ts tests/message-deletion.test.ts tests/media-upload.test.ts tests/conversation-visibility.test.ts tests/user-discovery.test.ts tests/url-reputation.test.ts tests/call-signaling.test.ts tests/device-recovery.test.ts tests/trusted-browser.test.ts",
+    "start": "node --env-file=.env dist/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "db:push": "prisma db push"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.2"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1160.0",
+    "@aws-sdk/s3-request-presigner": "^3.1160.0",
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.1.0",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/websocket": "^11.2.0",
+    "@prisma/client": "^6.16.0",
+    "argon2": "^0.43.1",
+    "fastify": "^5.6.0",
+    "ioredis": "^5.8.0",
+    "jose": "^6.1.0",
+    "otplib": "^13.5.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "prisma": "^6.16.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.0.0"
+  }
+}
