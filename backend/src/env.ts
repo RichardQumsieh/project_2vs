@@ -19,6 +19,12 @@ const envSchema = z.object({
   GMAIL_CLIENT_ID: optionalEnvironmentValue,
   GMAIL_CLIENT_SECRET: optionalEnvironmentValue,
   GMAIL_REFRESH_TOKEN: optionalEnvironmentValue,
+  /** Public API origin used to build OAuth redirect_uri (e.g. https://api.example.com). */
+  API_PUBLIC_ORIGIN: optionalEnvironmentValue,
+  GOOGLE_CALENDAR_CLIENT_ID: optionalEnvironmentValue,
+  GOOGLE_CALENDAR_CLIENT_SECRET: optionalEnvironmentValue,
+  MICROSOFT_CALENDAR_CLIENT_ID: optionalEnvironmentValue,
+  MICROSOFT_CALENDAR_CLIENT_SECRET: optionalEnvironmentValue,
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   SAFE_BROWSING_API_KEY: optionalEnvironmentValue,
   TURN_URLS: optionalEnvironmentValue,
@@ -80,6 +86,34 @@ const envSchema = z.object({
     });
   }
 
+  const googleCalendarPair = [
+    values.GOOGLE_CALENDAR_CLIENT_ID,
+    values.GOOGLE_CALENDAR_CLIENT_SECRET,
+  ];
+  const googleCalendarCount = googleCalendarPair.filter(Boolean).length;
+  if (googleCalendarCount !== 0 && googleCalendarCount !== 2) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "Set both GOOGLE_CALENDAR_CLIENT_ID and GOOGLE_CALENDAR_CLIENT_SECRET, or leave both empty",
+      path: ["GOOGLE_CALENDAR_CLIENT_ID"],
+    });
+  }
+
+  const microsoftCalendarPair = [
+    values.MICROSOFT_CALENDAR_CLIENT_ID,
+    values.MICROSOFT_CALENDAR_CLIENT_SECRET,
+  ];
+  const microsoftCalendarCount = microsoftCalendarPair.filter(Boolean).length;
+  if (microsoftCalendarCount !== 0 && microsoftCalendarCount !== 2) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "Set both MICROSOFT_CALENDAR_CLIENT_ID and MICROSOFT_CALENDAR_CLIENT_SECRET, or leave both empty",
+      path: ["MICROSOFT_CALENDAR_CLIENT_ID"],
+    });
+  }
+
   if (
     values.TURN_URLS &&
     values.TURN_URLS.split(",").some((url) => !/^turns?:[^\s,]+$/i.test(url.trim()))
@@ -107,4 +141,16 @@ export const b2Configured = Boolean(
   env.B2_BUCKET &&
   env.B2_KEY_ID &&
   env.B2_APPLICATION_KEY,
+);
+
+export const googleCalendarOAuthConfigured = Boolean(
+  env.GOOGLE_CALENDAR_CLIENT_ID &&
+  env.GOOGLE_CALENDAR_CLIENT_SECRET &&
+  env.API_PUBLIC_ORIGIN,
+);
+
+export const microsoftCalendarOAuthConfigured = Boolean(
+  env.MICROSOFT_CALENDAR_CLIENT_ID &&
+  env.MICROSOFT_CALENDAR_CLIENT_SECRET &&
+  env.API_PUBLIC_ORIGIN,
 );

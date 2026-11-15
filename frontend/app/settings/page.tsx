@@ -13,6 +13,11 @@ export default function SettingsPage() {
           body="Voice presence, personal memory, fast commands, and robot presentation."
         />
         <ModuleCard
+          href="/settings/integrations"
+          title="Integrations"
+          body="Google/Outlook calendar OAuth (read-only), revocable, owner-isolated."
+        />
+        <ModuleCard
           href="/settings/privacy"
           title="Privacy"
           body="What stays on-device, research disclosures, and memory retention."

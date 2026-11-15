@@ -661,6 +661,77 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  calendarIntegrationStatus: () =>
+    request<{
+      providers: {
+        google: { configured: boolean; scopes: string[] };
+        outlook: { configured: boolean; scopes: string[] };
+      };
+      privacy: {
+        storesChatPlaintext: boolean;
+        aiUsesCalendarBodiesByDefault: boolean;
+        note: string;
+      };
+    }>("/integrations/calendar/status"),
+
+  listCalendarConnections: () =>
+    request<{
+      connections: {
+        id: string;
+        provider:
+          | "GOOGLE_CALENDAR"
+          | "OUTLOOK_CALENDAR"
+          | "GMAIL"
+          | "OUTLOOK_MAIL";
+        accountEmail: string | null;
+        scopes: string[];
+        status: "CONNECTED" | "REVOKED" | "ERROR";
+        lastSyncAt: string | null;
+        lastErrorCode: string | null;
+        createdAt: string;
+        updatedAt: string;
+      }[];
+    }>("/integrations/calendar/connections"),
+
+  beginCalendarOAuth: (provider: "google" | "outlook") =>
+    request<{ url: string; scopes: string[] }>(
+      `/integrations/calendar/${provider}/authorize`,
+    ),
+
+  syncCalendar: (provider: "google" | "outlook") =>
+    request<{
+      synced: number;
+      window: { timeMin: string; timeMax: string };
+    }>(`/integrations/calendar/${provider}/sync`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  disconnectCalendar: (provider: "google" | "outlook") =>
+    request<{ ok: true }>(`/integrations/calendar/${provider}`, {
+      method: "DELETE",
+    }),
+
+  listCalendarEvents: (query?: { from?: string; to?: string }) => {
+    const params = new URLSearchParams();
+    if (query?.from) params.set("from", query.from);
+    if (query?.to) params.set("to", query.to);
+    const suffix = params.size ? `?${params}` : "";
+    return request<{
+      events: {
+        id: string;
+        provider: string;
+        accountEmail: string | null;
+        title: string;
+        startsAt: string;
+        endsAt: string;
+        allDay: boolean;
+        busy: boolean;
+        syncedAt: string;
+      }[];
+    }>(`/integrations/calendar/events${suffix}`);
+  },
 };
 
 export function wsUrl() {

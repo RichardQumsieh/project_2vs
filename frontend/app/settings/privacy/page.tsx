@@ -16,6 +16,12 @@ export default function PrivacySettingsPage() {
           Document downloads (including PPTX) are generated locally. Approvals are required before
           Jarvis opens search, stores a note, fills the composer, or downloads a file.
         </p>
+        <p>
+          Calendar OAuth (Settings → Integrations) stores encrypted refresh tokens and
+          owner-scoped event title/time mirrors only. Connecting a calendar does not
+          authorize Jarvis to use those events for AI; that requires a separate explicit
+          consent later. Chat E2EE is unchanged.
+        </p>
         <p className="text-white/45">
           Future audience analytics and subscription metrics will stay aggregated and
           non-message-bearing; this page is the home for those disclosures as they ship.
