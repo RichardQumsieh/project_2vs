@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { requireUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { denyUnlessOwner } from "../task-authorization.js";
+import { bumpTaskMetric } from "../task-metrics.js";
 import {
   createProjectSchema,
   createReminderSchema,
@@ -115,6 +116,7 @@ export async function taskRoutes(app: FastifyInstance) {
       orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
       take: 200,
     });
+    bumpTaskMetric("tasks_listed_count");
     reply.header("Cache-Control", "no-store");
     return { tasks: tasks.map(serializeTask) };
   });
@@ -138,6 +140,7 @@ export async function taskRoutes(app: FastifyInstance) {
         sessionUserId: session.sub,
       });
       if (!ownership.ok) {
+        bumpTaskMetric("tasks_authz_denied_count");
         return reply.code(ownership.status).send({ error: ownership.error });
       }
     }
@@ -168,6 +171,7 @@ export async function taskRoutes(app: FastifyInstance) {
         status: parsed.data.status,
       },
     });
+    bumpTaskMetric("tasks_created_count");
     return reply.code(201).send({ task: serializeTask(task), deduped: false });
   });
 
@@ -190,6 +194,7 @@ export async function taskRoutes(app: FastifyInstance) {
       sessionUserId: session.sub,
     });
     if (!ownership.ok) {
+      bumpTaskMetric("tasks_authz_denied_count");
       return reply.code(ownership.status).send({ error: ownership.error });
     }
 
@@ -203,6 +208,7 @@ export async function taskRoutes(app: FastifyInstance) {
         sessionUserId: session.sub,
       });
       if (!projectOwnership.ok) {
+        bumpTaskMetric("tasks_authz_denied_count");
         return reply.code(projectOwnership.status).send({
           error: projectOwnership.error,
         });
@@ -226,6 +232,7 @@ export async function taskRoutes(app: FastifyInstance) {
         status: parsed.data.status,
       },
     });
+    bumpTaskMetric("tasks_updated_count");
     return { task: serializeTask(task) };
   });
 

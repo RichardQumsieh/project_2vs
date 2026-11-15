@@ -128,6 +128,15 @@ import {
 import { createRadarRuntime, type RadarRuntime } from "@/lib/ai/radar-runtime";
 import { syncAcceptedTaskDraft } from "@/lib/ai/radar-sync";
 import {
+  buildDailyBriefing,
+  bumpRadarCounter,
+  emptyRadarClientCounters,
+  loadRadarClientCounters,
+  saveRadarClientCounters,
+  type RadarBriefing,
+  type RadarClientCounters,
+} from "@/lib/ai/radar-briefing";
+import {
   generateSuggestedReplies,
   type SuggestionRequest,
 } from "@/lib/ai/suggestions";
@@ -773,6 +782,10 @@ function ThreadConversation({
     Record<string, { title: string; dueAt: string }>
   >({});
   const [radarStoreError, setRadarStoreError] = useState<string | null>(null);
+  const [radarBriefing, setRadarBriefing] = useState<RadarBriefing | null>(null);
+  const [radarCounters, setRadarCounters] = useState<RadarClientCounters>(() =>
+    emptyRadarClientCounters(),
+  );
   const [speakCompanionReplies, setSpeakCompanionReplies] = useState(false);
   const [listeningForCompanion, setListeningForCompanion] = useState(false);
   const [localSpeechInputAvailability, setLocalSpeechInputAvailability] =
@@ -861,6 +874,15 @@ function ThreadConversation({
           });
           return next;
         });
+        setRadarCounters((previous) => {
+          const next = bumpRadarCounter(
+            previous,
+            "findingsProposed",
+            findings.length,
+          );
+          saveRadarClientCounters(userId, next);
+          return next;
+        });
       },
     }),
   );
@@ -900,12 +922,15 @@ function ThreadConversation({
     radarUserIdRef.current = activeUserId;
     setRadarFindingEdits({});
     setRadarStoreError(null);
+    setRadarBriefing(null);
     if (!activeUserId) {
       const empty = emptyRadarStoreState();
       radarStoreRef.current = empty;
       setRadarStore(empty);
+      setRadarCounters(emptyRadarClientCounters());
       return;
     }
+    setRadarCounters(loadRadarClientCounters(activeUserId));
     let cancelled = false;
     void loadRadarStore(activeUserId).then((state) => {
       if (!cancelled) {
@@ -1950,6 +1975,11 @@ function ThreadConversation({
           if (!(await saveRadarStore(activeUserId, next))) {
             throw new Error("Could not save the local Radar task in this browser.");
           }
+          setRadarCounters((previous) => {
+            const bumped = bumpRadarCounter(previous, "findingsAccepted");
+            saveRadarClientCounters(activeUserId, bumped);
+            return bumped;
+          });
           const draft = next.taskDrafts.find(
             (item) => item.findingId === action.findingId,
           );
@@ -1982,6 +2012,11 @@ function ThreadConversation({
           if (!(await saveRadarStore(activeUserId, next))) {
             throw new Error("Could not update Radar findings in this browser.");
           }
+          setRadarCounters((previous) => {
+            const bumped = bumpRadarCounter(previous, "findingsDismissed");
+            saveRadarClientCounters(activeUserId, bumped);
+            return bumped;
+          });
         },
         snoozeReminder: async (action) => {
           if (!activeUserId) {
@@ -2295,13 +2330,33 @@ function ThreadConversation({
     }
   }
 
+  function refreshRadarBriefing() {
+    const briefing = buildDailyBriefing(radarStoreRef.current, {
+      conversationId: conversationRadarAllowed ? conversationId : null,
+      peerUsername: conversation?.peer?.username ?? null,
+    });
+    setRadarBriefing(briefing);
+    if (activeUserId) {
+      setRadarCounters((previous) => {
+        const bumped = bumpRadarCounter(previous, "briefingsGenerated");
+        saveRadarClientCounters(activeUserId, bumped);
+        return bumped;
+      });
+    }
+    return briefing;
+  }
+
   function proposeJarvisIntents(intents: JarvisIntent[]) {
     const runtime = agentRuntimeRef.current;
+    const actionable = intents.filter((intent) => intent.type !== "radar_answer");
+    if (!actionable.length) {
+      return;
+    }
     if (!runtime) {
       throw new Error("Jarvis actions are not ready yet.");
     }
     const recipientUsername = conversation?.peer?.username;
-    for (const intent of intents) {
+    for (const intent of actionable) {
       switch (intent.type) {
         case "create_document":
           runtime.propose({
@@ -2344,6 +2399,8 @@ function ThreadConversation({
             type: "forget_fact",
             query: intent.query,
           });
+          break;
+        case "radar_answer":
           break;
       }
     }
@@ -2598,11 +2655,25 @@ function ThreadConversation({
       const plan = parseJarvisCommand(input, {
         memories: assistantSettings.personalMemory ? personalMemory : [],
         recipientUsername: conversation?.peer?.username ?? null,
+        radarStore: assistantSettings.radarAnalysisEnabled
+          ? radarStoreRef.current
+          : null,
+        conversationId: conversationRadarAllowed ? conversationId : null,
       });
       if (plan.intents.length > 0) {
         try {
           setAgentActionError(null);
           proposeJarvisIntents(plan.intents);
+          if (
+            plan.intents.some((intent) => intent.type === "radar_answer") &&
+            activeUserId
+          ) {
+            setRadarCounters((previous) => {
+              const bumped = bumpRadarCounter(previous, "questionsAnswered");
+              saveRadarClientCounters(activeUserId, bumped);
+              return bumped;
+            });
+          }
           const reply = plan.spokenReply;
           setCompanionTurns((turns) =>
             turns.map((turn) =>
@@ -3696,6 +3767,51 @@ function ThreadConversation({
                 aria-live="polite"
                 className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4"
               >
+                {assistantSettings?.radarAnalysisEnabled ? (
+                  <section className="space-y-3 rounded-2xl border border-emerald-300/15 bg-emerald-300/[0.04] p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-100/70">
+                          Daily briefing · on-device
+                        </p>
+                        <p className="mt-1 text-[11px] text-white/50">
+                          Built from authorized local findings and accepted task drafts. Ask “what’s outstanding?” or “what did I promise X?” in chat.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => refreshRadarBriefing()}
+                      >
+                        Refresh
+                      </Button>
+                    </div>
+                    {radarBriefing ? (
+                      <div className="space-y-1 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-white/75">
+                        <p className="font-medium text-white/85">
+                          {radarBriefing.headline}
+                        </p>
+                        {radarBriefing.lines.map((line, index) => (
+                          <p key={`${index}-${line.slice(0, 24)}`} className="whitespace-pre-wrap">
+                            {line}
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-white/45">
+                        Generate a local briefing anytime. Nothing leaves this device.
+                      </p>
+                    )}
+                    <p className="text-[10px] text-white/40">
+                      Local counters · proposed {radarCounters.findingsProposed} ·
+                      accepted {radarCounters.findingsAccepted} · dismissed{" "}
+                      {radarCounters.findingsDismissed} · briefings{" "}
+                      {radarCounters.briefingsGenerated} · Q&amp;A{" "}
+                      {radarCounters.questionsAnswered}
+                    </p>
+                  </section>
+                ) : null}
                 {assistantSettings?.radarAnalysisEnabled &&
                 conversationRadarAllowed ? (
                   <section className="space-y-3 rounded-2xl border border-cyan-300/15 bg-cyan-300/[0.04] p-3">
@@ -3830,7 +3946,7 @@ function ThreadConversation({
                       What should we take care of?
                     </p>
                     <p>
-                      Say “Jarvis…” for compound tasks like presentations, research, meetings, and personal notes. Or ask about this chat. Actionable requests stage permissioned approvals first.
+                      Say “Jarvis…” for compound tasks, Radar Q&amp;A (“what’s outstanding?”, “what did I promise Dana?”), research, meetings, and personal notes. Actionable requests stage permissioned approvals first.
                     </p>
                   </div>
                 ) : null}

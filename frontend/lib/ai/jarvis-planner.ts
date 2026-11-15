@@ -5,6 +5,8 @@ import {
   type JarvisDocument,
 } from "./jarvis-documents";
 import type { MemoryFact } from "./personal-memory";
+import { answerRadarQuestion } from "./radar-briefing";
+import type { RadarStoreState } from "./radar-store";
 
 export type JarvisIntent =
   | {
@@ -26,6 +28,10 @@ export type JarvisIntent =
   | {
       type: "forget_fact";
       query: string;
+    }
+  | {
+      type: "radar_answer";
+      text: string;
     };
 
 export type JarvisPlan = {
@@ -45,7 +51,7 @@ const weekdays = [
 ] as const;
 
 const commandCue =
-  /\b(prepare|create|draft|write|make|research|look up|search|organize|schedule|set up|remember|forget|remind)\b/i;
+  /\b(prepare|create|draft|write|make|research|look up|search|organize|schedule|set up|remember|forget|remind|outstanding|promise[d]?|briefing|what's left|what is left)\b/i;
 
 export function stripJarvisWakeWord(input: string) {
   return input
@@ -105,6 +111,8 @@ export function parseJarvisCommand(
     memories?: MemoryFact[];
     recipientUsername?: string | null;
     now?: Date;
+    radarStore?: RadarStoreState | null;
+    conversationId?: string | null;
   } = {},
 ): JarvisPlan {
   const raw = input.replace(/\u0000/g, "").trim();
@@ -141,6 +149,21 @@ export function parseJarvisCommand(
     !wantsPresentation &&
     !wantsResearch &&
     !wantsMeeting;
+
+  if (options.radarStore && !explicitMemoryOnly && !wantsPresentation && !wantsResearch && !wantsMeeting) {
+    const radarAnswer = answerRadarQuestion(text, options.radarStore, {
+      now,
+      conversationId: options.conversationId,
+      peerUsername: options.recipientUsername,
+    });
+    if (radarAnswer) {
+      return {
+        addressedToJarvis,
+        intents: [{ type: "radar_answer", text: radarAnswer }],
+        spokenReply: radarAnswer,
+      };
+    }
+  }
 
   if (explicitMemoryOnly && rememberMatch?.[1]) {
     intents.push({ type: "remember_fact", fact: rememberMatch[1].trim() });
@@ -261,8 +284,21 @@ export function parseJarvisCommand(
       addressedToJarvis,
       intents: [],
       spokenReply: addressedToJarvis
-        ? "I'm here. Give me a task such as a presentation, research, a meeting, or a note to remember."
+        ? "I'm here. Ask what's outstanding, what you promised someone, request a briefing, or give me a presentation, research, meeting, or note task."
         : "",
+    };
+  }
+
+  const actionable = unique.filter((intent) => intent.type !== "radar_answer");
+  if (!actionable.length) {
+    const answer = unique.find((intent) => intent.type === "radar_answer");
+    return {
+      addressedToJarvis,
+      intents: unique,
+      spokenReply:
+        answer && answer.type === "radar_answer"
+          ? answer.text
+          : "I checked authorized Radar context on this device.",
     };
   }
 
