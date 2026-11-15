@@ -192,6 +192,11 @@ Future local-neural options were compared, but not added because native speech w
 
 Password recovery email delivery uses the Gmail API. In Google Cloud, enable the Gmail API and create OAuth credentials with the `https://www.googleapis.com/auth/gmail.send` scope. Generate a refresh token for the sending mailbox, then set `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, and `GMAIL_SENDER`. Leave all four unset to disable recovery email sending. For production Compose, also set `FRONTEND_ORIGIN` and `NEXT_PUBLIC_API_URL` to the public HTTPS origins; secure cookies are enabled by default.
 
-### Calendar OAuth (Phase 2)
+### Calendar & email OAuth (Phase 2)
 
-Per-user Google/Outlook calendar connect lives under Settings → Integrations. Set `API_PUBLIC_ORIGIN`, `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET`, and/or `MICROSOFT_CALENDAR_CLIENT_ID` / `MICROSOFT_CALENDAR_CLIENT_SECRET` in the backend environment (see `backend/.env.example` and `docs/phase2-calendar-oauth.md`). Register redirect URIs `{API_PUBLIC_ORIGIN}/integrations/calendar/google/callback` and `.../outlook/callback`. Scopes are read-only calendar access only. Refresh tokens are encrypted at rest; sync mirrors owner-scoped titles/times (not event bodies) and does not authorize Jarvis AI over calendar data. Leave the vars empty to keep Connect disabled (API returns 503). This path never receives chat plaintext.
+Per-user Google/Outlook **calendar** and **mail** connect lives under Settings → Integrations.
+
+- Calendar: `API_PUBLIC_ORIGIN`, `GOOGLE_CALENDAR_CLIENT_*`, `MICROSOFT_CALENDAR_CLIENT_*` — see `docs/phase2-calendar-oauth.md`
+- Mail (separate from recovery-sender `GMAIL_*`): `GOOGLE_MAIL_CLIENT_*`, `MICROSOFT_MAIL_CLIENT_*` — see `docs/phase2-email-oauth.md`
+
+Redirect URIs use `{API_PUBLIC_ORIGIN}/integrations/calendar/.../callback` and `/integrations/email/.../callback`. Scopes are read-only. Refresh tokens are encrypted at rest. Calendar mirrors titles/times; mail mirrors subject/from/snippet (not full bodies). Connecting does not authorize Jarvis AI over that data. Leave vars empty to keep Connect disabled (API 503). These paths never receive chat plaintext.

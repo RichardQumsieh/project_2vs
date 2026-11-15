@@ -25,6 +25,11 @@ const envSchema = z.object({
   GOOGLE_CALENDAR_CLIENT_SECRET: optionalEnvironmentValue,
   MICROSOFT_CALENDAR_CLIENT_ID: optionalEnvironmentValue,
   MICROSOFT_CALENDAR_CLIENT_SECRET: optionalEnvironmentValue,
+  /** Per-user Gmail read OAuth (separate from server GMAIL_* recovery sender). */
+  GOOGLE_MAIL_CLIENT_ID: optionalEnvironmentValue,
+  GOOGLE_MAIL_CLIENT_SECRET: optionalEnvironmentValue,
+  MICROSOFT_MAIL_CLIENT_ID: optionalEnvironmentValue,
+  MICROSOFT_MAIL_CLIENT_SECRET: optionalEnvironmentValue,
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   SAFE_BROWSING_API_KEY: optionalEnvironmentValue,
   TURN_URLS: optionalEnvironmentValue,
@@ -114,6 +119,34 @@ const envSchema = z.object({
     });
   }
 
+  const googleMailPair = [
+    values.GOOGLE_MAIL_CLIENT_ID,
+    values.GOOGLE_MAIL_CLIENT_SECRET,
+  ];
+  const googleMailCount = googleMailPair.filter(Boolean).length;
+  if (googleMailCount !== 0 && googleMailCount !== 2) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "Set both GOOGLE_MAIL_CLIENT_ID and GOOGLE_MAIL_CLIENT_SECRET, or leave both empty",
+      path: ["GOOGLE_MAIL_CLIENT_ID"],
+    });
+  }
+
+  const microsoftMailPair = [
+    values.MICROSOFT_MAIL_CLIENT_ID,
+    values.MICROSOFT_MAIL_CLIENT_SECRET,
+  ];
+  const microsoftMailCount = microsoftMailPair.filter(Boolean).length;
+  if (microsoftMailCount !== 0 && microsoftMailCount !== 2) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "Set both MICROSOFT_MAIL_CLIENT_ID and MICROSOFT_MAIL_CLIENT_SECRET, or leave both empty",
+      path: ["MICROSOFT_MAIL_CLIENT_ID"],
+    });
+  }
+
   if (
     values.TURN_URLS &&
     values.TURN_URLS.split(",").some((url) => !/^turns?:[^\s,]+$/i.test(url.trim()))
@@ -152,5 +185,17 @@ export const googleCalendarOAuthConfigured = Boolean(
 export const microsoftCalendarOAuthConfigured = Boolean(
   env.MICROSOFT_CALENDAR_CLIENT_ID &&
   env.MICROSOFT_CALENDAR_CLIENT_SECRET &&
+  env.API_PUBLIC_ORIGIN,
+);
+
+export const gmailOAuthConfigured = Boolean(
+  env.GOOGLE_MAIL_CLIENT_ID &&
+  env.GOOGLE_MAIL_CLIENT_SECRET &&
+  env.API_PUBLIC_ORIGIN,
+);
+
+export const microsoftMailOAuthConfigured = Boolean(
+  env.MICROSOFT_MAIL_CLIENT_ID &&
+  env.MICROSOFT_MAIL_CLIENT_SECRET &&
   env.API_PUBLIC_ORIGIN,
 );

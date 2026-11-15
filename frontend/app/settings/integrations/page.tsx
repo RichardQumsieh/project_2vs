@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { ProductShell } from "@/components/product-shell";
 import { api, ApiError } from "@/lib/api";
 
-type ProviderId = "google" | "outlook";
+type CalendarProviderId = "google" | "outlook";
+type EmailProviderId = "gmail" | "outlook-mail";
 
 type Connection = {
   id: string;
@@ -18,18 +19,6 @@ type Connection = {
   lastErrorCode: string | null;
 };
 
-type StatusResponse = {
-  providers: {
-    google: { configured: boolean; scopes: string[] };
-    outlook: { configured: boolean; scopes: string[] };
-  };
-  privacy: {
-    storesChatPlaintext: boolean;
-    aiUsesCalendarBodiesByDefault: boolean;
-    note: string;
-  };
-};
-
 type CalendarEvent = {
   id: string;
   provider: string;
@@ -38,43 +27,85 @@ type CalendarEvent = {
   startsAt: string;
   endsAt: string;
   allDay: boolean;
-  busy: boolean;
+};
+
+type MailMessage = {
+  id: string;
+  provider: string;
+  accountEmail: string | null;
+  subject: string;
+  fromAddress: string;
+  receivedAt: string;
+  snippet: string;
 };
 
 function IntegrationsSettingsInner() {
   const searchParams = useSearchParams();
-  const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [connections, setConnections] = useState<Connection[]>([]);
+  const [calendarStatus, setCalendarStatus] = useState<{
+    providers: {
+      google: { configured: boolean; scopes: string[] };
+      outlook: { configured: boolean; scopes: string[] };
+    };
+    privacy: { note: string; storesChatPlaintext: boolean };
+  } | null>(null);
+  const [emailStatus, setEmailStatus] = useState<{
+    providers: {
+      gmail: { configured: boolean; scopes: string[] };
+      "outlook-mail": { configured: boolean; scopes: string[] };
+    };
+    privacy: { note: string; storesFullBodies: boolean };
+  } | null>(null);
+  const [calendarConnections, setCalendarConnections] = useState<Connection[]>(
+    [],
+  );
+  const [emailConnections, setEmailConnections] = useState<Connection[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [busyProvider, setBusyProvider] = useState<ProviderId | null>(null);
+  const [messages, setMessages] = useState<MailMessage[]>([]);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [nextStatus, nextConnections, nextEvents] = await Promise.all([
+    const [
+      nextCalendarStatus,
+      nextEmailStatus,
+      nextCalendarConnections,
+      nextEmailConnections,
+      nextEvents,
+      nextMessages,
+    ] = await Promise.all([
       api.calendarIntegrationStatus(),
+      api.emailIntegrationStatus(),
       api.listCalendarConnections(),
+      api.listEmailConnections(),
       api.listCalendarEvents(),
+      api.listEmailMessages(),
     ]);
-    setStatus(nextStatus);
-    setConnections(nextConnections.connections);
+    setCalendarStatus(nextCalendarStatus);
+    setEmailStatus(nextEmailStatus);
+    setCalendarConnections(nextCalendarConnections.connections);
+    setEmailConnections(nextEmailConnections.connections);
     setEvents(nextEvents.events);
+    setMessages(nextMessages.messages);
   }, []);
 
   useEffect(() => {
     const calendar = searchParams.get("calendar");
+    const email = searchParams.get("email");
     const provider = searchParams.get("provider");
     const reason = searchParams.get("reason");
     if (calendar === "connected") {
       setNotice(
-        `Connected ${provider === "outlook" ? "Outlook" : "Google"} Calendar. Sync when you are ready.`,
+        `Connected ${provider === "outlook" ? "Outlook" : "Google"} Calendar.`,
       );
     } else if (calendar === "error") {
-      setError(
-        reason
-          ? `Calendar connect failed (${reason}).`
-          : "Calendar connect failed.",
+      setError(reason ? `Calendar connect failed (${reason}).` : "Calendar connect failed.");
+    } else if (email === "connected") {
+      setNotice(
+        `Connected ${provider === "outlook-mail" ? "Outlook Mail" : "Gmail"}.`,
       );
+    } else if (email === "error") {
+      setError(reason ? `Email connect failed (${reason}).` : "Email connect failed.");
     }
   }, [searchParams]);
 
@@ -83,68 +114,19 @@ function IntegrationsSettingsInner() {
       setError(
         loadError instanceof ApiError
           ? loadError.message
-          : "Could not load calendar integrations.",
+          : "Could not load integrations.",
       );
     });
   }, [refresh]);
 
-  async function connect(provider: ProviderId) {
-    setBusyProvider(provider);
-    setError(null);
-    try {
-      const result = await api.beginCalendarOAuth(provider);
-      window.location.assign(result.url);
-    } catch (connectError) {
-      setError(
-        connectError instanceof ApiError
-          ? connectError.message
-          : "Could not start calendar OAuth.",
-      );
-      setBusyProvider(null);
-    }
+  function calendarConnection(provider: CalendarProviderId) {
+    const key = provider === "google" ? "GOOGLE_CALENDAR" : "OUTLOOK_CALENDAR";
+    return calendarConnections.find((item) => item.provider === key);
   }
 
-  async function sync(provider: ProviderId) {
-    setBusyProvider(provider);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api.syncCalendar(provider);
-      setNotice(`Synced ${result.synced} events from ${provider}.`);
-      await refresh();
-    } catch (syncError) {
-      setError(
-        syncError instanceof ApiError
-          ? syncError.message
-          : "Calendar sync failed.",
-      );
-    } finally {
-      setBusyProvider(null);
-    }
-  }
-
-  async function disconnect(provider: ProviderId) {
-    setBusyProvider(provider);
-    setError(null);
-    try {
-      await api.disconnectCalendar(provider);
-      setNotice(`Disconnected ${provider} calendar and cleared mirrored events.`);
-      await refresh();
-    } catch (disconnectError) {
-      setError(
-        disconnectError instanceof ApiError
-          ? disconnectError.message
-          : "Could not disconnect calendar.",
-      );
-    } finally {
-      setBusyProvider(null);
-    }
-  }
-
-  function connectionFor(provider: ProviderId) {
-    const prismaProvider =
-      provider === "google" ? "GOOGLE_CALENDAR" : "OUTLOOK_CALENDAR";
-    return connections.find((item) => item.provider === prismaProvider);
+  function emailConnection(provider: EmailProviderId) {
+    const key = provider === "gmail" ? "GMAIL" : "OUTLOOK_MAIL";
+    return emailConnections.find((item) => item.provider === key);
   }
 
   return (
@@ -152,14 +134,12 @@ function IntegrationsSettingsInner() {
       <section className="space-y-2 rounded-3xl border border-white/10 bg-white/[0.035] p-5 text-sm text-white/65 sm:p-6">
         <p className="font-medium text-white/85">Privacy bar</p>
         <p>
-          {status?.privacy.note ??
-            "Calendar mirrors are owner-scoped. Jarvis will not read event bodies for AI without a separate explicit consent later."}
+          {calendarStatus?.privacy.note ??
+            "Calendar and mail mirrors are owner-scoped. Chat E2EE is untouched. AI does not get these bodies by default."}
         </p>
         <p className="text-xs text-white/45">
-          Stores chat plaintext:{" "}
-          {status?.privacy.storesChatPlaintext ? "yes" : "no"} · AI uses calendar
-          bodies by default:{" "}
-          {status?.privacy.aiUsesCalendarBodiesByDefault ? "yes" : "no"}
+          {emailStatus?.privacy.note ??
+            "Mail sync stores subject/from/snippet only — not full bodies."}
         </p>
       </section>
 
@@ -177,105 +157,194 @@ function IntegrationsSettingsInner() {
         </p>
       ) : null}
 
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-white/50">
+        Calendars
+      </h2>
       {(["google", "outlook"] as const).map((provider) => {
-        const configured = status?.providers[provider]?.configured ?? false;
-        const connection = connectionFor(provider);
+        const configured =
+          calendarStatus?.providers[provider]?.configured ?? false;
+        const connection = calendarConnection(provider);
         const label =
           provider === "google" ? "Google Calendar" : "Outlook Calendar";
+        const key = `cal:${provider}`;
         return (
-          <section
-            key={provider}
-            className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-white">{label}</h2>
-                <p className="mt-1 text-xs text-white/45">
-                  Scopes:{" "}
-                  {(status?.providers[provider]?.scopes ?? []).join(", ") || "—"}
-                </p>
-                <p className="mt-2 text-sm text-white/60">
-                  {configured
-                    ? connection?.status === "CONNECTED"
-                      ? `Connected${connection.accountEmail ? ` as ${connection.accountEmail}` : ""}.`
-                      : "OAuth client configured. Connect to authorize read-only calendar access."
-                    : "OAuth client env vars are not configured on the API yet."}
-                </p>
-                {connection?.lastSyncAt ? (
-                  <p className="mt-1 text-xs text-white/40">
-                    Last sync {new Date(connection.lastSyncAt).toLocaleString()}
-                    {connection.lastErrorCode
-                      ? ` · last error ${connection.lastErrorCode}`
-                      : ""}
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={!configured || busyProvider === provider}
-                  onClick={() => void connect(provider)}
-                >
-                  {connection?.status === "CONNECTED"
-                    ? "Re-authorize"
-                    : "Connect"}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={
-                    !configured ||
-                    connection?.status !== "CONNECTED" ||
-                    busyProvider === provider
-                  }
-                  onClick={() => void sync(provider)}
-                >
-                  Sync now
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={
-                    !connection ||
-                    connection.status === "REVOKED" ||
-                    busyProvider === provider
-                  }
-                  onClick={() => void disconnect(provider)}
-                >
-                  Disconnect
-                </Button>
-              </div>
-            </div>
-          </section>
+          <ProviderCard
+            key={key}
+            label={label}
+            scopes={calendarStatus?.providers[provider]?.scopes ?? []}
+            configured={configured}
+            connection={connection}
+            busy={busyKey === key}
+            onConnect={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .beginCalendarOAuth(provider)
+                .then((result) => window.location.assign(result.url))
+                .catch((connectError: unknown) => {
+                  setError(
+                    connectError instanceof ApiError
+                      ? connectError.message
+                      : "Could not start calendar OAuth.",
+                  );
+                  setBusyKey(null);
+                });
+            }}
+            onSync={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .syncCalendar(provider)
+                .then(async (result) => {
+                  setNotice(`Synced ${result.synced} calendar events.`);
+                  await refresh();
+                })
+                .catch((syncError: unknown) => {
+                  setError(
+                    syncError instanceof ApiError
+                      ? syncError.message
+                      : "Calendar sync failed.",
+                  );
+                })
+                .finally(() => setBusyKey(null));
+            }}
+            onDisconnect={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .disconnectCalendar(provider)
+                .then(async () => {
+                  setNotice(`Disconnected ${label}.`);
+                  await refresh();
+                })
+                .catch((disconnectError: unknown) => {
+                  setError(
+                    disconnectError instanceof ApiError
+                      ? disconnectError.message
+                      : "Could not disconnect calendar.",
+                  );
+                })
+                .finally(() => setBusyKey(null));
+            }}
+          />
+        );
+      })}
+
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-white/50">
+        Email
+      </h2>
+      {(["gmail", "outlook-mail"] as const).map((provider) => {
+        const configured =
+          emailStatus?.providers[provider]?.configured ?? false;
+        const connection = emailConnection(provider);
+        const label = provider === "gmail" ? "Gmail" : "Outlook Mail";
+        const key = `mail:${provider}`;
+        return (
+          <ProviderCard
+            key={key}
+            label={label}
+            scopes={emailStatus?.providers[provider]?.scopes ?? []}
+            configured={configured}
+            connection={connection}
+            busy={busyKey === key}
+            onConnect={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .beginEmailOAuth(provider)
+                .then((result) => window.location.assign(result.url))
+                .catch((connectError: unknown) => {
+                  setError(
+                    connectError instanceof ApiError
+                      ? connectError.message
+                      : "Could not start email OAuth.",
+                  );
+                  setBusyKey(null);
+                });
+            }}
+            onSync={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .syncEmail(provider)
+                .then(async (result) => {
+                  setNotice(`Synced ${result.synced} mail metadata rows.`);
+                  await refresh();
+                })
+                .catch((syncError: unknown) => {
+                  setError(
+                    syncError instanceof ApiError
+                      ? syncError.message
+                      : "Email sync failed.",
+                  );
+                })
+                .finally(() => setBusyKey(null));
+            }}
+            onDisconnect={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .disconnectEmail(provider)
+                .then(async () => {
+                  setNotice(`Disconnected ${label}.`);
+                  await refresh();
+                })
+                .catch((disconnectError: unknown) => {
+                  setError(
+                    disconnectError instanceof ApiError
+                      ? disconnectError.message
+                      : "Could not disconnect email.",
+                  );
+                })
+                .finally(() => setBusyKey(null));
+            }}
+          />
         );
       })}
 
       <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-        <h2 className="text-base font-semibold text-white">Mirrored events</h2>
-        <p className="text-xs text-white/45">
-          Owner-only window (−7 / +30 days). Titles and times only — not email or chat
-          plaintext.
-        </p>
+        <h2 className="text-base font-semibold text-white">Mirrored calendar</h2>
         {events.length === 0 ? (
           <p className="text-sm text-white/50">No mirrored events yet.</p>
         ) : (
           <ul className="space-y-2 text-sm text-white/70">
-            {events.slice(0, 40).map((event) => (
+            {events.slice(0, 20).map((event) => (
               <li
                 key={event.id}
                 className="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
               >
                 <p className="font-medium text-white/85">{event.title}</p>
                 <p className="text-xs text-white/45">
-                  {event.provider.replace("_", " ")}
-                  {event.accountEmail ? ` · ${event.accountEmail}` : ""} ·{" "}
-                  {event.allDay
-                    ? new Date(event.startsAt).toLocaleDateString()
-                    : `${new Date(event.startsAt).toLocaleString()} – ${new Date(event.endsAt).toLocaleString()}`}
+                  {new Date(event.startsAt).toLocaleString()}
                 </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
+        <h2 className="text-base font-semibold text-white">Mirrored mail</h2>
+        <p className="text-xs text-white/45">
+          Subject / from / snippet only — not full bodies or chat plaintext.
+        </p>
+        {messages.length === 0 ? (
+          <p className="text-sm text-white/50">No mirrored messages yet.</p>
+        ) : (
+          <ul className="space-y-2 text-sm text-white/70">
+            {messages.slice(0, 20).map((message) => (
+              <li
+                key={message.id}
+                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
+              >
+                <p className="font-medium text-white/85">{message.subject}</p>
+                <p className="text-xs text-white/45">
+                  {message.fromAddress} ·{" "}
+                  {new Date(message.receivedAt).toLocaleString()}
+                </p>
+                {message.snippet ? (
+                  <p className="mt-1 text-xs text-white/55">{message.snippet}</p>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -285,16 +354,74 @@ function IntegrationsSettingsInner() {
   );
 }
 
+function ProviderCard(props: {
+  label: string;
+  scopes: string[];
+  configured: boolean;
+  connection?: Connection;
+  busy: boolean;
+  onConnect: () => void;
+  onSync: () => void;
+  onDisconnect: () => void;
+}) {
+  const { label, scopes, configured, connection, busy } = props;
+  return (
+    <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-white">{label}</h3>
+          <p className="mt-1 text-xs text-white/45">
+            Scopes: {scopes.join(", ") || "—"}
+          </p>
+          <p className="mt-2 text-sm text-white/60">
+            {configured
+              ? connection?.status === "CONNECTED"
+                ? `Connected${connection.accountEmail ? ` as ${connection.accountEmail}` : ""}.`
+                : "OAuth client configured. Connect when ready."
+              : "OAuth client env vars are not configured on the API yet."}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            disabled={!configured || busy}
+            onClick={props.onConnect}
+          >
+            {connection?.status === "CONNECTED" ? "Re-authorize" : "Connect"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!configured || connection?.status !== "CONNECTED" || busy}
+            onClick={props.onSync}
+          >
+            Sync now
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={!connection || connection.status === "REVOKED" || busy}
+            onClick={props.onDisconnect}
+          >
+            Disconnect
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function IntegrationsSettingsPage() {
   return (
     <ProductShell
       title="Integrations"
-      subtitle="Connect calendars with minimum OAuth scopes. Revocable anytime. Chat E2EE stays untouched."
+      subtitle="Calendars and email with minimum OAuth scopes. Revocable anytime. Chat E2EE stays untouched."
     >
       <Suspense
-        fallback={
-          <p className="text-sm text-white/50">Loading integrations…</p>
-        }
+        fallback={<p className="text-sm text-white/50">Loading integrations…</p>}
       >
         <IntegrationsSettingsInner />
       </Suspense>

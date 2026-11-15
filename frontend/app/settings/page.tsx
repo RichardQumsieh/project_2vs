@@ -15,7 +15,7 @@ export default function SettingsPage() {
         <ModuleCard
           href="/settings/integrations"
           title="Integrations"
-          body="Google/Outlook calendar OAuth (read-only), revocable, owner-isolated."
+          body="Google/Outlook calendar and mail OAuth (read-only), revocable, owner-isolated."
         />
         <ModuleCard
           href="/settings/privacy"
