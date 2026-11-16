@@ -59,7 +59,13 @@ function frontendIntegrationsUrl(query: Record<string, string>) {
 
 function serializeConnection(connection: {
   id: string;
-  provider: "GOOGLE_CALENDAR" | "OUTLOOK_CALENDAR" | "GMAIL" | "OUTLOOK_MAIL";
+  provider:
+    | "GOOGLE_CALENDAR"
+    | "OUTLOOK_CALENDAR"
+    | "GMAIL"
+    | "OUTLOOK_MAIL"
+    | "GITHUB"
+    | "LINEAR";
   accountEmail: string | null;
   scopes: string[];
   status: "CONNECTED" | "REVOKED" | "ERROR";

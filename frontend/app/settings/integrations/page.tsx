@@ -8,10 +8,17 @@ import { api, ApiError } from "@/lib/api";
 
 type CalendarProviderId = "google" | "outlook";
 type EmailProviderId = "gmail" | "outlook-mail";
+type WorkProviderId = "github" | "linear";
 
 type Connection = {
   id: string;
-  provider: "GOOGLE_CALENDAR" | "OUTLOOK_CALENDAR" | "GMAIL" | "OUTLOOK_MAIL";
+  provider:
+    | "GOOGLE_CALENDAR"
+    | "OUTLOOK_CALENDAR"
+    | "GMAIL"
+    | "OUTLOOK_MAIL"
+    | "GITHUB"
+    | "LINEAR";
   accountEmail: string | null;
   scopes: string[];
   status: "CONNECTED" | "REVOKED" | "ERROR";
@@ -39,6 +46,18 @@ type MailMessage = {
   snippet: string;
 };
 
+type WorkItem = {
+  id: string;
+  provider: string;
+  accountEmail: string | null;
+  kind: "ISSUE" | "PULL_REQUEST";
+  number: number | null;
+  title: string;
+  state: string;
+  url: string;
+  containerKey: string;
+};
+
 function IntegrationsSettingsInner() {
   const searchParams = useSearchParams();
   const [calendarStatus, setCalendarStatus] = useState<{
@@ -55,12 +74,21 @@ function IntegrationsSettingsInner() {
     };
     privacy: { note: string; storesFullBodies: boolean };
   } | null>(null);
+  const [workStatus, setWorkStatus] = useState<{
+    providers: {
+      github: { configured: boolean; scopes: string[] };
+      linear: { configured: boolean; scopes: string[] };
+    };
+    privacy: { note: string; storesIssueBodies: boolean };
+  } | null>(null);
   const [calendarConnections, setCalendarConnections] = useState<Connection[]>(
     [],
   );
   const [emailConnections, setEmailConnections] = useState<Connection[]>([]);
+  const [workConnections, setWorkConnections] = useState<Connection[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [messages, setMessages] = useState<MailMessage[]>([]);
+  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -69,29 +97,39 @@ function IntegrationsSettingsInner() {
     const [
       nextCalendarStatus,
       nextEmailStatus,
+      nextWorkStatus,
       nextCalendarConnections,
       nextEmailConnections,
+      nextWorkConnections,
       nextEvents,
       nextMessages,
+      nextWorkItems,
     ] = await Promise.all([
       api.calendarIntegrationStatus(),
       api.emailIntegrationStatus(),
+      api.workIntegrationStatus(),
       api.listCalendarConnections(),
       api.listEmailConnections(),
+      api.listWorkConnections(),
       api.listCalendarEvents(),
       api.listEmailMessages(),
+      api.listWorkItems(),
     ]);
     setCalendarStatus(nextCalendarStatus);
     setEmailStatus(nextEmailStatus);
+    setWorkStatus(nextWorkStatus);
     setCalendarConnections(nextCalendarConnections.connections);
     setEmailConnections(nextEmailConnections.connections);
+    setWorkConnections(nextWorkConnections.connections);
     setEvents(nextEvents.events);
     setMessages(nextMessages.messages);
+    setWorkItems(nextWorkItems.items);
   }, []);
 
   useEffect(() => {
     const calendar = searchParams.get("calendar");
     const email = searchParams.get("email");
+    const work = searchParams.get("work");
     const provider = searchParams.get("provider");
     const reason = searchParams.get("reason");
     if (calendar === "connected") {
@@ -106,6 +144,10 @@ function IntegrationsSettingsInner() {
       );
     } else if (email === "error") {
       setError(reason ? `Email connect failed (${reason}).` : "Email connect failed.");
+    } else if (work === "connected") {
+      setNotice(`Connected ${provider === "linear" ? "Linear" : "GitHub"}.`);
+    } else if (work === "error") {
+      setError(reason ? `Work connect failed (${reason}).` : "Work connect failed.");
     }
   }, [searchParams]);
 
@@ -129,6 +171,11 @@ function IntegrationsSettingsInner() {
     return emailConnections.find((item) => item.provider === key);
   }
 
+  function workConnection(provider: WorkProviderId) {
+    const key = provider === "github" ? "GITHUB" : "LINEAR";
+    return workConnections.find((item) => item.provider === key);
+  }
+
   return (
     <div className="space-y-5">
       <section className="space-y-2 rounded-3xl border border-white/10 bg-white/[0.035] p-5 text-sm text-white/65 sm:p-6">
@@ -140,6 +187,10 @@ function IntegrationsSettingsInner() {
         <p className="text-xs text-white/45">
           {emailStatus?.privacy.note ??
             "Mail sync stores subject/from/snippet only — not full bodies."}
+        </p>
+        <p className="text-xs text-white/45">
+          {workStatus?.privacy.note ??
+            "Work sync stores title/state/url only — not issue bodies or chat plaintext."}
         </p>
       </section>
 
@@ -302,6 +353,78 @@ function IntegrationsSettingsInner() {
         );
       })}
 
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-white/50">
+        Work trackers
+      </h2>
+      {(["github", "linear"] as const).map((provider) => {
+        const configured =
+          workStatus?.providers[provider]?.configured ?? false;
+        const connection = workConnection(provider);
+        const label = provider === "github" ? "GitHub" : "Linear";
+        const key = `work:${provider}`;
+        return (
+          <ProviderCard
+            key={key}
+            label={label}
+            scopes={workStatus?.providers[provider]?.scopes ?? []}
+            configured={configured}
+            connection={connection}
+            busy={busyKey === key}
+            onConnect={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .beginWorkOAuth(provider)
+                .then((result) => window.location.assign(result.url))
+                .catch((connectError: unknown) => {
+                  setError(
+                    connectError instanceof ApiError
+                      ? connectError.message
+                      : "Could not start work OAuth.",
+                  );
+                  setBusyKey(null);
+                });
+            }}
+            onSync={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .syncWork(provider)
+                .then(async (result) => {
+                  setNotice(`Synced ${result.synced} work items.`);
+                  await refresh();
+                })
+                .catch((syncError: unknown) => {
+                  setError(
+                    syncError instanceof ApiError
+                      ? syncError.message
+                      : "Work sync failed.",
+                  );
+                })
+                .finally(() => setBusyKey(null));
+            }}
+            onDisconnect={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .disconnectWork(provider)
+                .then(async () => {
+                  setNotice(`Disconnected ${label}.`);
+                  await refresh();
+                })
+                .catch((disconnectError: unknown) => {
+                  setError(
+                    disconnectError instanceof ApiError
+                      ? disconnectError.message
+                      : "Could not disconnect work provider.",
+                  );
+                })
+                .finally(() => setBusyKey(null));
+            }}
+          />
+        );
+      })}
+
       <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
         <h2 className="text-base font-semibold text-white">Mirrored calendar</h2>
         {events.length === 0 ? (
@@ -345,6 +468,35 @@ function IntegrationsSettingsInner() {
                 {message.snippet ? (
                   <p className="mt-1 text-xs text-white/55">{message.snippet}</p>
                 ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
+        <h2 className="text-base font-semibold text-white">Mirrored work items</h2>
+        <p className="text-xs text-white/45">
+          Title / state / url only — not issue bodies, comments, or chat plaintext.
+        </p>
+        {workItems.length === 0 ? (
+          <p className="text-sm text-white/50">No mirrored work items yet.</p>
+        ) : (
+          <ul className="space-y-2 text-sm text-white/70">
+            {workItems.slice(0, 20).map((item) => (
+              <li
+                key={item.id}
+                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
+              >
+                <p className="font-medium text-white/85">
+                  {item.containerKey
+                    ? `${item.containerKey}${item.number != null ? `#${item.number}` : ""} · `
+                    : ""}
+                  {item.title}
+                </p>
+                <p className="text-xs text-white/45">
+                  {item.provider} · {item.kind.toLowerCase()} · {item.state}
+                </p>
               </li>
             ))}
           </ul>
@@ -418,7 +570,7 @@ export default function IntegrationsSettingsPage() {
   return (
     <ProductShell
       title="Integrations"
-      subtitle="Calendars and email with minimum OAuth scopes. Revocable anytime. Chat E2EE stays untouched."
+      subtitle="Calendars, email, and work trackers with minimum OAuth scopes. Revocable anytime. Chat E2EE stays untouched."
     >
       <Suspense
         fallback={<p className="text-sm text-white/50">Loading integrations…</p>}

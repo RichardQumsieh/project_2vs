@@ -1,10 +1,14 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { CalendarProviderId } from "./calendar-providers.js";
 import type { EmailProviderId } from "./email-providers.js";
+import type { WorkProviderId } from "./work-providers.js";
 
 const stateTtlMs = 10 * 60 * 1000;
 
-export type OAuthIntegrationProvider = CalendarProviderId | EmailProviderId;
+export type OAuthIntegrationProvider =
+  | CalendarProviderId
+  | EmailProviderId
+  | WorkProviderId;
 
 export type OAuthStatePayload = {
   userId: string;
@@ -18,7 +22,9 @@ function isKnownProvider(value: unknown): value is OAuthIntegrationProvider {
     value === "google" ||
     value === "outlook" ||
     value === "gmail" ||
-    value === "outlook-mail"
+    value === "outlook-mail" ||
+    value === "github" ||
+    value === "linear"
   );
 }
 
