@@ -63,7 +63,8 @@ function serializeConnection(connection: {
     | "GMAIL"
     | "OUTLOOK_MAIL"
     | "GITHUB"
-    | "LINEAR";
+    | "LINEAR"
+    | "SLACK";
   accountEmail: string | null;
   scopes: string[];
   status: "CONNECTED" | "REVOKED" | "ERROR";
