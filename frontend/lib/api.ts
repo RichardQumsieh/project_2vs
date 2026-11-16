@@ -685,7 +685,8 @@ export const api = {
           | "GMAIL"
           | "OUTLOOK_MAIL"
           | "GITHUB"
-          | "LINEAR";
+          | "LINEAR"
+          | "SLACK";
         accountEmail: string | null;
         scopes: string[];
         status: "CONNECTED" | "REVOKED" | "ERROR";
@@ -759,7 +760,8 @@ export const api = {
           | "GMAIL"
           | "OUTLOOK_MAIL"
           | "GITHUB"
-          | "LINEAR";
+          | "LINEAR"
+          | "SLACK";
         accountEmail: string | null;
         scopes: string[];
         status: "CONNECTED" | "REVOKED" | "ERROR";
@@ -857,6 +859,61 @@ export const api = {
         syncedAt: string;
       }[];
     }>("/integrations/work/items"),
+
+  collabIntegrationStatus: () =>
+    request<{
+      providers: {
+        slack: { configured: boolean; scopes: string[] };
+      };
+      privacy: {
+        storesChatPlaintext: boolean;
+        storesMessageHistory: boolean;
+        aiUsesCollabBodiesByDefault: boolean;
+        note: string;
+      };
+    }>("/integrations/collab/status"),
+
+  listCollabConnections: () =>
+    request<{
+      connections: {
+        id: string;
+        provider: "SLACK";
+        accountEmail: string | null;
+        scopes: string[];
+        status: "CONNECTED" | "REVOKED" | "ERROR";
+        lastSyncAt: string | null;
+        lastErrorCode: string | null;
+      }[];
+    }>("/integrations/collab/connections"),
+
+  beginCollabOAuth: (provider: "slack") =>
+    request<{ url: string; scopes: string[] }>(
+      `/integrations/collab/${provider}/authorize`,
+    ),
+
+  syncCollab: (provider: "slack") =>
+    request<{ synced: number }>(`/integrations/collab/${provider}/sync`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  disconnectCollab: (provider: "slack") =>
+    request<{ ok: true }>(`/integrations/collab/${provider}`, {
+      method: "DELETE",
+    }),
+
+  listCollabChannels: () =>
+    request<{
+      channels: {
+        id: string;
+        provider: string;
+        accountEmail: string | null;
+        name: string;
+        isPrivate: boolean;
+        isArchived: boolean;
+        syncedAt: string;
+      }[];
+    }>("/integrations/collab/channels"),
 };
 
 export function wsUrl() {

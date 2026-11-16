@@ -208,3 +208,9 @@ Per-user **GitHub** / **Linear** work-item connect is on the same Integrations p
 - `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET`, `LINEAR_OAUTH_CLIENT_ID` / `LINEAR_OAUTH_CLIENT_SECRET`, plus shared `API_PUBLIC_ORIGIN` — see `docs/phase3-github-linear-oauth.md`
 
 Redirect URIs: `{API_PUBLIC_ORIGIN}/integrations/work/github|linear/callback`. Mirrors store title/state/url/number only (no issue bodies). Tokens encrypted at rest; connect ≠ AI consent; chat E2EE untouched.
+
+### Slack collab OAuth (Phase 3)
+
+- `SLACK_OAUTH_CLIENT_ID` / `SLACK_OAUTH_CLIENT_SECRET` + `API_PUBLIC_ORIGIN` — see `docs/phase3-slack-oauth.md`
+- Redirect: `{API_PUBLIC_ORIGIN}/integrations/collab/slack/callback`
+- User scopes: `channels:read`, `groups:read`, `users:read` (no message history). Channel name/id mirrors only.

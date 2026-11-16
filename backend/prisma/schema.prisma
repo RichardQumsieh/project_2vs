@@ -41,6 +41,7 @@ enum IntegrationProvider {
   OUTLOOK_MAIL
   GITHUB
   LINEAR
+  SLACK
 }
 
 enum WorkItemKind {
@@ -89,6 +90,7 @@ model User {
   calendarEvents       CalendarEventMirror[]
   mailMessages         MailMessageMirror[]
   workItems            WorkItemMirror[]
+  collabChannels       CollabChannelMirror[]
 
   @@index([interests], type: Gin)
 }
@@ -401,6 +403,7 @@ model IntegrationConnection {
   calendarEvents CalendarEventMirror[]
   mailMessages   MailMessageMirror[]
   workItems      WorkItemMirror[]
+  collabChannels CollabChannelMirror[]
 
   @@unique([ownerUserId, provider])
   @@index([ownerUserId, status])
@@ -479,4 +482,25 @@ model WorkItemMirror {
   @@unique([connectionId, externalItemId])
   @@index([ownerUserId, syncedAt])
   @@index([ownerUserId, updatedAtExternal])
+}
+
+/// Owner-scoped Slack channel mirror. Names/ids only — never message plaintext
+/// or chat E2EE content. Not for AI without a separate consent.
+model CollabChannelMirror {
+  id                 String   @id @default(uuid())
+  ownerUserId        String
+  connectionId       String
+  externalChannelId  String
+  name               String
+  isPrivate          Boolean  @default(false)
+  isArchived         Boolean  @default(false)
+  syncedAt           DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  owner      User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  connection IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, externalChannelId])
+  @@index([ownerUserId, syncedAt])
 }

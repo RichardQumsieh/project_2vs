@@ -19,6 +19,7 @@ import { aiConsentRoutes } from "./routes/ai-consents.js";
 import { integrationCalendarRoutes } from "./routes/integrations-calendar.js";
 import { integrationEmailRoutes } from "./routes/integrations-email.js";
 import { integrationWorkRoutes } from "./routes/integrations-work.js";
+import { integrationCollabRoutes } from "./routes/integrations-collab.js";
 import { registerRealtime } from "./ws.js";
 
 const app = Fastify({ logger: true });
@@ -69,6 +70,7 @@ await app.register(aiConsentRoutes);
 await app.register(integrationCalendarRoutes);
 await app.register(integrationEmailRoutes);
 await app.register(integrationWorkRoutes);
+await app.register(integrationCollabRoutes);
 await registerCallIceServerRoute(app);
 await registerRealtime(app);
 

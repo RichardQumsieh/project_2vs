@@ -9,6 +9,7 @@ import { api, ApiError } from "@/lib/api";
 type CalendarProviderId = "google" | "outlook";
 type EmailProviderId = "gmail" | "outlook-mail";
 type WorkProviderId = "github" | "linear";
+type CollabProviderId = "slack";
 
 type Connection = {
   id: string;
@@ -18,7 +19,8 @@ type Connection = {
     | "GMAIL"
     | "OUTLOOK_MAIL"
     | "GITHUB"
-    | "LINEAR";
+    | "LINEAR"
+    | "SLACK";
   accountEmail: string | null;
   scopes: string[];
   status: "CONNECTED" | "REVOKED" | "ERROR";
@@ -58,6 +60,15 @@ type WorkItem = {
   containerKey: string;
 };
 
+type CollabChannel = {
+  id: string;
+  provider: string;
+  accountEmail: string | null;
+  name: string;
+  isPrivate: boolean;
+  isArchived: boolean;
+};
+
 function IntegrationsSettingsInner() {
   const searchParams = useSearchParams();
   const [calendarStatus, setCalendarStatus] = useState<{
@@ -81,14 +92,22 @@ function IntegrationsSettingsInner() {
     };
     privacy: { note: string; storesIssueBodies: boolean };
   } | null>(null);
+  const [collabStatus, setCollabStatus] = useState<{
+    providers: {
+      slack: { configured: boolean; scopes: string[] };
+    };
+    privacy: { note: string; storesMessageHistory: boolean };
+  } | null>(null);
   const [calendarConnections, setCalendarConnections] = useState<Connection[]>(
     [],
   );
   const [emailConnections, setEmailConnections] = useState<Connection[]>([]);
   const [workConnections, setWorkConnections] = useState<Connection[]>([]);
+  const [collabConnections, setCollabConnections] = useState<Connection[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [messages, setMessages] = useState<MailMessage[]>([]);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [collabChannels, setCollabChannels] = useState<CollabChannel[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -98,38 +117,48 @@ function IntegrationsSettingsInner() {
       nextCalendarStatus,
       nextEmailStatus,
       nextWorkStatus,
+      nextCollabStatus,
       nextCalendarConnections,
       nextEmailConnections,
       nextWorkConnections,
+      nextCollabConnections,
       nextEvents,
       nextMessages,
       nextWorkItems,
+      nextCollabChannels,
     ] = await Promise.all([
       api.calendarIntegrationStatus(),
       api.emailIntegrationStatus(),
       api.workIntegrationStatus(),
+      api.collabIntegrationStatus(),
       api.listCalendarConnections(),
       api.listEmailConnections(),
       api.listWorkConnections(),
+      api.listCollabConnections(),
       api.listCalendarEvents(),
       api.listEmailMessages(),
       api.listWorkItems(),
+      api.listCollabChannels(),
     ]);
     setCalendarStatus(nextCalendarStatus);
     setEmailStatus(nextEmailStatus);
     setWorkStatus(nextWorkStatus);
+    setCollabStatus(nextCollabStatus);
     setCalendarConnections(nextCalendarConnections.connections);
     setEmailConnections(nextEmailConnections.connections);
     setWorkConnections(nextWorkConnections.connections);
+    setCollabConnections(nextCollabConnections.connections);
     setEvents(nextEvents.events);
     setMessages(nextMessages.messages);
     setWorkItems(nextWorkItems.items);
+    setCollabChannels(nextCollabChannels.channels);
   }, []);
 
   useEffect(() => {
     const calendar = searchParams.get("calendar");
     const email = searchParams.get("email");
     const work = searchParams.get("work");
+    const collab = searchParams.get("collab");
     const provider = searchParams.get("provider");
     const reason = searchParams.get("reason");
     if (calendar === "connected") {
@@ -148,6 +177,10 @@ function IntegrationsSettingsInner() {
       setNotice(`Connected ${provider === "linear" ? "Linear" : "GitHub"}.`);
     } else if (work === "error") {
       setError(reason ? `Work connect failed (${reason}).` : "Work connect failed.");
+    } else if (collab === "connected") {
+      setNotice("Connected Slack.");
+    } else if (collab === "error") {
+      setError(reason ? `Collab connect failed (${reason}).` : "Collab connect failed.");
     }
   }, [searchParams]);
 
@@ -176,6 +209,10 @@ function IntegrationsSettingsInner() {
     return workConnections.find((item) => item.provider === key);
   }
 
+  function collabConnection(provider: CollabProviderId) {
+    return collabConnections.find((item) => item.provider === "SLACK");
+  }
+
   return (
     <div className="space-y-5">
       <section className="space-y-2 rounded-3xl border border-white/10 bg-white/[0.035] p-5 text-sm text-white/65 sm:p-6">
@@ -191,6 +228,10 @@ function IntegrationsSettingsInner() {
         <p className="text-xs text-white/45">
           {workStatus?.privacy.note ??
             "Work sync stores title/state/url only — not issue bodies or chat plaintext."}
+        </p>
+        <p className="text-xs text-white/45">
+          {collabStatus?.privacy.note ??
+            "Slack sync stores channel names/ids only — not message history or chat plaintext."}
         </p>
       </section>
 
@@ -474,6 +515,78 @@ function IntegrationsSettingsInner() {
         )}
       </section>
 
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-white/50">
+        Collaboration
+      </h2>
+      {(["slack"] as const).map((provider) => {
+        const configured =
+          collabStatus?.providers[provider]?.configured ?? false;
+        const connection = collabConnection(provider);
+        const label = "Slack";
+        const key = `collab:${provider}`;
+        return (
+          <ProviderCard
+            key={key}
+            label={label}
+            scopes={collabStatus?.providers[provider]?.scopes ?? []}
+            configured={configured}
+            connection={connection}
+            busy={busyKey === key}
+            onConnect={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .beginCollabOAuth(provider)
+                .then((result) => window.location.assign(result.url))
+                .catch((connectError: unknown) => {
+                  setError(
+                    connectError instanceof ApiError
+                      ? connectError.message
+                      : "Could not start Slack OAuth.",
+                  );
+                  setBusyKey(null);
+                });
+            }}
+            onSync={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .syncCollab(provider)
+                .then(async (result) => {
+                  setNotice(`Synced ${result.synced} Slack channels.`);
+                  await refresh();
+                })
+                .catch((syncError: unknown) => {
+                  setError(
+                    syncError instanceof ApiError
+                      ? syncError.message
+                      : "Slack sync failed.",
+                  );
+                })
+                .finally(() => setBusyKey(null));
+            }}
+            onDisconnect={() => {
+              setBusyKey(key);
+              setError(null);
+              void api
+                .disconnectCollab(provider)
+                .then(async () => {
+                  setNotice(`Disconnected ${label}.`);
+                  await refresh();
+                })
+                .catch((disconnectError: unknown) => {
+                  setError(
+                    disconnectError instanceof ApiError
+                      ? disconnectError.message
+                      : "Could not disconnect Slack.",
+                  );
+                })
+                .finally(() => setBusyKey(null));
+            }}
+          />
+        );
+      })}
+
       <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
         <h2 className="text-base font-semibold text-white">Mirrored work items</h2>
         <p className="text-xs text-white/45">
@@ -496,6 +609,31 @@ function IntegrationsSettingsInner() {
                 </p>
                 <p className="text-xs text-white/45">
                   {item.provider} · {item.kind.toLowerCase()} · {item.state}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
+        <h2 className="text-base font-semibold text-white">Mirrored Slack channels</h2>
+        <p className="text-xs text-white/45">
+          Channel names/ids only — not message history or chat plaintext.
+        </p>
+        {collabChannels.length === 0 ? (
+          <p className="text-sm text-white/50">No mirrored channels yet.</p>
+        ) : (
+          <ul className="space-y-2 text-sm text-white/70">
+            {collabChannels.slice(0, 20).map((channel) => (
+              <li
+                key={channel.id}
+                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
+              >
+                <p className="font-medium text-white/85">#{channel.name}</p>
+                <p className="text-xs text-white/45">
+                  {channel.isPrivate ? "private" : "public"}
+                  {channel.isArchived ? " · archived" : ""}
                 </p>
               </li>
             ))}
@@ -570,7 +708,7 @@ export default function IntegrationsSettingsPage() {
   return (
     <ProductShell
       title="Integrations"
-      subtitle="Calendars, email, and work trackers with minimum OAuth scopes. Revocable anytime. Chat E2EE stays untouched."
+      subtitle="Calendars, email, work trackers, and Slack with minimum OAuth scopes. Revocable anytime. Chat E2EE stays untouched."
     >
       <Suspense
         fallback={<p className="text-sm text-white/50">Loading integrations…</p>}
