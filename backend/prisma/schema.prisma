@@ -34,6 +34,19 @@ enum AiConsentScope {
   CONVERSATION_ANALYSIS
 }
 
+enum IntegrationProvider {
+  GOOGLE_CALENDAR
+  OUTLOOK_CALENDAR
+  GMAIL
+  OUTLOOK_MAIL
+}
+
+enum IntegrationConnectionStatus {
+  CONNECTED
+  REVOKED
+  ERROR
+}
+
 model User {
   id                 String    @id @default(uuid())
   username           String    @unique
@@ -65,6 +78,8 @@ model User {
   tasks                Task[]
   reminders            Reminder[]
   aiConsents           AiAuthorizationConsent[]
+  integrations         IntegrationConnection[]
+  calendarEvents       CalendarEventMirror[]
 
   @@index([interests], type: Gin)
 }
@@ -353,4 +368,54 @@ model AiAuthorizationConsent {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, scope, revokedAt])
+}
+
+/// Per-user OAuth connection. Refresh tokens are encrypted at rest.
+/// Never store chat plaintext here. Calendar/email bodies are not used for AI
+/// unless a separate AiAuthorizationConsent is granted later.
+model IntegrationConnection {
+  id                    String                       @id @default(uuid())
+  ownerUserId           String
+  provider              IntegrationProvider
+  accountEmail          String?
+  scopes                String[]                     @default([])
+  refreshTokenEncrypted String
+  accessTokenEncrypted  String?
+  accessTokenExpiresAt  DateTime?
+  status                IntegrationConnectionStatus  @default(CONNECTED)
+  lastSyncAt            DateTime?
+  lastErrorCode         String?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+
+  owner          User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  calendarEvents CalendarEventMirror[]
+
+  @@unique([ownerUserId, provider])
+  @@index([ownerUserId, status])
+}
+
+/// Owner-scoped calendar mirror for UI sync. Titles/times are the user's own
+/// calendar metadata (not E2EE chat). Do not feed into AI without consent.
+model CalendarEventMirror {
+  id              String   @id @default(uuid())
+  ownerUserId     String
+  connectionId    String
+  externalEventId String
+  calendarId      String
+  title           String
+  startsAt        DateTime
+  endsAt          DateTime
+  allDay          Boolean  @default(false)
+  busy            Boolean  @default(true)
+  syncedAt        DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  owner      User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  connection IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, externalEventId])
+  @@index([ownerUserId, startsAt, endsAt])
+  @@index([ownerUserId, syncedAt])
 }

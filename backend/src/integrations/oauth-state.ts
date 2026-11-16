@@ -1,0 +1,77 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+import type { CalendarProviderId } from "./calendar-providers.js";
+
+const stateTtlMs = 10 * 60 * 1000;
+
+export type OAuthStatePayload = {
+  userId: string;
+  provider: CalendarProviderId;
+  nonce: string;
+  exp: number;
+};
+
+function sign(payloadB64: string, secret: string) {
+  return createHmac("sha256", secret).update(payloadB64).digest("base64url");
+}
+
+export function createOAuthState(
+  input: {
+    userId: string;
+    provider: CalendarProviderId;
+    nonce: string;
+    now?: Date;
+  },
+  secret: string,
+) {
+  const payload: OAuthStatePayload = {
+    userId: input.userId,
+    provider: input.provider,
+    nonce: input.nonce.slice(0, 64),
+    exp: (input.now ?? new Date()).getTime() + stateTtlMs,
+  };
+  const payloadB64 = Buffer.from(JSON.stringify(payload), "utf8").toString(
+    "base64url",
+  );
+  return `${payloadB64}.${sign(payloadB64, secret)}`;
+}
+
+export function parseOAuthState(
+  value: string,
+  secret: string,
+  now = new Date(),
+): OAuthStatePayload | null {
+  const [payloadB64, signature] = value.split(".");
+  if (!payloadB64 || !signature) {
+    return null;
+  }
+  const expected = sign(payloadB64, secret);
+  const left = Buffer.from(signature);
+  const right = Buffer.from(expected);
+  if (left.length !== right.length || !timingSafeEqual(left, right)) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(payloadB64, "base64url").toString("utf8"),
+    ) as Partial<OAuthStatePayload>;
+    if (
+      typeof parsed.userId !== "string" ||
+      !parsed.userId ||
+      (parsed.provider !== "google" && parsed.provider !== "outlook") ||
+      typeof parsed.nonce !== "string" ||
+      typeof parsed.exp !== "number" ||
+      !Number.isFinite(parsed.exp) ||
+      parsed.exp <= now.getTime()
+    ) {
+      return null;
+    }
+    return {
+      userId: parsed.userId,
+      provider: parsed.provider,
+      nonce: parsed.nonce,
+      exp: parsed.exp,
+    };
+  } catch {
+    return null;
+  }
+}
