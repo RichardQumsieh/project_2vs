@@ -732,6 +732,67 @@ export const api = {
       }[];
     }>(`/integrations/calendar/events${suffix}`);
   },
+
+  emailIntegrationStatus: () =>
+    request<{
+      providers: {
+        gmail: { configured: boolean; scopes: string[] };
+        "outlook-mail": { configured: boolean; scopes: string[] };
+      };
+      privacy: {
+        storesChatPlaintext: boolean;
+        storesFullBodies: boolean;
+        aiUsesMailBodiesByDefault: boolean;
+        note: string;
+      };
+    }>("/integrations/email/status"),
+
+  listEmailConnections: () =>
+    request<{
+      connections: {
+        id: string;
+        provider:
+          | "GOOGLE_CALENDAR"
+          | "OUTLOOK_CALENDAR"
+          | "GMAIL"
+          | "OUTLOOK_MAIL";
+        accountEmail: string | null;
+        scopes: string[];
+        status: "CONNECTED" | "REVOKED" | "ERROR";
+        lastSyncAt: string | null;
+        lastErrorCode: string | null;
+      }[];
+    }>("/integrations/email/connections"),
+
+  beginEmailOAuth: (provider: "gmail" | "outlook-mail") =>
+    request<{ url: string; scopes: string[] }>(
+      `/integrations/email/${provider}/authorize`,
+    ),
+
+  syncEmail: (provider: "gmail" | "outlook-mail") =>
+    request<{ synced: number }>(`/integrations/email/${provider}/sync`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  disconnectEmail: (provider: "gmail" | "outlook-mail") =>
+    request<{ ok: true }>(`/integrations/email/${provider}`, {
+      method: "DELETE",
+    }),
+
+  listEmailMessages: () =>
+    request<{
+      messages: {
+        id: string;
+        provider: string;
+        accountEmail: string | null;
+        subject: string;
+        fromAddress: string;
+        receivedAt: string;
+        snippet: string;
+        syncedAt: string;
+      }[];
+    }>("/integrations/email/messages"),
 };
 
 export function wsUrl() {

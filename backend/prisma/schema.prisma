@@ -80,6 +80,7 @@ model User {
   aiConsents           AiAuthorizationConsent[]
   integrations         IntegrationConnection[]
   calendarEvents       CalendarEventMirror[]
+  mailMessages         MailMessageMirror[]
 
   @@index([interests], type: Gin)
 }
@@ -390,6 +391,7 @@ model IntegrationConnection {
 
   owner          User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   calendarEvents CalendarEventMirror[]
+  mailMessages   MailMessageMirror[]
 
   @@unique([ownerUserId, provider])
   @@index([ownerUserId, status])
@@ -417,5 +419,29 @@ model CalendarEventMirror {
 
   @@unique([connectionId, externalEventId])
   @@index([ownerUserId, startsAt, endsAt])
+  @@index([ownerUserId, syncedAt])
+}
+
+/// Owner-scoped mail metadata mirror. Subject/from/snippet only — never full
+/// bodies for AI unless a separate AiAuthorizationConsent is granted later.
+model MailMessageMirror {
+  id                String   @id @default(uuid())
+  ownerUserId       String
+  connectionId      String
+  externalMessageId String
+  threadId          String
+  subject           String
+  fromAddress       String
+  receivedAt        DateTime
+  snippet           String   @default("")
+  syncedAt          DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  owner      User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  connection IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, externalMessageId])
+  @@index([ownerUserId, receivedAt])
   @@index([ownerUserId, syncedAt])
 }

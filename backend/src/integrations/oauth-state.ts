@@ -1,14 +1,26 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { CalendarProviderId } from "./calendar-providers.js";
+import type { EmailProviderId } from "./email-providers.js";
 
 const stateTtlMs = 10 * 60 * 1000;
 
+export type OAuthIntegrationProvider = CalendarProviderId | EmailProviderId;
+
 export type OAuthStatePayload = {
   userId: string;
-  provider: CalendarProviderId;
+  provider: OAuthIntegrationProvider;
   nonce: string;
   exp: number;
 };
+
+function isKnownProvider(value: unknown): value is OAuthIntegrationProvider {
+  return (
+    value === "google" ||
+    value === "outlook" ||
+    value === "gmail" ||
+    value === "outlook-mail"
+  );
+}
 
 function sign(payloadB64: string, secret: string) {
   return createHmac("sha256", secret).update(payloadB64).digest("base64url");
@@ -17,7 +29,7 @@ function sign(payloadB64: string, secret: string) {
 export function createOAuthState(
   input: {
     userId: string;
-    provider: CalendarProviderId;
+    provider: OAuthIntegrationProvider;
     nonce: string;
     now?: Date;
   },
@@ -57,7 +69,7 @@ export function parseOAuthState(
     if (
       typeof parsed.userId !== "string" ||
       !parsed.userId ||
-      (parsed.provider !== "google" && parsed.provider !== "outlook") ||
+      !isKnownProvider(parsed.provider) ||
       typeof parsed.nonce !== "string" ||
       typeof parsed.exp !== "number" ||
       !Number.isFinite(parsed.exp) ||
