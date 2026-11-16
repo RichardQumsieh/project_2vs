@@ -34,6 +34,8 @@ const envSchema = z.object({
   GITHUB_OAUTH_CLIENT_SECRET: optionalEnvironmentValue,
   LINEAR_OAUTH_CLIENT_ID: optionalEnvironmentValue,
   LINEAR_OAUTH_CLIENT_SECRET: optionalEnvironmentValue,
+  SLACK_OAUTH_CLIENT_ID: optionalEnvironmentValue,
+  SLACK_OAUTH_CLIENT_SECRET: optionalEnvironmentValue,
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   SAFE_BROWSING_API_KEY: optionalEnvironmentValue,
   TURN_URLS: optionalEnvironmentValue,
@@ -179,6 +181,20 @@ const envSchema = z.object({
     });
   }
 
+  const slackPair = [
+    values.SLACK_OAUTH_CLIENT_ID,
+    values.SLACK_OAUTH_CLIENT_SECRET,
+  ];
+  const slackCount = slackPair.filter(Boolean).length;
+  if (slackCount !== 0 && slackCount !== 2) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "Set both SLACK_OAUTH_CLIENT_ID and SLACK_OAUTH_CLIENT_SECRET, or leave both empty",
+      path: ["SLACK_OAUTH_CLIENT_ID"],
+    });
+  }
+
   if (
     values.TURN_URLS &&
     values.TURN_URLS.split(",").some((url) => !/^turns?:[^\s,]+$/i.test(url.trim()))
@@ -241,5 +257,11 @@ export const githubOAuthConfigured = Boolean(
 export const linearOAuthConfigured = Boolean(
   env.LINEAR_OAUTH_CLIENT_ID &&
   env.LINEAR_OAUTH_CLIENT_SECRET &&
+  env.API_PUBLIC_ORIGIN,
+);
+
+export const slackOAuthConfigured = Boolean(
+  env.SLACK_OAUTH_CLIENT_ID &&
+  env.SLACK_OAUTH_CLIENT_SECRET &&
   env.API_PUBLIC_ORIGIN,
 );
