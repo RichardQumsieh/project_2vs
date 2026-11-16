@@ -683,7 +683,9 @@ export const api = {
           | "GOOGLE_CALENDAR"
           | "OUTLOOK_CALENDAR"
           | "GMAIL"
-          | "OUTLOOK_MAIL";
+          | "OUTLOOK_MAIL"
+          | "GITHUB"
+          | "LINEAR";
         accountEmail: string | null;
         scopes: string[];
         status: "CONNECTED" | "REVOKED" | "ERROR";
@@ -755,7 +757,9 @@ export const api = {
           | "GOOGLE_CALENDAR"
           | "OUTLOOK_CALENDAR"
           | "GMAIL"
-          | "OUTLOOK_MAIL";
+          | "OUTLOOK_MAIL"
+          | "GITHUB"
+          | "LINEAR";
         accountEmail: string | null;
         scopes: string[];
         status: "CONNECTED" | "REVOKED" | "ERROR";
@@ -793,6 +797,66 @@ export const api = {
         syncedAt: string;
       }[];
     }>("/integrations/email/messages"),
+
+  workIntegrationStatus: () =>
+    request<{
+      providers: {
+        github: { configured: boolean; scopes: string[] };
+        linear: { configured: boolean; scopes: string[] };
+      };
+      privacy: {
+        storesChatPlaintext: boolean;
+        storesIssueBodies: boolean;
+        aiUsesWorkBodiesByDefault: boolean;
+        note: string;
+      };
+    }>("/integrations/work/status"),
+
+  listWorkConnections: () =>
+    request<{
+      connections: {
+        id: string;
+        provider: "GITHUB" | "LINEAR";
+        accountEmail: string | null;
+        scopes: string[];
+        status: "CONNECTED" | "REVOKED" | "ERROR";
+        lastSyncAt: string | null;
+        lastErrorCode: string | null;
+      }[];
+    }>("/integrations/work/connections"),
+
+  beginWorkOAuth: (provider: "github" | "linear") =>
+    request<{ url: string; scopes: string[] }>(
+      `/integrations/work/${provider}/authorize`,
+    ),
+
+  syncWork: (provider: "github" | "linear") =>
+    request<{ synced: number }>(`/integrations/work/${provider}/sync`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  disconnectWork: (provider: "github" | "linear") =>
+    request<{ ok: true }>(`/integrations/work/${provider}`, {
+      method: "DELETE",
+    }),
+
+  listWorkItems: () =>
+    request<{
+      items: {
+        id: string;
+        provider: string;
+        accountEmail: string | null;
+        kind: "ISSUE" | "PULL_REQUEST";
+        number: number | null;
+        title: string;
+        state: string;
+        url: string;
+        containerKey: string;
+        updatedAtExternal: string | null;
+        syncedAt: string;
+      }[];
+    }>("/integrations/work/items"),
 };
 
 export function wsUrl() {

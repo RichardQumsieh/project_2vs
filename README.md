@@ -200,3 +200,11 @@ Per-user Google/Outlook **calendar** and **mail** connect lives under Settings �
 - Mail (separate from recovery-sender `GMAIL_*`): `GOOGLE_MAIL_CLIENT_*`, `MICROSOFT_MAIL_CLIENT_*` — see `docs/phase2-email-oauth.md`
 
 Redirect URIs use `{API_PUBLIC_ORIGIN}/integrations/calendar/.../callback` and `/integrations/email/.../callback`. Scopes are read-only. Refresh tokens are encrypted at rest. Calendar mirrors titles/times; mail mirrors subject/from/snippet (not full bodies). Connecting does not authorize Jarvis AI over that data. Leave vars empty to keep Connect disabled (API 503). These paths never receive chat plaintext.
+
+### GitHub & Linear OAuth (Phase 3)
+
+Per-user **GitHub** / **Linear** work-item connect is on the same Integrations page.
+
+- `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET`, `LINEAR_OAUTH_CLIENT_ID` / `LINEAR_OAUTH_CLIENT_SECRET`, plus shared `API_PUBLIC_ORIGIN` — see `docs/phase3-github-linear-oauth.md`
+
+Redirect URIs: `{API_PUBLIC_ORIGIN}/integrations/work/github|linear/callback`. Mirrors store title/state/url/number only (no issue bodies). Tokens encrypted at rest; connect ≠ AI consent; chat E2EE untouched.

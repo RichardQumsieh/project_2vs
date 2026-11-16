@@ -39,6 +39,13 @@ enum IntegrationProvider {
   OUTLOOK_CALENDAR
   GMAIL
   OUTLOOK_MAIL
+  GITHUB
+  LINEAR
+}
+
+enum WorkItemKind {
+  ISSUE
+  PULL_REQUEST
 }
 
 enum IntegrationConnectionStatus {
@@ -81,6 +88,7 @@ model User {
   integrations         IntegrationConnection[]
   calendarEvents       CalendarEventMirror[]
   mailMessages         MailMessageMirror[]
+  workItems            WorkItemMirror[]
 
   @@index([interests], type: Gin)
 }
@@ -392,6 +400,7 @@ model IntegrationConnection {
   owner          User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   calendarEvents CalendarEventMirror[]
   mailMessages   MailMessageMirror[]
+  workItems      WorkItemMirror[]
 
   @@unique([ownerUserId, provider])
   @@index([ownerUserId, status])
@@ -444,4 +453,30 @@ model MailMessageMirror {
   @@unique([connectionId, externalMessageId])
   @@index([ownerUserId, receivedAt])
   @@index([ownerUserId, syncedAt])
+}
+
+/// Owner-scoped GitHub/Linear work-item mirror. Title/state/url metadata only —
+/// never issue bodies, comments, or chat plaintext. Not for AI without consent.
+model WorkItemMirror {
+  id                 String       @id @default(uuid())
+  ownerUserId        String
+  connectionId       String
+  externalItemId     String
+  kind               WorkItemKind
+  number             Int?
+  title              String
+  state              String
+  url                String
+  containerKey       String       @default("")
+  updatedAtExternal  DateTime?
+  syncedAt           DateTime     @default(now())
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  owner      User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  connection IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, externalItemId])
+  @@index([ownerUserId, syncedAt])
+  @@index([ownerUserId, updatedAtExternal])
 }

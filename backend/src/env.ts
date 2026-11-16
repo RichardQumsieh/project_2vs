@@ -30,6 +30,10 @@ const envSchema = z.object({
   GOOGLE_MAIL_CLIENT_SECRET: optionalEnvironmentValue,
   MICROSOFT_MAIL_CLIENT_ID: optionalEnvironmentValue,
   MICROSOFT_MAIL_CLIENT_SECRET: optionalEnvironmentValue,
+  GITHUB_OAUTH_CLIENT_ID: optionalEnvironmentValue,
+  GITHUB_OAUTH_CLIENT_SECRET: optionalEnvironmentValue,
+  LINEAR_OAUTH_CLIENT_ID: optionalEnvironmentValue,
+  LINEAR_OAUTH_CLIENT_SECRET: optionalEnvironmentValue,
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   SAFE_BROWSING_API_KEY: optionalEnvironmentValue,
   TURN_URLS: optionalEnvironmentValue,
@@ -147,6 +151,34 @@ const envSchema = z.object({
     });
   }
 
+  const githubPair = [
+    values.GITHUB_OAUTH_CLIENT_ID,
+    values.GITHUB_OAUTH_CLIENT_SECRET,
+  ];
+  const githubCount = githubPair.filter(Boolean).length;
+  if (githubCount !== 0 && githubCount !== 2) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "Set both GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET, or leave both empty",
+      path: ["GITHUB_OAUTH_CLIENT_ID"],
+    });
+  }
+
+  const linearPair = [
+    values.LINEAR_OAUTH_CLIENT_ID,
+    values.LINEAR_OAUTH_CLIENT_SECRET,
+  ];
+  const linearCount = linearPair.filter(Boolean).length;
+  if (linearCount !== 0 && linearCount !== 2) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "Set both LINEAR_OAUTH_CLIENT_ID and LINEAR_OAUTH_CLIENT_SECRET, or leave both empty",
+      path: ["LINEAR_OAUTH_CLIENT_ID"],
+    });
+  }
+
   if (
     values.TURN_URLS &&
     values.TURN_URLS.split(",").some((url) => !/^turns?:[^\s,]+$/i.test(url.trim()))
@@ -197,5 +229,17 @@ export const gmailOAuthConfigured = Boolean(
 export const microsoftMailOAuthConfigured = Boolean(
   env.MICROSOFT_MAIL_CLIENT_ID &&
   env.MICROSOFT_MAIL_CLIENT_SECRET &&
+  env.API_PUBLIC_ORIGIN,
+);
+
+export const githubOAuthConfigured = Boolean(
+  env.GITHUB_OAUTH_CLIENT_ID &&
+  env.GITHUB_OAUTH_CLIENT_SECRET &&
+  env.API_PUBLIC_ORIGIN,
+);
+
+export const linearOAuthConfigured = Boolean(
+  env.LINEAR_OAUTH_CLIENT_ID &&
+  env.LINEAR_OAUTH_CLIENT_SECRET &&
   env.API_PUBLIC_ORIGIN,
 );
