@@ -2406,8 +2406,6 @@ function ThreadConversation({
             query: intent.query,
           });
           break;
-        case "radar_answer":
-          break;
       }
     }
   }
