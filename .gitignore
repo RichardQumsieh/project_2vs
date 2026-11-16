@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Next.js / frontend build
+.next/
+**/.next/
+out/
+build/
+dist/
+**/dist/
+
+# Native / binary artifacts
+*.node
+*.dll
+*.so
+*.dylib
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Logs and caches
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.turbo/
+.cache/
+**/.vitest-cache/
+**/coverage/
+.eslintcache
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.iml
+
+# Media / local data
+backend/media/
+*.sqlite
+*.db
+
+# Package manager noise
+package-lock.json.backup
+
+tsbuildinfo
+*.tsbuildinfo
+
