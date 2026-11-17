@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
+import { authCookieSameSite } from "./auth.js";
 import { env } from "./env.js";
 import { prisma } from "./db.js";
 import { redis, redisSub } from "./redis.js";
@@ -56,7 +57,22 @@ app.addHook("onRequest", async (request, reply) => {
   }
 });
 
-app.get("/health", async () => ({ ok: true }));
+app.get("/health", async () => ({
+  ok: true,
+  // Public deploy probe: confirms whether this image will emit SameSite=None
+  // (COOKIE_SECURE=true) vs Lax. No secrets.
+  cookieSecure: env.COOKIE_SECURE,
+  cookieSameSite: authCookieSameSite(),
+}));
+
+app.log.info(
+  {
+    cookieSecure: env.COOKIE_SECURE,
+    cookieSameSite: authCookieSameSite(),
+    frontendOrigin: allowedOrigin,
+  },
+  "auth cookie mode",
+);
 
 await app.register(authRoutes);
 await app.register(deviceRoutes);
