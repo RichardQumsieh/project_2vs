@@ -23,13 +23,13 @@ export default async function ResetPasswordPage({
         </>
       }
       footer={
-        <Link href="/login" className="text-white">Return to login</Link>
+        <Link href="/login" className="font-medium text-(--foreground)">Return to login</Link>
       }
     >
         {token ? (
           <ResetPasswordForm token={token} />
         ) : (
-          <p className="text-sm text-red-300">This reset link is missing or invalid.</p>
+          <p className="text-sm text-(--danger)">This reset link is missing or invalid.</p>
         )}
     </AuthPageShell>
   );

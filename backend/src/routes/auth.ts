@@ -33,6 +33,7 @@ import {
   registerSchema,
   resetPasswordSchema,
 } from "../schemas.js";
+import { passwordErrorFromBody, passwordPolicyFailure } from "../password-policy.js";
 import { publicUser } from "../util.js";
 import { networkPrefixForIp } from "../trusted-browser.js";
 import {
@@ -139,9 +140,14 @@ export async function authRoutes(app: FastifyInstance) {
       const parsed = registerSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.code(400).send({
-          error: "Invalid input",
+          error: passwordErrorFromBody(request.body) ?? "Invalid input",
           details: parsed.error.flatten(),
         });
+      }
+
+      const passwordError = passwordPolicyFailure(parsed.data.password, parsed.data.email);
+      if (passwordError) {
+        return reply.code(400).send({ error: passwordError });
       }
 
       const {
@@ -575,7 +581,9 @@ export async function authRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const parsed = resetPasswordSchema.safeParse(request.body);
       if (!parsed.success) {
-        return reply.code(400).send({ error: "Invalid input" });
+        return reply.code(400).send({
+          error: passwordErrorFromBody(request.body) ?? "Invalid input",
+        });
       }
 
       const tokenHash = hashToken(parsed.data.token);
@@ -585,6 +593,7 @@ export async function authRoutes(app: FastifyInstance) {
           user: {
             select: {
               id: true,
+              email: true,
               totpSecret: true,
             },
           },
@@ -609,6 +618,14 @@ export async function authRoutes(app: FastifyInstance) {
           error:
             "Finish authenticator setup before resetting your password, or contact support if you are locked out.",
         });
+      }
+
+      const passwordError = passwordPolicyFailure(
+        parsed.data.password,
+        resetToken.user.email,
+      );
+      if (passwordError) {
+        return reply.code(400).send({ error: passwordError });
       }
 
       const totpValid =

@@ -5,18 +5,10 @@ import Link from "next/link";
 export default function SignupPage() {
   return (
     <AuthPageShell
-      eyebrow="Create account"
-      title="Start privately."
-      description={
-        <>
-          Protect your account with authenticator MFA. Keys are generated in the browser; the API
-          stores public material and ciphertext only.
-        </>
-      }
       footer={
         <>
           Already here?{" "}
-          <Link href="/login" className="text-white">
+          <Link href="/login" className="font-medium text-(--foreground)">
             Log in
           </Link>
         </>

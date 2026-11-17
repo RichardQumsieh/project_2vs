@@ -1,6 +1,4 @@
-"use client";
-
-import { motion, useReducedMotion } from "motion/react";
+import { SophiaLockup } from "@/components/sophia-mark";
 
 export function AuthPageShell({
   eyebrow,
@@ -9,59 +7,32 @@ export function AuthPageShell({
   footer,
   children,
 }: {
-  eyebrow: string;
-  title: string;
-  description: React.ReactNode;
-  footer: React.ReactNode;
+  eyebrow?: string;
+  title?: string;
+  description?: React.ReactNode;
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const reduceMotion = useReducedMotion();
-
   return (
-    <main className="auth-page relative flex min-h-[100svh] items-center justify-center overflow-x-clip px-4 py-10 sm:px-6 sm:py-16">
-      <motion.div
-        aria-hidden="true"
-        className="auth-page-glow auth-page-glow-one"
-        initial={reduceMotion ? false : { opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: reduceMotion ? 0 : 1.1, ease: "easeOut" }}
-      />
-      <motion.div
-        aria-hidden="true"
-        className="auth-page-glow auth-page-glow-two"
-        initial={reduceMotion ? false : { opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: reduceMotion ? 0 : 1.2, delay: reduceMotion ? 0 : 0.12, ease: "easeOut" }}
-      />
-      <motion.section
-        initial={reduceMotion ? false : { opacity: 0, y: 22, scale: 0.985 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: reduceMotion ? 0 : 0.52, ease: [0.22, 1, 0.36, 1] }}
-        className="auth-card relative z-10 w-full max-w-md overflow-hidden rounded-[2rem] border border-white/10 bg-[#0c111b]/80 p-5 shadow-[0_32px_120px_rgba(0,0,0,.42)] backdrop-blur-2xl sm:p-8"
-      >
-        <div className="mb-7 flex items-center gap-3">
-          <div className="auth-mark" aria-hidden="true">
-            <span />
-            <span />
-            <span />
+    <main className="auth-page mx-auto flex w-full max-w-md flex-col px-4 py-8 sm:py-14">
+      <section className="rounded-2xl border border-(--line) bg-(--surface) px-5 py-6 sm:px-7 sm:py-8">
+        <SophiaLockup />
+        {eyebrow ? (
+          <p className="mt-6 text-xs font-medium tracking-[0.16em] text-(--muted) uppercase">{eyebrow}</p>
+        ) : null}
+        {title ? (
+          <h1 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-(--foreground)">{title}</h1>
+        ) : null}
+        {description ? (
+          <p className="mt-2 text-sm leading-6 text-(--muted)">{description}</p>
+        ) : null}
+        <div className="mt-6">{children}</div>
+        {footer ? (
+          <div className="mt-6 border-t border-(--line) pt-4 text-center text-sm text-(--muted)">
+            {footer}
           </div>
-          <div>
-            <p className="text-sm font-semibold tracking-wide text-white">Private</p>
-            <p className="text-[0.65rem] tracking-[0.16em] text-white/35 uppercase">
-              made for your conversations
-            </p>
-          </div>
-        </div>
-        <p className="text-xs tracking-[0.2em] text-(--accent) uppercase">{eyebrow}</p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white sm:text-[2.1rem]">
-          {title}
-        </h1>
-        <p className="mt-3 mb-7 text-sm leading-6 text-white/50">{description}</p>
-        {children}
-        <div className="mt-6 border-t border-white/[0.07] pt-5 text-center text-sm text-white/45">
-          {footer}
-        </div>
-      </motion.section>
+        ) : null}
+      </section>
     </main>
   );
 }

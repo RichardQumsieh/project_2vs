@@ -5,9 +5,9 @@ import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Private | Conversations that stay yours",
+  title: "Sophia | Chief of staff",
   description:
-    "A private messaging platform designed around end-to-end encrypted conversations.",
+    "Sophia is the chief of staff in a private, end-to-end encrypted messenger.",
 };
 
 export default async function RootLayout({
