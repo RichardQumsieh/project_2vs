@@ -71,16 +71,21 @@ Set these backend environment variables from your B2 bucket and S3-compatible ap
 
 For local Docker Compose, put the values in `backend/.env` and recreate the backend container. Production Compose reads them from the shell environment, so set/export them before starting the stack. The backend configures bucket CORS for `FRONTEND_ORIGIN` on the first upload; the application key must permit the required bucket CORS update and object read/write operations. Keep the bucket private—public access is not needed.
 
-For production images, set the required keys and public HTTPS origins, then use the production override:
+For production images, put Compose-interpolated secrets in a **repo-root** `.env` (see `.env.example`), then use the production override. `FRONTEND_ORIGIN` defaults to `https://sophia.apps.grok.bot`; `NEXT_PUBLIC_API_URL` defaults to `https://api.sophia-build.com` so API-only `build backend` does not require the frontend build arg. `COOKIE_SECURE` is forced `true` in the prod overlay.
+
+```bash
+cp .env.example .env
+# Fill JWT_SECRET and TOTP_ENCRYPTION_KEY on the host (never commit).
+# Optional: FRONTEND_ORIGIN / NEXT_PUBLIC_API_URL if not using the Sophia defaults.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d postgres redis backend
+```
 
 ```powershell
+# Or export in the shell instead of root .env:
 $env:JWT_SECRET = "replace-with-at-least-32-random-characters"
 $env:TOTP_ENCRYPTION_KEY = "replace-with-64-hex-characters"
-$env:BRAVE_SEARCH_API_KEY = "set-a-server-side-Brave-Search-API-key"
-$env:SAFE_BROWSING_API_KEY = "set-a-server-side-Google-Safe-Browsing-API-key"
-$env:FRONTEND_ORIGIN = "https://messenger.example.com"
-$env:NEXT_PUBLIC_API_URL = "https://api.example.com"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+$env:FRONTEND_ORIGIN = "https://sophia.apps.grok.bot"
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d postgres redis backend
 ```
 
 Stop the stack with `Ctrl+C`, or run `docker compose down` from another terminal.

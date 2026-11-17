@@ -6,13 +6,15 @@ services:
     environment:
       DATABASE_URL: postgresql://messenger:messenger@postgres:5432/messenger
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET before starting production}
-      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?Set TOTP_ENCRYPTION_KEY before starting production}
+      # Required secrets — put in repo-root `.env` (Compose interpolates the whole
+      # merged file even when you `build` / `up` only `backend`).
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in repo-root .env before starting production}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?Set TOTP_ENCRYPTION_KEY in repo-root .env before starting production}
       PORT: 3001
-      # Must come from the host environment or repo-root `.env` (Compose interpolation).
-      # `backend/.env` / env_file does NOT supply this key when `environment:` sets it.
-      # After `cp backend/.env .`, edit FRONTEND_ORIGIN — the example value is localhost.
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?Set FRONTEND_ORIGIN before starting production}
+      # Defaults to the live Sophia SPA origin. Override via root `.env` if the
+      # published frontend origin changes. `backend/.env` / env_file does NOT
+      # supply this key when `environment:` sets it.
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-https://sophia.apps.grok.bot}
       COOKIE_NAME: messenger_session
       # Always Secure+SameSite=None in prod. Do NOT interpolate from root `.env`:
       # `cp backend/.env .` copies COOKIE_SECURE=false and would keep Lax cookies,
@@ -38,6 +40,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.prod
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL before starting production}
+        # Optional default so API-only VM builds (`… build backend`) do not abort
+        # when Compose still interpolates the frontend service block.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.sophia-build.com}
     environment: []
     volumes: []
