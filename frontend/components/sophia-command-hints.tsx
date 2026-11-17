@@ -59,13 +59,9 @@ export function SophiaCommandHints({
             key="sophia-slash-palette"
             role="listbox"
             aria-label="Sophia slash commands"
-            initial={
-              reduceMotion ? { opacity: 1 } : { opacity: 0, y: 6, height: 0 }
-            }
-            animate={{ opacity: 1, y: 0, height: "auto" }}
-            exit={
-              reduceMotion ? { opacity: 0 } : { opacity: 0, y: 4, height: 0 }
-            }
+            initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 4 }}
             transition={{ duration: reduceMotion ? 0 : 0.18, ease: "easeOut" }}
             className="overflow-hidden rounded-xl border border-white/10 bg-black/35"
           >

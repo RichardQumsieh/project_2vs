@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowLeft, CheckSquare, MapPin, Paperclip, Phone, Send, Settings, Smile, Trash2, Video, X } from "lucide-react";
+import { ArrowLeft, Calendar, CheckSquare, Mail, MapPin, Paperclip, Phone, Send, Settings, Smile, Video, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -32,13 +32,6 @@ import {
   storeSentMessage,
 } from "@/lib/session";
 import { messageSchema, usernameSchema, unlockSchema } from "@/lib/validators";
-import { EncryptedPhoto } from "@/components/encrypted-photo";
-import { EncryptedAlbum } from "@/components/encrypted-album";
-import { EncryptedVideo } from "@/components/encrypted-video";
-import { EncryptedVoiceNote } from "@/components/encrypted-voice-note";
-import { EncryptedFileAttachment } from "@/components/encrypted-file-attachment";
-import { EncryptedLocation } from "@/components/encrypted-location";
-import { ReplyQuoteBlock } from "@/components/reply-quote";
 import { PhotoEditor } from "@/components/photo-editor";
 import {
   VoiceNoteRecorder,
@@ -96,7 +89,10 @@ import {
 } from "@/lib/ai/agent-runtime";
 import { downloadSophiaDocument } from "@/lib/ai/sophia-documents";
 import { SophiaRobot } from "@/components/sophia-robot";
+import { InboxActivityPanel, InboxActivityState } from "@/components/inbox-activity-panel";
 import { SophiaCommandHints } from "@/components/sophia-command-hints";
+import { ThreadMessageList } from "@/components/thread-message-list";
+import type { InboxActivityView } from "@/lib/inbox-activity";
 import {
   SophiaApproveSuccess,
   SophiaProposalCard,
@@ -204,7 +200,6 @@ import {
   type PendingLocationShare,
 } from "@/lib/location-share";
 import { assertOutgoingLinksSafe } from "@/lib/url-safety";
-import { LinkSafetyText } from "@/components/link-safety-text";
 import { CallProvider, useCallControls } from "@/components/call-provider";
 
 const emptyLocalMessages: LocalMessage[] = [];
@@ -212,7 +207,15 @@ const emptyLocalMessages: LocalMessage[] = [];
 export function InboxShell({ children }: { children?: React.ReactNode }) {
   const router = useRouter();
   const activeConversationId = useParams<{ id?: string }>().id;
-  const reduceMotion = useReducedMotion();
+  const [homeView, setHomeView] = useState<InboxActivityView>("agenda");
+  const [homeActivityOpen, setHomeActivityOpen] = useState(false);
+  const setHomeActivityView = useCallback((view: InboxActivityView) => {
+    setHomeView(view);
+    setHomeActivityOpen(true);
+  }, []);
+  const closeHomeActivity = useCallback(() => {
+    setHomeActivityOpen(false);
+  }, []);
   const queryClient = useQueryClient();
   const [unlockedUserId, setUnlockedUserId] = useState<string | null>(() =>
     isUnlocked() ? currentUserId() : null,
@@ -482,6 +485,12 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
       enabled={unlocked && identityMatchesAccount}
       userId={me.data.user.id}
     >
+    <InboxActivityState
+      view={homeView}
+      setView={setHomeActivityView}
+      mobileOpen={homeActivityOpen}
+      closeMobile={closeHomeActivity}
+    >
     <main
       className={`inbox-shell inbox-shell--pro grid h-dvh min-h-0 w-full grid-cols-1 overflow-hidden ${
         activeConversationId ? "fixed inset-0 z-30" : ""
@@ -497,7 +506,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
           role="alertdialog"
           aria-labelledby="history-recovery-code-title"
           aria-describedby="history-recovery-code-description"
-          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/75 p-4"
         >
           <section className="w-full max-w-lg space-y-4 rounded-3xl border border-white/10 bg-[#15171d] p-6 shadow-2xl">
             <h2 id="history-recovery-code-title" className="text-lg font-semibold">
@@ -603,15 +612,9 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
             : "…"}
         </div>
       ) : null}
-      <motion.aside
-        initial={false}
-        animate={{
-          x: activeConversationId && !reduceMotion ? -28 : 0,
-          opacity: activeConversationId ? 0 : 1,
-        }}
-        transition={{ duration: reduceMotion ? 0 : 0.42, ease: [0.22, 1, 0.36, 1] }}
-        className={`inbox-sidebar min-h-0 min-w-0 flex-col overflow-hidden border-r border-white/10 bg-[#070b12]/80 ${
-          activeConversationId ? "hidden" : "flex"
+      <aside
+        className={`inbox-sidebar min-h-0 min-w-0 flex-col overflow-hidden border-r border-white/10 bg-[#070b12] ${
+          activeConversationId ? "hidden" : homeActivityOpen ? "hidden md:flex" : "flex"
         }`}
       >
         <div className="h-full min-w-[15rem] overflow-y-auto overscroll-contain p-4 sm:p-5">
@@ -647,6 +650,36 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
           </div>
         </div>
 
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={homeActivityOpen && homeView === "email" ? "default" : "outline"}
+            className="gap-1.5"
+            onClick={() => setHomeActivityView("email")}
+          >
+            <Mail aria-hidden="true" className="size-3.5" />
+            Compose
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={homeActivityOpen && homeView === "event" ? "default" : "outline"}
+            className="gap-1.5"
+            onClick={() => setHomeActivityView("event")}
+          >
+            <Calendar aria-hidden="true" className="size-3.5" />
+            Schedule
+          </Button>
+        </div>
+        <button
+          type="button"
+          className="mb-6 text-left text-xs text-white/45 underline underline-offset-2 hover:text-white/70"
+          onClick={() => setHomeActivityView("agenda")}
+        >
+          Recent mail and upcoming events
+        </button>
+
         <form
           className="mb-6 flex gap-2"
           onSubmit={start.handleSubmit(async ({ username }) => {
@@ -672,23 +705,17 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
         </div>
 
         <div className="min-h-0 flex-1 space-y-2">
-          {(conversations.data ?? []).map((conversation, index) => (
-            <motion.div
+          {(conversations.data ?? []).map((conversation) => (
+            <Link
               key={conversation.id}
-              initial={reduceMotion ? false : { opacity: 0, y: 7 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: reduceMotion ? 0 : 0.24, delay: reduceMotion ? 0 : Math.min(index, 8) * 0.035 }}
+              href={`/inbox/${conversation.id}`}
+              className="block rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3.5 transition-colors hover:border-cyan-300/25 hover:bg-white/[0.05]"
             >
-              <Link
-                href={`/inbox/${conversation.id}`}
-                className="inbox-conversation-card block rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3.5 transition-[background-color,border-color,transform,box-shadow] duration-200 hover:translate-x-0.5 hover:border-cyan-300/25 hover:bg-white/[0.05] hover:shadow-[0_12px_30px_rgba(0,0,0,0.22)]"
-              >
-                <p className="text-sm font-medium tracking-tight">
-                  {conversation.peer?.displayName ?? conversation.peer?.username ?? "Unknown"}
-                </p>
-                <p className="mt-0.5 text-xs text-white/40">@{conversation.peer?.username}</p>
-              </Link>
-            </motion.div>
+              <p className="text-sm font-medium tracking-tight">
+                {conversation.peer?.displayName ?? conversation.peer?.username ?? "Unknown"}
+              </p>
+              <p className="mt-0.5 text-xs text-white/40">@{conversation.peer?.username}</p>
+            </Link>
           ))}
           <UserDiscovery
             key={me.data.user.id}
@@ -697,40 +724,27 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
           />
         </div>
         </div>
-      </motion.aside>
-      <motion.section
-        initial={{ opacity: 0, x: reduceMotion ? 0 : 16 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: reduceMotion ? 0 : 0.24, ease: "easeOut" }}
+      </aside>
+      <section
         className={`min-h-0 min-w-0 w-full overflow-hidden ${
-          activeConversationId ? "flex" : "hidden md:block"
+          activeConversationId || homeActivityOpen ? "flex" : "hidden md:flex"
         }`}
         style={{ gridColumn: activeConversationId ? "1 / -1" : "2 / -1" }}
       >
         {children}
-      </motion.section>
+      </section>
     </main>
+    </InboxActivityState>
     </CallProvider>
   );
 }
 
 export function Thread() {
-  const params = useParams<{ id: string }>();
-  const conversationId = params.id;
-  const reduceMotion = useReducedMotion();
+  const conversationId = useParams<{ id: string }>().id;
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={conversationId}
-        initial={reduceMotion ? false : { opacity: 0, x: 18 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: -12 }}
-        transition={{ duration: reduceMotion ? 0 : 0.28, ease: "easeOut" }}
-        className="h-full min-h-0 min-w-0"
-      >
-        <ThreadConversation conversationId={conversationId} />
-      </motion.div>
-    </AnimatePresence>
+    <div className="h-full min-h-0 min-w-0">
+      <ThreadConversation conversationId={conversationId} />
+    </div>
   );
 }
 
@@ -781,6 +795,7 @@ function ThreadConversation({
   const [agentProposals, setAgentProposals] = useState<AgentProposal[]>([]);
   const [agentActionError, setAgentActionError] = useState<string | null>(null);
   const [approveFlash, setApproveFlash] = useState<string | null>(null);
+  const [activitySheet, setActivitySheet] = useState<InboxActivityView | null>(null);
   const approveFlashTimer = useRef<number | null>(null);
   const [jobDefaults, setJobDefaults] = useState<JobManagerDefaults>({});
   const jobDefaultsRef = useRef<JobManagerDefaults>({});
@@ -1020,10 +1035,10 @@ function ThreadConversation({
     () => localMessages.map(localMessageForAssistant),
     [localMessages],
   );
-  const visibleMessages = dedupeLogicalMessages([
-    ...olderMessages,
-    ...localMessages,
-  ]);
+  const visibleMessages = useMemo(
+    () => dedupeLogicalMessages([...olderMessages, ...localMessages]),
+    [localMessages, olderMessages],
+  );
   const selectedSpeechLanguage =
     assistantSettings?.language === "arabic" ||
     (assistantSettings?.language === "auto" &&
@@ -1100,16 +1115,9 @@ function ThreadConversation({
     requestAnimationFrame(() => {
       const scroller = chatScrollRef.current;
       if (!scroller) return;
-      if (reduceMotion) {
-        scroller.scrollTop = scroller.scrollHeight;
-      } else {
-        scroller.scrollTo({
-          top: scroller.scrollHeight,
-          behavior: "smooth",
-        });
-      }
+      scroller.scrollTop = scroller.scrollHeight;
     });
-  }, [latestLocalMessageId, local.isSuccess, reduceMotion]);
+  }, [latestLocalMessageId, local.isSuccess]);
 
   useLayoutEffect(() => {
     const pending = pendingHistoryScroll.current;
@@ -2730,7 +2738,12 @@ function ThreadConversation({
     try {
       runtime.propose(action, { provenance });
       setAgentActionError(null);
-      setCompanionOpen(true);
+      if (isJobManagerTool(action.type)) {
+        setCompanionOpen(false);
+        setActivitySheet(null);
+      } else {
+        setCompanionOpen(true);
+      }
     } catch (error) {
       setAgentActionError(
         error instanceof Error
@@ -3327,13 +3340,47 @@ function ThreadConversation({
     }
   }
 
+  const toggleReply = useCallback((messageId: string) => {
+    setSelectedReplyIds((ids) =>
+      ids.includes(messageId)
+        ? ids.filter((id) => id !== messageId)
+        : ids.length >= 8
+          ? ids
+          : [...ids, messageId],
+    );
+  }, []);
+  const askDelete = useCallback((messageId: string) => {
+    setDeleteMessageError(null);
+    setConfirmDeleteId(messageId);
+  }, []);
+  const deleteMutate = deleteMessage.mutate;
+  const confirmDelete = useCallback((message: LocalMessage) => {
+    deleteMutate(message);
+  }, [deleteMutate]);
+  const cancelDelete = useCallback(() => {
+    setConfirmDeleteId(null);
+  }, []);
+
+  function stageInboxAction(action: AgentToolAction) {
+    const runtime = agentRuntimeRef.current;
+    if (!runtime) {
+      const message = "Sophia actions are not ready yet.";
+      setAgentActionError(message);
+      throw new Error(message);
+    }
+    runtime.propose(action, { provenance: "command" });
+    setAgentActionError(null);
+    setActivitySheet(null);
+    setCompanionOpen(false);
+  }
+
   if (!conversation) {
     return <div className="flex h-full items-center justify-center text-white/40">Select a conversation.</div>;
   }
 
   return (
     <div className="thread-stage relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <header className="relative z-30 flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-white/10 bg-[#070b12]/92 px-3 py-2.5 backdrop-blur-xl sm:px-6 sm:py-4">
+      <header className="relative z-30 flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-white/10 bg-[#070b12] px-3 py-2.5 sm:px-6 sm:py-4">
         <div className="flex min-w-0 items-center gap-2">
           <Button
             type="button"
@@ -3408,6 +3455,32 @@ function ThreadConversation({
         <Button
           type="button"
           size="sm"
+          variant={activitySheet === "email" ? "default" : "outline"}
+          className="gap-1.5"
+          aria-pressed={activitySheet === "email"}
+          onClick={() =>
+            setActivitySheet((current) => (current === "email" ? null : "email"))
+          }
+        >
+          <Mail aria-hidden="true" className="size-3.5" />
+          Mail
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={activitySheet === "event" ? "default" : "outline"}
+          className="gap-1.5"
+          aria-pressed={activitySheet === "event"}
+          onClick={() =>
+            setActivitySheet((current) => (current === "event" ? null : "event"))
+          }
+        >
+          <Calendar aria-hidden="true" className="size-3.5" />
+          Calendar
+        </Button>
+        <Button
+          type="button"
+          size="sm"
           variant={companionOpen ? "default" : "outline"}
           className={`relative gap-2 overflow-visible transition-[border-color,background-color,box-shadow,color] duration-200 ${
             aiIsThinking ? "ai-thinking-glow border-(--accent)/40" : ""
@@ -3469,7 +3542,7 @@ function ThreadConversation({
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
                 transition={{ duration: reduceMotion ? 0 : 0.16, ease: "easeOut" }}
-                className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+5.75rem)] z-50 max-h-[calc(100dvh-6.5rem-env(safe-area-inset-bottom))] space-y-4 overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-[#111]/[0.98] p-4 shadow-2xl backdrop-blur-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-[min(92vw,26rem)] sm:max-h-[min(82dvh,48rem)]"
+                className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+5.75rem)] z-50 max-h-[calc(100dvh-6.5rem-env(safe-area-inset-bottom))] space-y-4 overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-[#111] p-4 shadow-2xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-[min(92vw,26rem)] sm:max-h-[min(82dvh,48rem)]"
               >
             <label className="flex cursor-pointer items-start gap-3 text-sm">
               <input
@@ -4099,7 +4172,7 @@ function ThreadConversation({
             duration: reduceMotion ? 0 : 0.28,
             ease: [0.22, 1, 0.36, 1],
           }}
-          className="fixed inset-x-0 bottom-[env(safe-area-inset-bottom)] top-[max(5.5rem,env(safe-area-inset-top))] z-40 flex min-h-0 flex-col overflow-hidden border border-white/10 bg-[#0b0f16]/[0.98] shadow-2xl shadow-black/50 backdrop-blur-xl sm:absolute sm:inset-x-auto sm:right-3 sm:bottom-3 sm:top-16 sm:w-[min(92vw,32rem)] sm:rounded-3xl md:right-4 md:w-[min(52vw,30rem)] lg:right-5 lg:w-[min(42vw,28rem)]"
+          className="fixed inset-x-0 bottom-[env(safe-area-inset-bottom)] top-[max(5.5rem,env(safe-area-inset-top))] z-40 flex min-h-0 flex-col overflow-hidden border border-white/10 bg-[#0b0f16] shadow-2xl shadow-black/40 sm:absolute sm:inset-x-auto sm:right-3 sm:bottom-3 sm:top-16 sm:w-[min(92vw,32rem)] sm:rounded-3xl md:right-4 md:w-[min(52vw,30rem)] lg:right-5 lg:w-[min(42vw,28rem)]"
         >
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -4644,8 +4717,7 @@ function ThreadConversation({
                         proposal.action.type === "web_search" ||
                         proposal.action.type === "accept_finding" ||
                         proposal.action.type === "dismiss_finding" ||
-                        proposal.action.type === "snooze_reminder" ||
-                        isJobManagerTool(proposal.action.type),
+                        proposal.action.type === "snooze_reminder",
                     )
                     .map((proposal) => (
                       <SophiaProposalCard
@@ -4755,7 +4827,7 @@ function ThreadConversation({
         <div className="pointer-events-none absolute bottom-[7.5rem] left-3 z-20 sm:bottom-28 sm:left-6">
           <button
             type="button"
-            className="pointer-events-auto rounded-[1.75rem] border border-white/10 bg-[#0b1018]/85 p-2 shadow-2xl backdrop-blur-md transition hover:border-cyan-300/30"
+            className="pointer-events-auto rounded-[1.75rem] border border-white/10 bg-[#0b1018] p-2 shadow-2xl transition-colors hover:border-cyan-300/30"
             aria-label={companionOpen ? "Focus Sophia panel" : "Open Sophia"}
             onClick={() => setCompanionOpen(true)}
           >
@@ -4769,14 +4841,16 @@ function ThreadConversation({
           </button>
         </div>
       ) : null}
+      <div className="relative min-h-0 min-w-0 flex-1">
       <div
         ref={chatScrollRef}
         onScroll={(event) => {
+          if (activitySheet) return;
           if (event.currentTarget.scrollTop < 64) {
             void loadOlderMessages();
           }
         }}
-        className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-3 sm:px-6 sm:py-6"
+        className="thread-scroll absolute inset-0 space-y-3 overflow-y-auto overscroll-contain px-3 py-3 sm:px-6 sm:py-6"
       >
         {loadingOlderMessages ? (
           <p role="status" className="py-2 text-center text-xs text-white/45">
@@ -4798,140 +4872,34 @@ function ThreadConversation({
             Beginning of conversation
           </p>
         ) : null}
-        <AnimatePresence initial={false}>
-          {visibleMessages.map((message) => {
-            const payload = parseChatPayload(message.plaintext);
-            return (
-            <motion.div
-              key={message.id}
-              initial={
-                reduceMotion
-                  ? false
-                  : { opacity: 0, y: 7, scale: 0.99 }
-              }
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              className={`group relative max-w-[88%] rounded-[1.35rem] px-3.5 py-2.5 text-sm shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:max-w-[72%] sm:px-4 sm:py-3 ${
-                message.fromMe
-                  ? "ml-auto bg-gradient-to-br from-white to-[#e8eef8] text-black"
-                  : "border border-white/10 bg-white/[0.07] text-white/90 backdrop-blur-sm"
-              } ${
-                selectedReplyIds.includes(message.id)
-                  ? "ring-2 ring-cyan-300/50"
-                  : ""
-              }`}
-              layout
-              exit={{ opacity: 0, scale: 0.94, x: message.fromMe ? 14 : -14, height: 0, marginBottom: 0 }}
-              transition={{ duration: reduceMotion ? 0 : 0.24, ease: "easeInOut" }}
-            >
-              {payload.type === "image" ? (
-                <EncryptedPhoto
-                  conversationId={conversationId}
-                  payload={payload}
-                  fromMe={message.fromMe}
-                />
-              ) : payload.type === "album" ? (
-                <EncryptedAlbum
-                  conversationId={conversationId}
-                  payload={payload}
-                  fromMe={message.fromMe}
-                />
-              ) : payload.type === "video" ? (
-                <EncryptedVideo
-                  conversationId={conversationId}
-                  payload={payload}
-                />
-              ) : payload.type === "voice" ? (
-                <EncryptedVoiceNote
-                  conversationId={conversationId}
-                  payload={payload}
-                />
-              ) : payload.type === "file" ? (
-                <EncryptedFileAttachment
-                  conversationId={conversationId}
-                  payload={payload}
-                />
-              ) : payload.type === "location" ? (
-                <EncryptedLocation payload={payload} fromMe={message.fromMe} />
-              ) : payload.type === "reply" ? (
-                <ReplyQuoteBlock payload={payload} fromMe={message.fromMe} />
-              ) : (
-                <LinkSafetyText text={payload.text} />
-              )}
-              <div className="mt-2 flex items-center justify-between gap-2">
-                {replySelectMode ? (
-                  <label className={`flex items-center gap-2 text-[11px] ${message.fromMe ? "text-black/55" : "text-white/55"}`}>
-                    <input
-                      type="checkbox"
-                      checked={selectedReplyIds.includes(message.id)}
-                      onChange={() => {
-                        setSelectedReplyIds((ids) =>
-                          ids.includes(message.id)
-                            ? ids.filter((id) => id !== message.id)
-                            : ids.length >= 8
-                              ? ids
-                              : [...ids, message.id],
-                        );
-                      }}
-                    />
-                    Include in reply
-                  </label>
-                ) : (
-                  <span />
-                )}
-              {message.fromMe ? (
-                <div className="flex justify-end">
-                  {confirmDeleteId === message.id ? (
-                    <motion.div
-                      initial={reduceMotion ? false : { opacity: 0, y: 5, scale: 0.96 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 4, scale: 0.96 }}
-                      className="flex items-center gap-2 rounded-full bg-black/10 px-2 py-1 text-[11px]"
-                    >
-                      <span>Delete for everyone?</span>
-                      {deleteMessageError ? (
-                        <span role="alert" className="text-red-700">
-                          {deleteMessageError}
-                        </span>
-                      ) : null}
-                      <button
-                        type="button"
-                        disabled={deleteMessage.isPending}
-                        className="rounded-full bg-red-600 px-2.5 py-1 font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
-                        onClick={() => deleteMessage.mutate(message)}
-                      >
-                        {deleteMessage.isPending ? "Deleting…" : "Delete"}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={deleteMessage.isPending}
-                        className="rounded-full px-2 py-1 text-black/60 hover:bg-black/10 disabled:opacity-50"
-                        onClick={() => setConfirmDeleteId(null)}
-                      >
-                        Cancel
-                      </button>
-                    </motion.div>
-                  ) : (
-                    <button
-                      type="button"
-                      aria-label="Delete your message for everyone"
-                      title="Delete for everyone"
-                      disabled={deleteMessage.isPending}
-                      className="rounded-full p-1.5 text-black/45 opacity-70 transition-[opacity,background-color,transform] hover:scale-105 hover:bg-black/10 hover:text-black focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-black/50 sm:opacity-0 sm:group-hover:opacity-100 disabled:opacity-40"
-                      onClick={() => {
-                        setDeleteMessageError(null);
-                        setConfirmDeleteId(message.id);
-                      }}
-                    >
-                      <Trash2 aria-hidden="true" className="size-3.5" />
-                    </button>
-                  )}
-                </div>
-              ) : null}
-              </div>
-            </motion.div>
-            );
-          })}
-        </AnimatePresence>
+        {activitySheet ? null : (
+          <ThreadMessageList
+            messages={visibleMessages}
+            conversationId={conversationId}
+            replySelectMode={replySelectMode}
+            selectedReplyIds={selectedReplyIds}
+            confirmDeleteId={confirmDeleteId}
+            deleteMessageError={deleteMessageError}
+            deletePending={deleteMessage.isPending}
+            onToggleReply={toggleReply}
+            onAskDelete={askDelete}
+            onConfirmDelete={confirmDelete}
+            onCancelDelete={cancelDelete}
+          />
+        )}
+      </div>
+      {activitySheet ? (
+        <div className="inbox-activity-sheet absolute inset-0 z-10 flex min-h-0 flex-col bg-[#070b12]">
+          <InboxActivityPanel
+            view={activitySheet}
+            onViewChange={setActivitySheet}
+            onClose={() => setActivitySheet(null)}
+            onStage={stageInboxAction}
+            emailProvider={jobDefaults.emailProvider ?? "gmail"}
+            calendarProvider={jobDefaults.calendarProvider ?? "google"}
+          />
+        </div>
+      ) : null}
       </div>
       {assistantSettings?.enabled && companionObservation ? (
         <aside
@@ -5181,12 +5149,27 @@ function ThreadConversation({
             </section>
           );
         })}
+      {!companionOpen ? <div className="mx-3 mb-2 sm:mx-4"><SophiaApproveSuccess message={approveFlash} /></div> : null}
+      {agentProposals.some((proposal) => isJobManagerTool(proposal.action.type)) ? (
+        <div className="mx-3 mb-2 max-h-64 space-y-2 overflow-y-auto sm:mx-4">
+          {agentProposals
+            .filter((proposal) => isJobManagerTool(proposal.action.type))
+            .map((proposal) => (
+              <SophiaProposalCard
+                key={proposal.id}
+                proposal={proposal}
+                onApprove={approveAgentProposal}
+                onCancel={cancelAgentProposal}
+              />
+            ))}
+        </div>
+      ) : null}
       {agentActionError ? (
         <p role="alert" className="mx-4 mb-2 text-xs text-red-300">
           {agentActionError}
         </p>
       ) : null}
-      <div className="relative shrink-0 border-t border-white/10 bg-[#070b12]/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:p-4">
+      <div className="relative shrink-0 border-t border-white/10 bg-[#070b12] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
         {replySelectMode || selectedReplyIds.length ? (
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.06] px-3 py-2 text-xs text-cyan-50/85">
             <p>
