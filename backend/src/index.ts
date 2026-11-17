@@ -21,6 +21,7 @@ import { integrationCalendarRoutes } from "./routes/integrations-calendar.js";
 import { integrationEmailRoutes } from "./routes/integrations-email.js";
 import { integrationWorkRoutes } from "./routes/integrations-work.js";
 import { integrationCollabRoutes } from "./routes/integrations-collab.js";
+import { integrationWriteRoutes } from "./routes/integrations-write.js";
 import { registerRealtime } from "./ws.js";
 
 const app = Fastify({ logger: true });
@@ -87,6 +88,7 @@ await app.register(integrationCalendarRoutes);
 await app.register(integrationEmailRoutes);
 await app.register(integrationWorkRoutes);
 await app.register(integrationCollabRoutes);
+await app.register(integrationWriteRoutes);
 await registerCallIceServerRoute(app);
 await registerRealtime(app);
 

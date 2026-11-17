@@ -8,11 +8,11 @@ import { createOAuthState, parseOAuthState } from "../src/integrations/oauth-sta
 import { calendarProviders } from "../src/integrations/calendar-providers.js";
 
 describe("calendar OAuth helpers", () => {
-  it("uses minimum read-only calendar scopes", () => {
+  it("uses calendar write scopes (Phase 4.2)", () => {
     assert.deepEqual(calendarProviders.google.scopes, [
-      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
     ]);
-    assert.ok(calendarProviders.outlook.scopes.includes("Calendars.Read"));
+    assert.ok(calendarProviders.outlook.scopes.includes("Calendars.ReadWrite"));
     assert.ok(!calendarProviders.google.scopes.some((scope) => /mail/i.test(scope)));
   });
 

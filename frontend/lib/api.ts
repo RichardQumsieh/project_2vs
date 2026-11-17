@@ -665,9 +665,18 @@ export const api = {
   calendarIntegrationStatus: () =>
     request<{
       providers: {
-        google: { configured: boolean; scopes: string[] };
-        outlook: { configured: boolean; scopes: string[] };
+        google: {
+          configured: boolean;
+          scopes: string[];
+          requiredWriteScopes: string[];
+        };
+        outlook: {
+          configured: boolean;
+          scopes: string[];
+          requiredWriteScopes: string[];
+        };
       };
+      writesEnabled: boolean;
       privacy: {
         storesChatPlaintext: boolean;
         aiUsesCalendarBodiesByDefault: boolean;
@@ -739,9 +748,18 @@ export const api = {
   emailIntegrationStatus: () =>
     request<{
       providers: {
-        gmail: { configured: boolean; scopes: string[] };
-        "outlook-mail": { configured: boolean; scopes: string[] };
+        gmail: {
+          configured: boolean;
+          scopes: string[];
+          requiredWriteScopes: string[];
+        };
+        "outlook-mail": {
+          configured: boolean;
+          scopes: string[];
+          requiredWriteScopes: string[];
+        };
       };
+      writesEnabled: boolean;
       privacy: {
         storesChatPlaintext: boolean;
         storesFullBodies: boolean;
@@ -803,9 +821,18 @@ export const api = {
   workIntegrationStatus: () =>
     request<{
       providers: {
-        github: { configured: boolean; scopes: string[] };
-        linear: { configured: boolean; scopes: string[] };
+        github: {
+          configured: boolean;
+          scopes: string[];
+          requiredWriteScopes: string[];
+        };
+        linear: {
+          configured: boolean;
+          scopes: string[];
+          requiredWriteScopes: string[];
+        };
       };
+      writesEnabled: boolean;
       privacy: {
         storesChatPlaintext: boolean;
         storesIssueBodies: boolean;
@@ -863,8 +890,13 @@ export const api = {
   collabIntegrationStatus: () =>
     request<{
       providers: {
-        slack: { configured: boolean; scopes: string[] };
+        slack: {
+          configured: boolean;
+          scopes: string[];
+          requiredWriteScopes: string[];
+        };
       };
+      writesEnabled: boolean;
       privacy: {
         storesChatPlaintext: boolean;
         storesMessageHistory: boolean;
@@ -872,6 +904,13 @@ export const api = {
         note: string;
       };
     }>("/integrations/collab/status"),
+
+  integrationWritesStatus: () =>
+    request<{
+      writesEnabled: boolean;
+      note: string;
+      requiredWriteScopes: Record<string, string[]>;
+    }>("/integrations/writes/status"),
 
   listCollabConnections: () =>
     request<{

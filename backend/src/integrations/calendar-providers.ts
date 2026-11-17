@@ -4,7 +4,7 @@ export type CalendarProviderConfig = {
   id: CalendarProviderId;
   prismaProvider: "GOOGLE_CALENDAR" | "OUTLOOK_CALENDAR";
   label: string;
-  /** Minimum read-only calendar scopes. */
+  /** Calendar OAuth scopes (read + write events as of Phase 4.2). */
   scopes: string[];
   authorizeUrl: string;
   tokenUrl: string;
@@ -19,7 +19,8 @@ export const calendarProviders: Record<
     id: "google",
     prismaProvider: "GOOGLE_CALENDAR",
     label: "Google Calendar",
-    scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
+    // calendar.events covers view + create/update/delete of events.
+    scopes: ["https://www.googleapis.com/auth/calendar.events"],
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
     revokeUrl: "https://oauth2.googleapis.com/revoke",
@@ -28,7 +29,7 @@ export const calendarProviders: Record<
     id: "outlook",
     prismaProvider: "OUTLOOK_CALENDAR",
     label: "Outlook Calendar",
-    scopes: ["offline_access", "Calendars.Read", "User.Read"],
+    scopes: ["offline_access", "Calendars.ReadWrite", "User.Read"],
     authorizeUrl:
       "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
     tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",

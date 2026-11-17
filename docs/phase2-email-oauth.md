@@ -2,9 +2,10 @@
 
 ## Privacy
 - Separate from server `GMAIL_*` recovery-sender credentials.
-- Read-only scopes (`gmail.readonly` / `Mail.Read`).
+- Scopes (Phase 4.2): Gmail `gmail.readonly` + `gmail.compose` (drafts; no `gmail.send` by default); Outlook `Mail.ReadWrite` (+ `offline_access`, `User.Read`). Users must reconsent after console upgrade.
 - Mirrors store **subject / from / snippet** only — not full bodies.
 - Connecting mail ≠ AI consent; chat E2EE unchanged.
+- Draft write APIs: see `docs/phase4-write-oauth.md` (`INTEGRATIONS_WRITE_ENABLED`).
 
 ## Env
 | Variable | Purpose |

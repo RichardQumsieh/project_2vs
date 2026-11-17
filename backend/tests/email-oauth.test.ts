@@ -7,13 +7,19 @@ import {
 } from "../src/integrations/email-sync.js";
 
 describe("email OAuth helpers", () => {
-  it("uses read-only mail scopes without send/modify", () => {
+  it("uses draft-capable mail scopes without send (Phase 4.2)", () => {
     assert.deepEqual(emailProviders.gmail.scopes, [
       "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.compose",
     ]);
-    assert.ok(emailProviders["outlook-mail"].scopes.includes("Mail.Read"));
+    assert.ok(emailProviders["outlook-mail"].scopes.includes("Mail.ReadWrite"));
     assert.ok(
-      !emailProviders.gmail.scopes.some((scope) => /modify|compose|send/i.test(scope)),
+      !emailProviders.gmail.scopes.some((scope) => /gmail\.send$/i.test(scope)),
+    );
+    assert.ok(
+      !emailProviders["outlook-mail"].scopes.some((scope) =>
+        /Mail\.Send/i.test(scope),
+      ),
     );
   });
 
