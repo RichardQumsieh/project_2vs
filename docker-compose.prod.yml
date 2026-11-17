@@ -9,6 +9,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET before starting production}
       TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?Set TOTP_ENCRYPTION_KEY before starting production}
       PORT: 3001
+      # Must come from the host environment or repo-root `.env` (Compose interpolation).
+      # `backend/.env` / env_file does NOT supply this key when `environment:` sets it.
+      # After `cp backend/.env .`, edit FRONTEND_ORIGIN — the example value is localhost.
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?Set FRONTEND_ORIGIN before starting production}
       COOKIE_NAME: messenger_session
       COOKIE_SECURE: ${COOKIE_SECURE:-true}

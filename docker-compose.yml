@@ -39,9 +39,11 @@ services:
       JWT_SECRET: dev-secret-key-for-local-messenger-1234
       TOTP_ENCRYPTION_KEY: 1f8364077a753ad2e85819ea23a046bb54b4ed2ad14c393f2f8cb4f5d2c9b611
       PORT: 3001
-      FRONTEND_ORIGIN: http://localhost:3000
+      # Literal localhost previously ignored root `.env`; interpolate so host/.env can override.
+      # Prod overlay requires FRONTEND_ORIGIN explicitly (docker-compose.prod.yml).
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       COOKIE_NAME: messenger_session
-      COOKIE_SECURE: "false"
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
     ports:
       - "127.0.0.1:3001:3001"
     volumes:
