@@ -1,10 +1,10 @@
+import { resolveApiUrl } from "./api-url";
+
 export function createContentSecurityPolicy(
   nonce: string,
   options: { development: boolean; apiUrl?: string },
 ) {
-  const apiOrigin = new URL(
-    options.apiUrl ?? "http://localhost:3001",
-  );
+  const apiOrigin = new URL(resolveApiUrl(options.apiUrl));
   const apiWebSocketOrigin = new URL(apiOrigin);
   apiWebSocketOrigin.protocol = apiOrigin.protocol === "https:" ? "wss:" : "ws:";
 
