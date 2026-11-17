@@ -418,6 +418,87 @@ export function snoozeFinding(
   });
 }
 
+export function updateTaskDraft(
+  state: RadarStoreState,
+  taskDraftId: string,
+  update: Partial<Pick<RadarTaskDraft, "title" | "dueAt" | "status">>,
+  now = new Date(),
+): RadarStoreState {
+  const timestamp = now.toISOString();
+  const drafts = state.taskDrafts.map((draft) => {
+    if (draft.id !== taskDraftId) {
+      return draft;
+    }
+    const title =
+      typeof update.title === "string"
+        ? normalizeText(update.title, maxTitleCharacters) || draft.title
+        : draft.title;
+    return {
+      ...draft,
+      title,
+      dueAt:
+        update.dueAt !== undefined
+          ? update.dueAt?.trim() || undefined
+          : draft.dueAt,
+      status: update.status ?? draft.status,
+      updatedAt: timestamp,
+    };
+  });
+  if (!drafts.some((draft) => draft.id === taskDraftId)) {
+    throw new Error("That local task draft is no longer available.");
+  }
+  const draft = drafts.find((item) => item.id === taskDraftId);
+  const findings = draft?.findingId
+    ? state.findings.map((finding) =>
+        finding.id === draft.findingId
+          ? {
+              ...finding,
+              title: draft.title,
+              dueAt: draft.dueAt,
+              updatedAt: timestamp,
+            }
+          : finding,
+      )
+    : state.findings;
+  return {
+    ...state,
+    findings,
+    taskDrafts: drafts,
+  };
+}
+
+export function createFollowUpTaskDraft(
+  state: RadarStoreState,
+  options: {
+    title: string;
+    dueAt?: string;
+    conversationId?: string;
+    findingId?: string;
+    id?: string;
+    now?: Date;
+  },
+): RadarStoreState {
+  const title = normalizeText(options.title, maxTitleCharacters);
+  if (!title) {
+    throw new Error("A follow-up title is required.");
+  }
+  const now = (options.now ?? new Date()).toISOString();
+  const draft: RadarTaskDraft = {
+    id: options.id ?? crypto.randomUUID(),
+    findingId: options.findingId,
+    conversationId: options.conversationId,
+    title,
+    dueAt: options.dueAt?.trim() || undefined,
+    status: "open",
+    createdAt: now,
+    updatedAt: now,
+  };
+  return {
+    ...state,
+    taskDrafts: [draft, ...state.taskDrafts].slice(0, maxTaskDrafts),
+  };
+}
+
 let dbPromise: Promise<IDBPDatabase<RadarDB>> | undefined;
 
 async function getRadarDb() {

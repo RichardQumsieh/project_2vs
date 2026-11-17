@@ -7,6 +7,14 @@ import {
 import type { MemoryFact } from "./personal-memory";
 import { answerRadarQuestion } from "./radar-briefing";
 import type { RadarStoreState } from "./radar-store";
+import {
+  defaultEventWindow,
+  parseDurationMinutes,
+  parseEmailAddresses,
+  parseGithubRepoRef,
+  parseSlackChannelHint,
+  type JobManagerDefaults,
+} from "./sophia-job-tools";
 
 export type SophiaIntent =
   | {
@@ -32,6 +40,57 @@ export type SophiaIntent =
   | {
       type: "radar_answer";
       text: string;
+    }
+  | {
+      type: "draft_email";
+      provider: "gmail" | "outlook-mail";
+      to: string[];
+      subject: string;
+      body: string;
+      cc?: string[];
+    }
+  | {
+      type: "create_calendar_event";
+      provider: "google" | "outlook";
+      title: string;
+      startsAt: string;
+      endsAt: string;
+      allDay?: boolean;
+      description?: string;
+    }
+  | {
+      type: "create_github_issue";
+      owner: string;
+      repo: string;
+      title: string;
+      body?: string;
+    }
+  | {
+      type: "create_linear_issue";
+      title: string;
+      teamId?: string;
+      description?: string;
+    }
+  | {
+      type: "post_slack_message";
+      channelId?: string;
+      channelName?: string;
+      text: string;
+    }
+  | {
+      type: "propose_follow_up";
+      title: string;
+      dueAt?: string;
+      conversationId?: string;
+      sourceFindingId?: string;
+      notes?: string;
+    }
+  | {
+      type: "reschedule_commitment";
+      taskDraftId: string;
+      title: string;
+      dueAt: string;
+      previousDueAt?: string;
     };
 
 export type SophiaPlan = {
@@ -51,10 +110,11 @@ const weekdays = [
 ] as const;
 
 const commandCue =
-  /\b(prepare|create|draft|write|make|research|look up|search|organize|schedule|set up|remember|forget|remind|outstanding|promise[d]?|briefing|what's left|what is left)\b/i;
+  /\b(prepare|create|draft|write|make|research|look up|search|organize|schedule|set up|book|file|open|post|remind|follow[\s-]?up|reschedule|push|remember|forget|outstanding|promise[d]?|briefing|what's left|what is left|linear|github|slack|email|calendar)\b/i;
 
 export function stripSophiaWakeWord(input: string) {
   return input
+    .replace(/@?(?:sophia|jarvis)\b/gi, " ")
     .replace(
       /\b(?:hey |ok |okay |hi )?(?:sophia|jarvis)\b|,?\s*(?:sophia|jarvis)\b/gi,
       " ",
@@ -64,7 +124,10 @@ export function stripSophiaWakeWord(input: string) {
 }
 
 export function isSophiaAddressed(input: string) {
-  return /\b(?:hey |ok |okay |hi )?(?:sophia|jarvis)\b/i.test(input);
+  return (
+    /(?:^|[\s,])@?(?:sophia|jarvis)\b/i.test(input) ||
+    /\b(?:hey |ok |okay |hi )?(?:sophia|jarvis)\b/i.test(input)
+  );
 }
 
 function nextWeekday(now: Date, weekday: (typeof weekdays)[number]) {
@@ -108,6 +171,31 @@ function memoryHint(memories: MemoryFact[], pattern: RegExp) {
   return memories.find((fact) => pattern.test(fact.text))?.text;
 }
 
+function findOpenTaskForReschedule(store: RadarStoreState | null | undefined, text: string) {
+  if (!store) {
+    return null;
+  }
+  const open = store.taskDrafts.filter((draft) => draft.status === "open");
+  if (!open.length) {
+    return null;
+  }
+  const lowered = text.toLowerCase();
+  const matched = open.find((draft) =>
+    draft.title
+      .toLowerCase()
+      .split(/\s+/)
+      .some((token) => token.length > 3 && lowered.includes(token)),
+  );
+  return matched ?? open[0] ?? null;
+}
+
+function extractWithPerson(text: string) {
+  const match = text.match(
+    /\b(?:with|for)\s+@?([A-Za-z][A-Za-z0-9_.-]{1,40})\b/i,
+  );
+  return match?.[1] ?? null;
+}
+
 export function parseSophiaCommand(
   input: string,
   options: {
@@ -116,6 +204,7 @@ export function parseSophiaCommand(
     now?: Date;
     radarStore?: RadarStoreState | null;
     conversationId?: string | null;
+    jobDefaults?: JobManagerDefaults;
   } = {},
 ): SophiaPlan {
   const raw = input.replace(/\u0000/g, "").trim();
@@ -130,6 +219,7 @@ export function parseSophiaCommand(
 
   const now = options.now ?? new Date();
   const memories = options.memories ?? [];
+  const defaults = options.jobDefaults ?? {};
   const intents: SophiaIntent[] = [];
   const summaries: string[] = [];
   const due = resolveRelativeDate(text, now);
@@ -145,15 +235,60 @@ export function parseSophiaCommand(
     /\borganize a meeting\b/i.test(text) ||
     (/\b(meeting|huddle|sync|standup)\b/i.test(text) &&
       /\b(organize|schedule|set up|arrange|book)\b/i.test(text));
+  const wantsCalendarHold =
+    /\b(schedule|book|hold|block)\b/i.test(text) &&
+    (/\b(\d{1,3}\s*(m|min|mins|minutes|h|hr|hrs|hours)|calendar|with\s+\w+)\b/i.test(
+      text,
+    ) ||
+      Boolean(due));
+  const wantsEmailDraft =
+    /\b(draft|write|compose)\b.+\b(email|e-mail)\b/i.test(text) ||
+    /\bemail\b.+\b(draft|to)\b/i.test(text);
+  const wantsGithubIssue =
+    /\b(file|create|open)\b.+\b(github\s+)?issue\b/i.test(text) ||
+    /\bgithub\b.+\b(issue|ticket)\b/i.test(text);
+  const wantsLinearIssue =
+    /\b(file|create|open)\b.+\blinear\b/i.test(text) ||
+    /\blinear\b.+\b(issue|ticket)\b/i.test(text);
+  const wantsSlackPost =
+    /\b(draft|post|send|summariz(?:e|ing))\b.+\bslack\b/i.test(text) ||
+    /\bslack\b.+\b(#|to|channel|summar)/i.test(text);
+  const wantsFollowUp =
+    /\b(follow[\s-]?up(?:\s+on)?|remind me(?:\s+to)?|nudge)\b/i.test(text) &&
+    !wantsGithubIssue &&
+    !wantsLinearIssue &&
+    !wantsEmailDraft &&
+    !wantsSlackPost &&
+    !wantsCalendarHold;
+  const wantsReschedule =
+    /\b(reschedule|push(?:\s+the)?\s+due|move(?:\s+the)?\s+deadline|defer)\b/i.test(
+      text,
+    );
   const rememberMatch = text.match(/\bremember(?: that)?\s+(.{3,240})$/i);
   const forgetMatch = text.match(/\bforget(?: that)?\s+(.{3,240})$/i);
+  const jobManagerIntent =
+    wantsCalendarHold ||
+    wantsEmailDraft ||
+    wantsGithubIssue ||
+    wantsLinearIssue ||
+    wantsSlackPost ||
+    wantsFollowUp ||
+    wantsReschedule;
   const explicitMemoryOnly =
     Boolean(rememberMatch || forgetMatch) &&
     !wantsPresentation &&
     !wantsResearch &&
-    !wantsMeeting;
+    !wantsMeeting &&
+    !jobManagerIntent;
 
-  if (options.radarStore && !explicitMemoryOnly && !wantsPresentation && !wantsResearch && !wantsMeeting) {
+  if (
+    options.radarStore &&
+    !explicitMemoryOnly &&
+    !wantsPresentation &&
+    !wantsResearch &&
+    !wantsMeeting &&
+    !jobManagerIntent
+  ) {
     const radarAnswer = answerRadarQuestion(text, options.radarStore, {
       now,
       conversationId: options.conversationId,
@@ -174,6 +309,128 @@ export function parseSophiaCommand(
   } else if (explicitMemoryOnly && forgetMatch?.[1]) {
     intents.push({ type: "forget_fact", query: forgetMatch[1].trim() });
     summaries.push("remove a personal note");
+  }
+
+  if (!explicitMemoryOnly && wantsEmailDraft) {
+    const to = parseEmailAddresses(text);
+    if (to.length) {
+      const subjectMatch = text.match(
+        /\b(?:about|subject|re)\s+(.{3,120})$/i,
+      );
+      const subject =
+        subjectMatch?.[1]?.trim().replace(/[.?]$/, "").slice(0, 200) ||
+        "Follow-up";
+      intents.push({
+        type: "draft_email",
+        provider: defaults.emailProvider ?? "gmail",
+        to,
+        subject,
+        body: text.slice(0, 4_000),
+      });
+      summaries.push("stage an email draft");
+    }
+  }
+
+  if (!explicitMemoryOnly && wantsCalendarHold) {
+    const minutes = parseDurationMinutes(text);
+    const person = extractWithPerson(text);
+    const window = defaultEventWindow(due, minutes, now);
+    const title = person ? `${minutes}m with ${person}` : "Scheduled hold";
+    intents.push({
+      type: "create_calendar_event",
+      provider: defaults.calendarProvider ?? "google",
+      title: title.slice(0, 200),
+      startsAt: window.startsAt,
+      endsAt: window.endsAt,
+      description: text.slice(0, 4_000),
+    });
+    summaries.push("stage a calendar event");
+  }
+
+  if (!explicitMemoryOnly && wantsGithubIssue) {
+    const repo =
+      parseGithubRepoRef(text) ??
+      (defaults.githubOwner && defaults.githubRepo
+        ? { owner: defaults.githubOwner, repo: defaults.githubRepo }
+        : null);
+    if (repo) {
+      const titleMatch = text.match(
+        /\b(?:issue|ticket)\b(?:\s+(?:for|about|on))?\s+(.{3,120})$/i,
+      );
+      intents.push({
+        type: "create_github_issue",
+        owner: repo.owner,
+        repo: repo.repo,
+        title: (titleMatch?.[1] ?? text).trim().slice(0, 256),
+        body: text.slice(0, 4_000),
+      });
+      summaries.push(`stage a GitHub issue in ${repo.owner}/${repo.repo}`);
+    }
+  }
+
+  if (!explicitMemoryOnly && wantsLinearIssue) {
+    const titleMatch = text.match(
+      /\b(?:linear|ticket|issue)\b(?:\s+(?:for|about|on))?\s+(.{3,120})$/i,
+    );
+    intents.push({
+      type: "create_linear_issue",
+      title: (titleMatch?.[1] ?? text).trim().slice(0, 256),
+      teamId: defaults.linearTeamId?.trim() || undefined,
+      description: text.slice(0, 4_000),
+    });
+    summaries.push("stage a Linear issue");
+  }
+
+  if (!explicitMemoryOnly && wantsSlackPost) {
+    const channelHint = parseSlackChannelHint(text);
+    const summarizing = text.match(
+      /\bsummariz(?:e|ing)\b[:\s]+(.{3,500})$/i,
+    );
+    intents.push({
+      type: "post_slack_message",
+      channelId: defaults.slackChannelId?.trim() || undefined,
+      channelName: channelHint ?? defaults.slackChannelName,
+      text: (summarizing?.[1] ?? text).trim().slice(0, 4_000),
+    });
+    summaries.push(
+      `stage a Slack post${
+        channelHint || defaults.slackChannelName
+          ? ` to #${channelHint ?? defaults.slackChannelName}`
+          : ""
+      }`,
+    );
+  }
+
+  if (!explicitMemoryOnly && wantsFollowUp) {
+    const titleMatch = text.match(
+      /\b(?:follow[\s-]?up(?:\s+on)?|remind me(?:\s+to)?|nudge)\s+(.{3,160})$/i,
+    );
+    intents.push({
+      type: "propose_follow_up",
+      title: (titleMatch?.[1] ?? text).trim().slice(0, 160),
+      dueAt: due,
+      conversationId: options.conversationId ?? undefined,
+      notes: "Staged from Sophia command (on-device).",
+    });
+    summaries.push("stage a follow-up reminder");
+  }
+
+  if (!explicitMemoryOnly && wantsReschedule) {
+    const task = findOpenTaskForReschedule(options.radarStore, text);
+    if (task) {
+      intents.push({
+        type: "reschedule_commitment",
+        taskDraftId: task.id,
+        title: task.title,
+        dueAt: due ?? (() => {
+          const push = new Date(now);
+          push.setDate(push.getDate() + 1);
+          return push.toISOString().slice(0, 10);
+        })(),
+        previousDueAt: task.dueAt,
+      });
+      summaries.push("stage a reschedule");
+    }
   }
 
   if (!explicitMemoryOnly && wantsPresentation) {
@@ -283,11 +540,14 @@ export function parseSophiaCommand(
   }
 
   if (!unique.length) {
+    const missingProviderHint = jobManagerIntent
+      ? " Connect the related provider (and set repo/team/channel defaults from mirrors) so I can stage that write."
+      : "";
     return {
       addressedToSophia,
       intents: [],
       spokenReply: addressedToSophia
-        ? "I'm here. Ask what's outstanding, what you promised someone, request a briefing, or give me a presentation, research, meeting, or note task."
+        ? `I'm here. Ask what's outstanding, schedule a hold, draft email/Slack, file GitHub/Linear, follow up, reschedule, or give me a presentation/research/meeting task.${missingProviderHint}`
         : "",
     };
   }

@@ -912,6 +912,133 @@ export const api = {
       requiredWriteScopes: Record<string, string[]>;
     }>("/integrations/writes/status"),
 
+  createCalendarEvent: (
+    provider: "google" | "outlook",
+    body: {
+      title: string;
+      startsAt: string;
+      endsAt: string;
+      allDay?: boolean;
+      description?: string;
+    },
+  ) =>
+    request<{
+      ok: true;
+      externalEventId: string;
+      htmlLink: string | null;
+    }>(`/integrations/calendar/${provider}/events`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateCalendarEvent: (
+    provider: "google" | "outlook",
+    externalEventId: string,
+    body: {
+      title: string;
+      startsAt: string;
+      endsAt: string;
+      allDay?: boolean;
+      description?: string;
+    },
+  ) =>
+    request<{
+      ok: true;
+      externalEventId: string;
+      htmlLink: string | null;
+    }>(
+      `/integrations/calendar/${provider}/events/${encodeURIComponent(externalEventId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    ),
+
+  createEmailDraft: (
+    provider: "gmail" | "outlook-mail",
+    body: {
+      to: string[];
+      subject: string;
+      body: string;
+      cc?: string[];
+    },
+  ) =>
+    request<{
+      ok: true;
+      externalDraftId: string;
+    }>(`/integrations/email/${provider}/drafts`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  createGitHubIssue: (body: {
+    owner: string;
+    repo: string;
+    title: string;
+    body?: string;
+  }) =>
+    request<{
+      ok: true;
+      number: number;
+      url: string;
+      id: string;
+    }>("/integrations/work/github/issues", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  createLinearIssue: (body: {
+    title: string;
+    teamId: string;
+    description?: string;
+  }) =>
+    request<{
+      ok: true;
+      id: string;
+      identifier: string | null;
+      url: string | null;
+    }>("/integrations/work/linear/issues", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  postSlackMessage: (body: { channelId: string; text: string }) =>
+    request<{
+      ok: true;
+      channelId: string;
+      ts: string;
+    }>("/integrations/collab/slack/messages", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateTask: (
+    id: string,
+    body: {
+      title?: string;
+      dueAt?: string | null;
+      projectId?: string | null;
+      status?: "OPEN" | "DONE" | "DISMISSED";
+    },
+  ) =>
+    request<{
+      task: {
+        id: string;
+        title: string;
+        dueAt: string | null;
+        status: "OPEN" | "DONE" | "DISMISSED";
+        source: "MANUAL" | "RADAR";
+        clientDraftId: string | null;
+        conversationId: string | null;
+        projectId: string | null;
+        createdAt: string;
+        updatedAt: string;
+      };
+    }>(`/tasks/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
   listCollabConnections: () =>
     request<{
       connections: {

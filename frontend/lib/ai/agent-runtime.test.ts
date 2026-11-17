@@ -11,9 +11,8 @@ const initialContext: AgentContext = {
   recipientUsername: "friend",
 };
 
-function setup(context: AgentContext = initialContext) {
-  let currentContext = context;
-  const handlers: AgentToolHandlers = {
+function mockHandlers(): AgentToolHandlers {
+  return {
     sendMessage: vi.fn().mockResolvedValue(undefined),
     webSearch: vi.fn(),
     ui: vi.fn(),
@@ -24,7 +23,19 @@ function setup(context: AgentContext = initialContext) {
     acceptFinding: vi.fn(),
     dismissFinding: vi.fn(),
     snoozeReminder: vi.fn(),
+    draftEmail: vi.fn().mockResolvedValue(undefined),
+    createCalendarEvent: vi.fn().mockResolvedValue(undefined),
+    createGitHubIssue: vi.fn().mockResolvedValue(undefined),
+    createLinearIssue: vi.fn().mockResolvedValue(undefined),
+    postSlackMessage: vi.fn().mockResolvedValue(undefined),
+    proposeFollowUp: vi.fn().mockResolvedValue(undefined),
+    rescheduleCommitment: vi.fn().mockResolvedValue(undefined),
   };
+}
+
+function setup(context: AgentContext = initialContext) {
+  let currentContext = context;
+  const handlers = mockHandlers();
   let nextId = 0;
   const runtime = createAgentRuntime({
     getContext: () => currentContext,
@@ -108,18 +119,7 @@ describe("permissioned local agent runtime", () => {
     let clock = 5_000;
     const runtime = createAgentRuntime({
       getContext: () => initialContext,
-      handlers: {
-        sendMessage: vi.fn().mockResolvedValue(undefined),
-        webSearch: vi.fn(),
-        ui: vi.fn(),
-        createDocument: vi.fn(),
-        rememberFact: vi.fn(),
-        forgetFact: vi.fn(),
-        draftMessage: vi.fn(),
-        acceptFinding: vi.fn(),
-        dismissFinding: vi.fn(),
-        snoozeReminder: vi.fn(),
-      },
+      handlers: mockHandlers(),
       now: () => clock,
       createId: (() => {
         let id = 0;
@@ -184,16 +184,8 @@ describe("permissioned local agent runtime", () => {
     const failing = createAgentRuntime({
       getContext: () => initialContext,
       handlers: {
+        ...mockHandlers(),
         sendMessage: vi.fn().mockRejectedValue(new Error("send failed")),
-        webSearch: vi.fn(),
-        ui: vi.fn(),
-        createDocument: vi.fn(),
-        rememberFact: vi.fn(),
-        forgetFact: vi.fn(),
-        draftMessage: vi.fn(),
-        acceptFinding: vi.fn(),
-        dismissFinding: vi.fn(),
-        snoozeReminder: vi.fn(),
       },
     });
     const proposal = failing.propose({
@@ -303,5 +295,106 @@ describe("permissioned local agent runtime", () => {
         title: "Nope",
       }),
     ).toThrow("malformed");
+  });
+
+  it("never calls job-manager write handlers until approve, and cancel prevents writes", async () => {
+    const { runtime, handlers } = setup();
+    const email = runtime.propose({
+      type: "draft_email",
+      provider: "gmail",
+      to: ["dana@example.com"],
+      subject: "Proposal",
+      body: "Here is the draft.",
+    });
+    const calendar = runtime.propose({
+      type: "create_calendar_event",
+      provider: "google",
+      title: "30m with Dana",
+      startsAt: "2026-11-20T16:00:00.000Z",
+      endsAt: "2026-11-20T16:30:00.000Z",
+    });
+    const github = runtime.propose({
+      type: "create_github_issue",
+      owner: "acme",
+      repo: "ops",
+      title: "Follow up commitment",
+    });
+    expect(handlers.draftEmail).not.toHaveBeenCalled();
+    expect(handlers.createCalendarEvent).not.toHaveBeenCalled();
+    expect(handlers.createGitHubIssue).not.toHaveBeenCalled();
+
+    runtime.cancel(email.id);
+    expect(runtime.getAudit().some((entry) => entry.outcome === "cancelled")).toBe(
+      true,
+    );
+    expect(handlers.draftEmail).not.toHaveBeenCalled();
+
+    await runtime.approve(calendar.id);
+    await runtime.approve(github.id);
+    expect(handlers.createCalendarEvent).toHaveBeenCalledTimes(1);
+    expect(handlers.createGitHubIssue).toHaveBeenCalledTimes(1);
+    expect(handlers.draftEmail).not.toHaveBeenCalled();
+  });
+
+  it("stages Linear, Slack, follow-up, and reschedule only after approval", async () => {
+    const { runtime, handlers } = setup();
+    const linear = runtime.propose({
+      type: "create_linear_issue",
+      title: "Radar follow-up",
+      teamId: "team_123",
+      description: "From finding",
+    });
+    const slack = runtime.propose({
+      type: "post_slack_message",
+      channelId: "C01ABCDEF",
+      channelName: "ops",
+      text: "Summary for ops",
+    });
+    const followUp = runtime.propose({
+      type: "propose_follow_up",
+      title: "Nudge Dana",
+      dueAt: "2026-11-21",
+    });
+    const reschedule = runtime.propose({
+      type: "reschedule_commitment",
+      taskDraftId: "task-1",
+      title: "Send proposal",
+      dueAt: "2026-11-22",
+      previousDueAt: "2026-11-16",
+    });
+    expect(handlers.createLinearIssue).not.toHaveBeenCalled();
+    expect(handlers.postSlackMessage).not.toHaveBeenCalled();
+    expect(handlers.proposeFollowUp).not.toHaveBeenCalled();
+    expect(handlers.rescheduleCommitment).not.toHaveBeenCalled();
+    await runtime.approve(linear.id);
+    await runtime.approve(slack.id);
+    await runtime.approve(followUp.id);
+    await runtime.approve(reschedule.id);
+    expect(handlers.createLinearIssue).toHaveBeenCalledTimes(1);
+    expect(handlers.postSlackMessage).toHaveBeenCalledTimes(1);
+    expect(handlers.proposeFollowUp).toHaveBeenCalledTimes(1);
+    expect(handlers.rescheduleCommitment).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets users revise a pending job proposal before approve", async () => {
+    const { runtime, handlers } = setup();
+    const proposal = runtime.propose({
+      type: "create_linear_issue",
+      title: "Draft",
+      teamId: "old-team",
+    });
+    runtime.revise(proposal.id, {
+      type: "create_linear_issue",
+      title: "Draft",
+      teamId: "new-team",
+      description: "edited",
+    });
+    await runtime.approve(proposal.id);
+    expect(handlers.createLinearIssue).toHaveBeenCalledWith({
+      type: "create_linear_issue",
+      title: "Draft",
+      teamId: "new-team",
+      description: "edited",
+    });
   });
 });
