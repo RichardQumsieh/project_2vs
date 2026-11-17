@@ -244,7 +244,7 @@ export async function integrationCalendarRoutes(app: FastifyInstance) {
         storesChatPlaintext: false,
         aiUsesCalendarBodiesByDefault: false,
         note:
-          "Calendar mirrors stay owner-scoped. Jarvis/AI will not read event bodies without a separate explicit consent later.",
+          "Calendar mirrors stay owner-scoped. Sophia/AI will not read event bodies without a separate explicit consent later.",
       },
     };
   });

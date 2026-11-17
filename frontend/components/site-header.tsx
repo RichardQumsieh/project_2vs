@@ -9,7 +9,7 @@ export function SiteHeader() {
   if (
     pathname.startsWith("/inbox") ||
     pathname.startsWith("/settings") ||
-    pathname.startsWith("/jarvis")
+    pathname.startsWith("/sophia")
   ) {
     return null;
   }

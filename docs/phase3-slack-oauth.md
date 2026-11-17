@@ -5,7 +5,7 @@
 - Tokens encrypted at rest (`TOTP_ENCRYPTION_KEY` AES-GCM helpers).
 - Sync stores owner-scoped **channel name / id / private|archived** mirrors only.
 - **No** `channels:history`, `chat:write`, or other message-body scopes.
-- Jarvis/AI must **not** consume Slack mirrors without a separate `AiAuthorizationConsent`.
+- Sophia/AI must **not** consume Slack mirrors without a separate `AiAuthorizationConsent`.
 
 ## Env (optional until ready)
 | Variable | Purpose |

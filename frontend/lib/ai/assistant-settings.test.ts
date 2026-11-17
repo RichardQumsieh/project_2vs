@@ -45,7 +45,7 @@ describe("on-device assistant preferences", () => {
       proactiveObservations: true,
       automaticOnlineResearch: false,
       personalMemory: true,
-      jarvisVoiceCommands: true,
+      sophiaVoiceCommands: true,
       radarAnalysisEnabled: false,
     });
   });
@@ -64,7 +64,7 @@ describe("on-device assistant preferences", () => {
         proactiveObservations: true,
         automaticOnlineResearch: false,
         personalMemory: true,
-        jarvisVoiceCommands: true,
+        sophiaVoiceCommands: true,
         radarAnalysisEnabled: true,
       }),
     ).toEqual({
@@ -79,7 +79,7 @@ describe("on-device assistant preferences", () => {
       proactiveObservations: true,
       automaticOnlineResearch: false,
       personalMemory: true,
-      jarvisVoiceCommands: true,
+      sophiaVoiceCommands: true,
       radarAnalysisEnabled: true,
     });
     expect(parseAssistantSettings(null)).toEqual(defaultAssistantSettings);
@@ -101,7 +101,7 @@ describe("on-device assistant preferences", () => {
       proactiveObservations: true,
       automaticOnlineResearch: false,
       personalMemory: true,
-      jarvisVoiceCommands: true,
+      sophiaVoiceCommands: true,
       radarAnalysisEnabled: false,
     });
   });
@@ -169,13 +169,13 @@ describe("on-device assistant preferences", () => {
     ).toBe(false);
   });
 
-  it("keeps personal memory and Jarvis voice commands on unless disabled", () => {
+  it("keeps personal memory and Sophia voice commands on unless disabled", () => {
     expect(parseAssistantSettings({}).personalMemory).toBe(true);
     expect(
       parseAssistantSettings({ personalMemory: false }).personalMemory,
     ).toBe(false);
     expect(
-      parseAssistantSettings({ jarvisVoiceCommands: false }).jarvisVoiceCommands,
+      parseAssistantSettings({ sophiaVoiceCommands: false }).sophiaVoiceCommands,
     ).toBe(false);
   });
 
@@ -189,4 +189,14 @@ describe("on-device assistant preferences", () => {
         .radarAnalysisEnabled,
     ).toBe(false);
   });
+  it("migrates legacy jarvisVoiceCommands into sophiaVoiceCommands", () => {
+    expect(
+      parseAssistantSettings({ jarvisVoiceCommands: false } as never)
+        .sophiaVoiceCommands,
+    ).toBe(false);
+    expect(
+      parseAssistantSettings({ sophiaVoiceCommands: false }).sophiaVoiceCommands,
+    ).toBe(false);
+  });
+
 });

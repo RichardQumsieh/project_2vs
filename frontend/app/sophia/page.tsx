@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ProductShell } from "@/components/product-shell";
-import { JarvisRobotPreview } from "@/components/jarvis-robot-preview";
+import { SophiaRobotPreview } from "@/components/sophia-robot-preview";
 
 const prompts = [
   {
@@ -26,10 +26,10 @@ const prompts = [
   },
 ];
 
-export default function JarvisStudioPage() {
+export default function SophiaStudioPage() {
   return (
     <ProductShell
-      title="Jarvis studio"
+      title="Sophia studio"
       subtitle="Robot presence, presentation workflow, and image prompts for future skins and marketing."
     >
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_18rem]">
@@ -37,8 +37,8 @@ export default function JarvisStudioPage() {
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0b1018]">
             <div className="relative aspect-[16/9] w-full">
               <Image
-                src="/jarvis/robot-portrait.jpg"
-                alt="Jarvis robot portrait"
+                src="/sophia/robot-portrait.jpg"
+                alt="Sophia robot portrait"
                 fill
                 className="object-cover object-[center_20%]"
                 sizes="(max-width: 1024px) 100vw, 42rem"
@@ -48,7 +48,7 @@ export default function JarvisStudioPage() {
             <div className="space-y-2 p-5 sm:p-6">
               <h2 className="text-lg font-medium text-white">Talking robot body</h2>
               <p className="text-sm leading-relaxed text-white/55">
-                In chat, Jarvis appears as a responsive robot presence that switches between idle,
+                In chat, Sophia appears as a responsive robot presence that switches between idle,
                 listening, thinking, and speaking while local speech synthesis runs. Open a
                 conversation, enable the assistant, and use Active voice or Speak to hear it.
               </p>
@@ -61,7 +61,7 @@ export default function JarvisStudioPage() {
           <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
             <h2 className="text-lg font-medium text-white">Presentation workflow</h2>
             <p className="mt-2 text-sm leading-relaxed text-white/55">
-              Ask Jarvis to prepare a presentation and approve the staged action. Jarvis builds a
+              Ask Sophia to prepare a presentation and approve the staged action. Sophia builds a
               multi-slide <strong className="font-medium text-white">.pptx</strong> locally with a
               technology-forward narrative for the subject — not a Markdown stub.
             </p>
@@ -87,7 +87,7 @@ export default function JarvisStudioPage() {
             </ul>
           </div>
         </section>
-        <JarvisRobotPreview />
+        <SophiaRobotPreview />
       </div>
     </ProductShell>
   );

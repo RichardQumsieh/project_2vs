@@ -1,19 +1,19 @@
 import Link from "next/link";
 import { ProductShell } from "@/components/product-shell";
-import { JarvisRobotPreview } from "@/components/jarvis-robot-preview";
+import { SophiaRobotPreview } from "@/components/sophia-robot-preview";
 
-export default function JarvisSettingsPage() {
+export default function SophiaSettingsPage() {
   return (
     <ProductShell
-      title="Jarvis settings"
+      title="Sophia settings"
       subtitle="Configure the speaking robot presence and permissioned command surface."
     >
       <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
-        <JarvisRobotPreview />
+        <SophiaRobotPreview />
         <section className="space-y-4 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
           <h2 className="text-base font-medium text-white">Chat controls</h2>
           <p className="text-sm leading-relaxed text-white/55">
-            Live toggles for Fast Jarvis commands, personal memory, voice output, and
+            Live toggles for Fast Sophia commands, personal memory, voice output, and
             automatic research still live in the conversation header so they stay tied to
             the active thread. Use this page for product orientation and studio assets.
           </p>
@@ -30,10 +30,10 @@ export default function JarvisSettingsPage() {
               Open inbox
             </Link>
             <Link
-              href="/jarvis"
+              href="/sophia"
               className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80"
             >
-              Open Jarvis studio
+              Open Sophia studio
             </Link>
           </div>
         </section>

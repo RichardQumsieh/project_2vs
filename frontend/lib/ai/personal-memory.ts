@@ -4,12 +4,17 @@ export type MemoryFact = {
   createdAt: string;
 };
 
-const storagePrefix = "private-messenger:jarvis-memory:";
+const storagePrefix = "private-messenger:sophia-memory:";
+const legacyStoragePrefix = "private-messenger:jarvis-memory:";
 export const maxMemoryFacts = 80;
 export const maxMemoryFactCharacters = 240;
 
 function storageKey(userId: string) {
   return `${storagePrefix}${userId}`;
+}
+
+function legacyStorageKey(userId: string) {
+  return `${legacyStoragePrefix}${userId}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -58,7 +63,17 @@ export function loadPersonalMemory(userId: string): MemoryFact[] {
   }
   try {
     const stored = window.localStorage.getItem(storageKey(userId));
-    return stored ? parseMemoryFacts(JSON.parse(stored)) : [];
+    if (stored) {
+      return parseMemoryFacts(JSON.parse(stored));
+    }
+    const legacy = window.localStorage.getItem(legacyStorageKey(userId));
+    if (!legacy) {
+      return [];
+    }
+    const migrated = parseMemoryFacts(JSON.parse(legacy));
+    window.localStorage.setItem(storageKey(userId), JSON.stringify(migrated));
+    window.localStorage.removeItem(legacyStorageKey(userId));
+    return migrated;
   } catch {
     return [];
   }
@@ -73,6 +88,7 @@ export function savePersonalMemory(userId: string, facts: MemoryFact[]) {
       storageKey(userId),
       JSON.stringify(parseMemoryFacts(facts)),
     );
+    window.localStorage.removeItem(legacyStorageKey(userId));
     return true;
   } catch {
     return false;

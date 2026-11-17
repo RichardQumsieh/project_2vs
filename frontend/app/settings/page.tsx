@@ -4,12 +4,12 @@ export default function SettingsPage() {
   return (
     <ProductShell
       title="Settings"
-      subtitle="Production controls for privacy, Jarvis, devices, and future subscription tiers."
+      subtitle="Production controls for privacy, Sophia, devices, and future subscription tiers."
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <ModuleCard
-          href="/settings/jarvis"
-          title="Jarvis"
+          href="/settings/sophia"
+          title="Sophia"
           body="Voice presence, personal memory, fast commands, and robot presentation."
         />
         <ModuleCard
@@ -39,8 +39,8 @@ export default function SettingsPage() {
           badge="Soon"
         />
         <ModuleCard
-          href="/jarvis"
-          title="Jarvis studio"
+          href="/sophia"
+          title="Sophia studio"
           body="Robot presence, image prompts, and presentation workflow tips."
         />
       </div>

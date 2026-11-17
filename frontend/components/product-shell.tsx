@@ -6,7 +6,7 @@ import { ThemeControl } from "@/components/theme-control";
 
 const nav = [
   { href: "/inbox", label: "Inbox" },
-  { href: "/jarvis", label: "Jarvis" },
+  { href: "/sophia", label: "Sophia" },
   { href: "/settings", label: "Settings" },
   { href: "/settings/subscription", label: "Plans" },
 ];

@@ -9,7 +9,7 @@
 
 ## Scope reviewed
 
-Privacy/E2EE, Task/Project/Reminder/Consent authz, multi-user isolation, approval gates, test gaps, Jarvis Radar panel UX. Security subagent + targeted route/client inspection.
+Privacy/E2EE, Task/Project/Reminder/Consent authz, multi-user isolation, approval gates, test gaps, Sophia Radar panel UX. Security subagent + targeted route/client inspection.
 
 ---
 
@@ -64,7 +64,7 @@ Privacy/E2EE, Task/Project/Reminder/Consent authz, multi-user isolation, approva
 ## How to re-verify
 
 1. Enable Radar analysis → allow thread → approve finding → confirm `POST /tasks` has no excerpt/plaintext  
-2. Ask Jarvis “what’s outstanding?” / Refresh daily briefing (local only)  
+2. Ask Sophia “what’s outstanding?” / Refresh daily briefing (local only)  
 3. Backend: `npm test` (52 passed at review time)  
 4. Frontend Radar-focused: store/briefing/planner/settings/sync tests green  
 
