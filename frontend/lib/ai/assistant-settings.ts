@@ -15,7 +15,7 @@ export type AssistantSettings = {
   proactiveObservations: boolean;
   automaticOnlineResearch: boolean;
   personalMemory: boolean;
-  jarvisVoiceCommands: boolean;
+  sophiaVoiceCommands: boolean;
   radarAnalysisEnabled: boolean;
 };
 
@@ -31,9 +31,20 @@ export const defaultAssistantSettings: AssistantSettings = {
   proactiveObservations: true,
   automaticOnlineResearch: false,
   personalMemory: true,
-  jarvisVoiceCommands: true,
+  sophiaVoiceCommands: true,
   radarAnalysisEnabled: false,
 };
+
+function resolveSophiaVoiceCommands(candidate: Record<string, unknown>) {
+  if ("sophiaVoiceCommands" in candidate) {
+    return candidate.sophiaVoiceCommands !== false;
+  }
+  // One-time compatibility with pre-rename stored preferences.
+  if ("jarvisVoiceCommands" in candidate) {
+    return candidate.jarvisVoiceCommands !== false;
+  }
+  return true;
+}
 
 const legacyStorageKey = "private-messenger:assistant-settings";
 
@@ -84,7 +95,7 @@ export function parseAssistantSettings(value: unknown): AssistantSettings {
     proactiveObservations: candidate.proactiveObservations !== false,
     automaticOnlineResearch: candidate.automaticOnlineResearch === true,
     personalMemory: candidate.personalMemory !== false,
-    jarvisVoiceCommands: candidate.jarvisVoiceCommands !== false,
+    sophiaVoiceCommands: resolveSophiaVoiceCommands(candidate),
     radarAnalysisEnabled: candidate.radarAnalysisEnabled === true,
   };
 }

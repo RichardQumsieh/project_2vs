@@ -92,12 +92,12 @@ import {
   type AgentProposal,
   type AgentRuntime,
 } from "@/lib/ai/agent-runtime";
-import { downloadJarvisDocument } from "@/lib/ai/jarvis-documents";
-import { JarvisRobot } from "@/components/jarvis-robot";
+import { downloadSophiaDocument } from "@/lib/ai/sophia-documents";
+import { SophiaRobot } from "@/components/sophia-robot";
 import {
-  parseJarvisCommand,
-  type JarvisIntent,
-} from "@/lib/ai/jarvis-planner";
+  parseSophiaCommand,
+  type SophiaIntent,
+} from "@/lib/ai/sophia-planner";
 import {
   addMemoryFact,
   loadPersonalMemory,
@@ -609,10 +609,10 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
               Settings
             </Link>
             <Link
-              href="/jarvis"
+              href="/sophia"
               className="rounded-full border border-cyan-300/20 px-3 py-1.5 text-xs text-cyan-100/80 transition hover:bg-cyan-300/10"
             >
-              Jarvis
+              Sophia
             </Link>
             <Button
               variant="ghost"
@@ -1926,7 +1926,7 @@ function ThreadConversation({
           }
         },
         createDocument: async (action) => {
-          await downloadJarvisDocument(action);
+          await downloadSophiaDocument(action);
         },
         rememberFact: (action) => {
           if (!activeUserId) {
@@ -2352,14 +2352,14 @@ function ThreadConversation({
     return briefing;
   }
 
-  function proposeJarvisIntents(intents: JarvisIntent[]) {
+  function proposeSophiaIntents(intents: SophiaIntent[]) {
     const runtime = agentRuntimeRef.current;
     const actionable = intents.filter((intent) => intent.type !== "radar_answer");
     if (!actionable.length) {
       return;
     }
     if (!runtime) {
-      throw new Error("Jarvis actions are not ready yet.");
+      throw new Error("Sophia actions are not ready yet.");
     }
     const recipientUsername = conversation?.peer?.username;
     for (const intent of actionable) {
@@ -2480,7 +2480,7 @@ function ThreadConversation({
   ) {
     const runtime = agentRuntimeRef.current;
     if (!runtime) {
-      setAgentActionError("Jarvis actions are not ready yet.");
+      setAgentActionError("Sophia actions are not ready yet.");
       return;
     }
     const edit = radarFindingEdits[finding.id];
@@ -2655,8 +2655,8 @@ function ThreadConversation({
     setCompanionProgress(null);
     setCompanionError(null);
 
-    if (!retry && assistantSettings.jarvisVoiceCommands) {
-      const plan = parseJarvisCommand(input, {
+    if (!retry && assistantSettings.sophiaVoiceCommands) {
+      const plan = parseSophiaCommand(input, {
         memories: assistantSettings.personalMemory ? personalMemory : [],
         recipientUsername: conversation?.peer?.username ?? null,
         radarStore: assistantSettings.radarAnalysisEnabled
@@ -2667,7 +2667,7 @@ function ThreadConversation({
       if (plan.intents.length > 0) {
         try {
           setAgentActionError(null);
-          proposeJarvisIntents(plan.intents);
+          proposeSophiaIntents(plan.intents);
           if (
             plan.intents.some((intent) => intent.type === "radar_answer") &&
             activeUserId
@@ -2694,7 +2694,7 @@ function ThreadConversation({
           ) {
             await speakSuggestion(
               reply,
-              `jarvis-plan:${conversationId}:${assistantTurn.id}`,
+              `sophia-plan:${conversationId}:${assistantTurn.id}`,
               true,
             );
           }
@@ -2706,12 +2706,12 @@ function ThreadConversation({
           setCompanionError(
             error instanceof Error
               ? error.message
-              : "Jarvis could not stage those actions.",
+              : "Sophia could not stage those actions.",
           );
           setAgentActionError(
             error instanceof Error
               ? error.message
-              : "Jarvis could not stage those actions.",
+              : "Sophia could not stage those actions.",
           );
         } finally {
           if (companionController.current === controller) {
@@ -3032,10 +3032,10 @@ function ThreadConversation({
           }`}
           aria-label={
             assistantSettings?.enabled
-              ? `Jarvis ${aiIsThinking ? aiWorkLabel : companionPresence.replace("-", " ")}`
+              ? `Sophia ${aiIsThinking ? aiWorkLabel : companionPresence.replace("-", " ")}`
               : companionOpen
-                ? "Close Jarvis"
-                : "Talk to Jarvis"
+                ? "Close Sophia"
+                : "Talk to Sophia"
           }
           onClick={() => {
             if (companionOpen) {
@@ -3063,10 +3063,10 @@ function ThreadConversation({
             />
           ) : null}
           {companionOpen
-            ? "Close Jarvis"
+            ? "Close Sophia"
             : assistantSettings?.enabled
-              ? `Jarvis · ${aiIsThinking ? aiWorkLabel : companionPresence.replace("-", " ")}`
-              : "Talk to Jarvis"}
+              ? `Sophia · ${aiIsThinking ? aiWorkLabel : companionPresence.replace("-", " ")}`
+              : "Talk to Sophia"}
         </Button>
         <div className="relative">
           <button
@@ -3076,7 +3076,7 @@ function ThreadConversation({
             onClick={() => setSettingsOpen((open) => !open)}
             className="cursor-pointer list-none rounded-full border border-cyan-300/20 px-4 py-2 text-xs text-cyan-100/80 transition-colors hover:bg-cyan-300/10"
           >
-            Jarvis controls
+            Sophia controls
           </button>
           <AnimatePresence>
             {settingsOpen ? (
@@ -3148,16 +3148,16 @@ function ThreadConversation({
             <label className="flex cursor-pointer items-start gap-3 text-sm">
               <input
                 type="checkbox"
-                checked={assistantSettings?.jarvisVoiceCommands ?? false}
+                checked={assistantSettings?.sophiaVoiceCommands ?? false}
                 disabled={!assistantSettings}
                 onChange={(event) =>
                   updateAssistantSettings({
-                    jarvisVoiceCommands: event.target.checked,
+                    sophiaVoiceCommands: event.target.checked,
                   })
                 }
               />
               <span>
-                <span className="block font-medium">Fast Jarvis commands</span>
+                <span className="block font-medium">Fast Sophia commands</span>
                 <span className="mt-1 block text-xs text-white/50">
                   Compound requests like presentations, research, meetings, and notes are staged immediately for approval without waiting on the local model.
                 </span>
@@ -3177,7 +3177,7 @@ function ThreadConversation({
               <span>
                 <span className="block font-medium">Personal memory on this device</span>
                 <span className="mt-1 block text-xs text-white/50">
-                  Approved notes stay in this browser and can shape Jarvis replies. They are never uploaded for AI.
+                  Approved notes stay in this browser and can shape Sophia replies. They are never uploaded for AI.
                 </span>
               </span>
             </label>
@@ -3701,7 +3701,7 @@ function ThreadConversation({
       {companionOpen ? (
         <motion.aside
           key="private-companion-panel"
-          aria-label="Jarvis private AI companion"
+          aria-label="Sophia private AI companion"
           initial={
             reduceMotion
               ? { opacity: 1 }
@@ -3718,7 +3718,7 @@ function ThreadConversation({
         >
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
-              <JarvisRobot
+              <SophiaRobot
                 presence={companionPresence}
                 speaking={companionPresence === "speaking"}
                 listening={listeningForCompanion || companionPresence === "listening"}
@@ -3727,7 +3727,7 @@ function ThreadConversation({
                 className="!gap-0"
               />
               <div className="min-w-0">
-                <h2 className="text-sm font-semibold">Jarvis</h2>
+                <h2 className="text-sm font-semibold">Sophia</h2>
                 <p className="truncate text-[10px] text-white/40">
                   Talking robot · on this device
                 </p>
@@ -3755,7 +3755,7 @@ function ThreadConversation({
                 type="button"
                 size="sm"
                 variant="ghost"
-                aria-label="Close Jarvis"
+                aria-label="Close Sophia"
                 onClick={() => {
                   stopCompanion(false);
                   setCompanionOpen(false);
@@ -3770,7 +3770,7 @@ function ThreadConversation({
           </p>
           {!assistantSettings?.enabled ? (
             <div className="m-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4 text-sm text-white/65">
-              Open Jarvis controls to enable the assistant, or visit Settings for account modules. First use downloads about 570 MB of model files for free-form dialogue; compound voice commands can stage actions without waiting on the model.
+              Open Sophia controls to enable the assistant, or visit Settings for account modules. First use downloads about 570 MB of model files for free-form dialogue; compound voice commands can stage actions without waiting on the model.
             </div>
           ) : (
             <>
@@ -3957,7 +3957,7 @@ function ThreadConversation({
                       What should we take care of?
                     </p>
                     <p>
-                      Say “Jarvis…” for compound tasks, Radar Q&amp;A (“what’s outstanding?”, “what did I promise Dana?”), research, meetings, and personal notes. Actionable requests stage permissioned approvals first.
+                      Say “Sophia…” for compound tasks, Radar Q&amp;A (“what’s outstanding?”, “what did I promise Dana?”), research, meetings, and personal notes. Actionable requests stage permissioned approvals first.
                     </p>
                   </div>
                 ) : null}
@@ -3971,7 +3971,7 @@ function ThreadConversation({
                     }`}
                   >
                     <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/40">
-                      {turn.role === "user" ? "You" : "Jarvis · on-device"}
+                      {turn.role === "user" ? "You" : "Sophia · on-device"}
                     </p>
                     <p className="whitespace-pre-wrap">
                       {turn.content ||
@@ -4158,10 +4158,10 @@ function ThreadConversation({
               <div className="shrink-0 border-t border-white/10 bg-[#0b0c0e]/95 p-3 sm:p-4">
                 <form className="space-y-2" onSubmit={(event) => void submitCompanionMessage(event)}>
                   <textarea
-                    aria-label="Message Jarvis"
+                    aria-label="Message Sophia"
                     className="min-h-24 max-h-40 w-full resize-y rounded-2xl border border-white/10 bg-white/[0.035] p-3.5 text-sm leading-relaxed text-white outline-none transition-[border-color,background-color,box-shadow] duration-200 placeholder:text-white/30 focus:border-(--accent)/50 focus:bg-white/[0.05] focus:shadow-[0_0_0_3px_rgba(216,178,110,0.08)]"
                     maxLength={2_000}
-                    placeholder='Jarvis, prepare a presentation… or ask anything else'
+                    placeholder='Sophia, prepare a presentation… or ask anything else'
                     value={companionInput}
                     onChange={(event) => setCompanionInput(event.target.value)}
                   />
@@ -4249,10 +4249,10 @@ function ThreadConversation({
           <button
             type="button"
             className="pointer-events-auto rounded-[1.75rem] border border-white/10 bg-[#0b1018]/85 p-2 shadow-2xl backdrop-blur-md transition hover:border-cyan-300/30"
-            aria-label={companionOpen ? "Focus Jarvis panel" : "Open Jarvis"}
+            aria-label={companionOpen ? "Focus Sophia panel" : "Open Sophia"}
             onClick={() => setCompanionOpen(true)}
           >
-            <JarvisRobot
+            <SophiaRobot
               presence={companionPresence}
               speaking={companionPresence === "speaking"}
               listening={listeningForCompanion || companionPresence === "listening"}
@@ -4597,11 +4597,11 @@ function ThreadConversation({
             return (
               <section
                 key={proposal.id}
-                aria-label="Review Jarvis draft"
+                aria-label="Review Sophia draft"
                 className="mx-4 mb-2 space-y-2 rounded-xl border border-amber-200/20 bg-amber-200/[0.04] p-3"
               >
                 <p className="text-xs font-semibold text-amber-100/80">
-                  Fill composer with Jarvis draft
+                  Fill composer with Sophia draft
                 </p>
                 <p className="text-xs text-white/60">
                   To: @{proposal.action.recipientUsername}

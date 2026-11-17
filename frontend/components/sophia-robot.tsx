@@ -3,7 +3,7 @@
 import Image from "next/image";
 import type { CompanionPresenceState } from "@/lib/ai/companion-runtime";
 
-type JarvisRobotProps = {
+type SophiaRobotProps = {
   presence: CompanionPresenceState;
   speaking?: boolean;
   listening?: boolean;
@@ -19,15 +19,15 @@ const sizeClass = {
   lg: "h-40 w-40 sm:h-52 sm:w-52",
 };
 
-export function JarvisRobot({
+export function SophiaRobot({
   presence,
   speaking = false,
   listening = false,
   thinking = false,
   size = "md",
-  label = "Jarvis",
+  label = "Sophia",
   className = "",
-}: JarvisRobotProps) {
+}: SophiaRobotProps) {
   const mode = speaking
     ? "speaking"
     : listening
@@ -42,16 +42,16 @@ export function JarvisRobot({
 
   return (
     <div
-      className={`jarvis-robot jarvis-robot--${mode} relative flex flex-col items-center gap-2 ${className}`}
+      className={`sophia-robot sophia-robot--${mode} relative flex flex-col items-center gap-2 ${className}`}
       aria-live="polite"
       aria-label={`${label} is ${mode}`}
     >
       <div className={`relative ${sizeClass[size]}`}>
-        <span className="jarvis-robot-ring" aria-hidden="true" />
-        <span className="jarvis-robot-ring jarvis-robot-ring--delayed" aria-hidden="true" />
-        <div className="jarvis-robot-shell relative h-full w-full overflow-hidden rounded-[28%] border border-white/15 bg-[#0b1018] shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
+        <span className="sophia-robot-ring" aria-hidden="true" />
+        <span className="sophia-robot-ring sophia-robot-ring--delayed" aria-hidden="true" />
+        <div className="sophia-robot-shell relative h-full w-full overflow-hidden rounded-[28%] border border-white/15 bg-[#0b1018] shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
           <Image
-            src="/jarvis/robot-portrait.jpg"
+            src="/sophia/robot-portrait.jpg"
             alt=""
             fill
             sizes="(max-width: 640px) 10rem, 13rem"
@@ -59,7 +59,7 @@ export function JarvisRobot({
             priority={size !== "sm"}
           />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#05070c]/90 to-transparent" />
-          <div className="jarvis-robot-viseme" aria-hidden="true">
+          <div className="sophia-robot-viseme" aria-hidden="true">
             <span />
             <span />
             <span />

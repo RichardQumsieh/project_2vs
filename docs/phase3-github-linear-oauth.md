@@ -4,7 +4,7 @@
 - Does **not** touch E2EE chat. No chat plaintext in OAuth or work-item tables.
 - Tokens encrypted at rest (`TOTP_ENCRYPTION_KEY` AES-GCM helpers).
 - Sync stores owner-scoped **title / state / url / number** mirrors only (no issue bodies, comments, or descriptions).
-- Jarvis/AI must **not** consume work mirrors without a separate `AiAuthorizationConsent` (not granted by connect).
+- Sophia/AI must **not** consume work mirrors without a separate `AiAuthorizationConsent` (not granted by connect).
 
 ## Env (all optional until ready)
 | Variable | Purpose |

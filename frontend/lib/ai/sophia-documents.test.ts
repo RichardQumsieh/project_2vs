@@ -7,9 +7,9 @@ import {
   inferPresentationSubject,
   pptxMimeType,
   sanitizeDocumentFilename,
-} from "./jarvis-documents";
+} from "./sophia-documents";
 
-describe("Jarvis local documents", () => {
+describe("Sophia local documents", () => {
   it("builds a PowerPoint presentation spec instead of Markdown", async () => {
     const document = buildPresentationDocument({
       title: "Presentation for manager!",

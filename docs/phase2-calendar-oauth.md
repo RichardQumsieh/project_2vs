@@ -4,7 +4,7 @@
 - Does **not** touch E2EE chat. No chat plaintext in OAuth or calendar tables.
 - Refresh tokens encrypted at rest (`TOTP_ENCRYPTION_KEY` AES-GCM helpers).
 - Sync stores owner-scoped **title + time window** mirrors only (no event description/body).
-- Jarvis/AI must **not** consume calendar mirrors without a separate `AiAuthorizationConsent` (not granted by calendar connect).
+- Sophia/AI must **not** consume calendar mirrors without a separate `AiAuthorizationConsent` (not granted by calendar connect).
 
 ## Env (all optional until ready)
 | Variable | Purpose |

@@ -4,7 +4,7 @@ const tiers = [
   {
     name: "Private",
     price: "Included",
-    body: "E2EE messaging, local Jarvis commands, personal memory, and PPTX drafts on this device.",
+    body: "E2EE messaging, local Sophia commands, personal memory, and PPTX drafts on this device.",
     current: true,
   },
   {

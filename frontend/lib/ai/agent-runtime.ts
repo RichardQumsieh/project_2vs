@@ -131,7 +131,7 @@ export function agentActionSummary(action: AgentToolAction) {
       return `Open a DuckDuckGo search for “${action.query}”`;
     case "ui":
       return action.action === "open_companion"
-        ? "Open Jarvis"
+        ? "Open Sophia"
         : "Dismiss the observation";
     case "create_document":
       return action.mimeType.includes("presentationml")

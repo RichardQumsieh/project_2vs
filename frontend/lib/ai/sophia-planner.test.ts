@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseJarvisCommand } from "./jarvis-planner";
+import { parseSophiaCommand } from "./sophia-planner";
 import {
   emptyRadarStoreState,
   type RadarFinding,
@@ -39,17 +39,17 @@ function radarFixture() {
   };
 }
 
-describe("fast Jarvis command planner", () => {
-  it("splits a compound Jarvis command into permissioned local actions", () => {
-    const plan = parseJarvisCommand(
-      "Jarvis I need to prepare a presentation for my manager next Thursday. I also need to research three competitors and organize a meeting with the team",
+describe("fast Sophia command planner", () => {
+  it("splits a compound Sophia command into permissioned local actions", () => {
+    const plan = parseSophiaCommand(
+      "Sophia I need to prepare a presentation for my manager next Thursday. I also need to research three competitors and organize a meeting with the team",
       {
         recipientUsername: "teamlead",
         now: new Date("2026-11-13T12:00:00.000Z"),
       },
     );
 
-    expect(plan.addressedToJarvis).toBe(true);
+    expect(plan.addressedToSophia).toBe(true);
     expect(plan.intents.map((intent) => intent.type)).toEqual([
       "create_document",
       "remember_fact",
@@ -87,23 +87,23 @@ describe("fast Jarvis command planner", () => {
 
   it("stays quiet on ordinary chat without a command cue", () => {
     expect(
-      parseJarvisCommand("I need to think about this later").intents,
+      parseSophiaCommand("I need to think about this later").intents,
     ).toEqual([]);
   });
 
   it("remembers and forgets explicit personal notes", () => {
-    const remember = parseJarvisCommand(
-      "Jarvis remember that my manager is Dana",
+    const remember = parseSophiaCommand(
+      "Sophia remember that my manager is Dana",
     );
     expect(remember.intents).toEqual([
       { type: "remember_fact", fact: "my manager is Dana" },
     ]);
-    const forget = parseJarvisCommand("forget that Dana");
+    const forget = parseSophiaCommand("forget that Dana");
     expect(forget.intents).toEqual([{ type: "forget_fact", query: "Dana" }]);
   });
 
   it("answers Radar outstanding and promise questions from local store", () => {
-    const outstanding = parseJarvisCommand("Jarvis what's outstanding?", {
+    const outstanding = parseSophiaCommand("Sophia what's outstanding?", {
       radarStore: radarFixture(),
       conversationId: "conversation-a",
       now: new Date("2026-11-15T12:00:00.000Z"),
@@ -112,7 +112,7 @@ describe("fast Jarvis command planner", () => {
     expect(outstanding.intents[0]).toMatchObject({ type: "radar_answer" });
     expect(outstanding.spokenReply).toMatch(/Daily briefing|pending|open/i);
 
-    const promised = parseJarvisCommand("Jarvis what did I promise Dana?", {
+    const promised = parseSophiaCommand("Sophia what did I promise Dana?", {
       radarStore: radarFixture(),
       conversationId: "conversation-a",
       recipientUsername: "dana",
@@ -124,7 +124,18 @@ describe("fast Jarvis command planner", () => {
 
   it("does not invent Radar answers without a local store", () => {
     expect(
-      parseJarvisCommand("Jarvis what's outstanding?").intents,
+      parseSophiaCommand("Sophia what's outstanding?").intents,
     ).toEqual([]);
   });
+  it("still accepts Jarvis wake-word alias during rename compatibility", () => {
+    const plan = parseSophiaCommand(
+      "Jarvis remember that my standup is at 10am",
+    );
+    expect(plan.addressedToSophia).toBe(true);
+    expect(plan.intents[0]).toMatchObject({
+      type: "remember_fact",
+      fact: "my standup is at 10am",
+    });
+  });
+
 });

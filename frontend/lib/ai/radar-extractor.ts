@@ -1,5 +1,5 @@
 import type { LocalMessage } from "../crypto/types";
-import { resolveRelativeDate } from "./jarvis-planner";
+import { resolveRelativeDate } from "./sophia-planner";
 import type {
   RadarCommittedBy,
   RadarFinding,

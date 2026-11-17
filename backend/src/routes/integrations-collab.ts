@@ -209,7 +209,7 @@ export async function integrationCollabRoutes(app: FastifyInstance) {
         storesMessageHistory: false,
         aiUsesCollabBodiesByDefault: false,
         note:
-          "Slack mirrors stay owner-scoped (channel names/ids only). No message history is stored. Jarvis/AI will not read Slack content without a separate explicit consent later.",
+          "Slack mirrors stay owner-scoped (channel names/ids only). No message history is stored. Sophia/AI will not read Slack content without a separate explicit consent later.",
       },
     };
   });

@@ -339,7 +339,7 @@ export async function integrationWorkRoutes(app: FastifyInstance) {
         storesIssueBodies: false,
         aiUsesWorkBodiesByDefault: false,
         note:
-          "Work-item mirrors stay owner-scoped (title/state/url only). Jarvis/AI will not read issue bodies without a separate explicit consent later.",
+          "Work-item mirrors stay owner-scoped (title/state/url only). Sophia/AI will not read issue bodies without a separate explicit consent later.",
       },
     };
   });

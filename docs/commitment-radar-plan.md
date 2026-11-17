@@ -3,36 +3,36 @@
 **Status:** Audit only (no feature implementation)  
 **Date:** 2026-11-15  
 **Sources:** `docs/product-decisions.md`, `docs/project-context.md` (Project store); repo `RichardQumsieh/project_2vs`  
-**First milestone:** Radar + Jarvis Q&A panel over authorized tasks/commitments/context
+**First milestone:** Radar + Sophia Q&A panel over authorized tasks/commitments/context
 
 ---
 
 ## 1. Existing architecture (repo-specific)
 
-### 1.1 AI assistant worker / Jarvis orchestration
+### 1.1 AI assistant worker / Sophia orchestration
 
-Jarvis is **entirely client-side** today, orchestrated from the inbox UI—not a server agent loop.
+Sophia is **entirely client-side** today, orchestrated from the inbox UI—not a server agent loop.
 
 | Layer | Module | Role |
 |---|---|---|
 | UI host | `frontend/components/inbox-app.tsx` | Wires companion, planner, agent runtime, memory, speech, research |
 | Presence / event filter | `frontend/lib/ai/companion-runtime.ts` | Debounced observation of decrypted `LocalMessage`s; quiet / interactive / active-voice |
 | Dialogue prompts | `frontend/lib/ai/companion.ts` | Bounded selected-chat context (6 msgs / 1,600 chars), JSON-quoted untrusted data |
-| Fast command planner | `frontend/lib/ai/jarvis-planner.ts` | Wake-word + compound intents (docs, research, draft, remember/forget)—no LLM required |
-| Documents | `frontend/lib/ai/jarvis-documents.ts` | PPTX/MD builders; download on approve |
+| Fast command planner | `frontend/lib/ai/sophia-planner.ts` (compat re-export: `jarvis-planner.ts`) | Wake-word + compound intents (docs, research, draft, remember/forget)—no LLM required |
+| Documents | `frontend/lib/ai/sophia-documents.ts` (compat re-export: `jarvis-documents.ts`) | PPTX/MD builders; download on approve |
 | Allowlisted actions | `frontend/lib/ai/agent-runtime.ts` | Propose → user approve/cancel; audit log; tools: `send_message`, `web_search`, `ui`, `create_document`, `remember_fact`, `forget_fact`, `draft_message` |
 | On-device inference | `frontend/lib/ai/local-provider.ts` + `inference.worker.ts` | Hugging Face Transformers / ONNX worker; stream chunks; no remote fallback |
 | Reply suggestions | `frontend/lib/ai/suggestions.ts` + `suggestion-scheduler.ts` | Local-only suggested replies (16 msgs / 4k chars) |
 | Settings | `frontend/lib/ai/assistant-settings.ts` | Feature flags in `localStorage` (`private-messenger:assistant-settings`) |
-| Surfaces | `frontend/app/jarvis/page.tsx`, `frontend/app/settings/jarvis/page.tsx` | Presence/settings pages (not Radar yet) |
+| Surfaces | `frontend/app/sophia/page.tsx`, `frontend/app/settings/sophia/page.tsx` (`/jarvis` redirects) | Presence/settings pages (not Radar yet) |
 
-**Orchestration flow today:** decrypted thread messages → companion runtime heuristics and/or `parseJarvisCommand` → optional local model turn → `createAgentRuntime().propose(...)` → explicit `approve()` in UI. No server-side tool loop. No Cursor Agent SDK dependency (`package.json` has `@huggingface/transformers`, `pptxgenjs` only).
+**Orchestration flow today:** decrypted thread messages → companion runtime heuristics and/or `parseSophiaCommand` → optional local model turn → `createAgentRuntime().propose(...)` → explicit `approve()` in UI. No server-side tool loop. No Cursor Agent SDK dependency (`package.json` has `@huggingface/transformers`, `pptxgenjs` only).
 
 ### 1.2 Memory (storage, isolation, inspect/delete)
 
 | Concern | Current behavior |
 |---|---|
-| Storage | Browser `localStorage` key `private-messenger:jarvis-memory:{userId}` via `frontend/lib/ai/personal-memory.ts` |
+| Storage | Browser `localStorage` key `private-messenger:sophia-memory:{userId}` (migrates legacy `jarvis-memory` key) via `frontend/lib/ai/personal-memory.ts` |
 | Shape | `MemoryFact[]` — `{ id, text, createdAt }`; max 80 facts × 240 chars |
 | Isolation | Keyed by `userId` (good). **Gap:** `assistant-settings` is **not** keyed by userId—shared across accounts on one browser. |
 | Inspect / delete | Loaded in inbox; `forget_fact` / `removeMemoryFact`; settings toggle `personalMemory` |
@@ -79,14 +79,14 @@ Dialogue turns are in-page memory only (cleared on thread leave / Clear)—not l
 
 **Server sees:** user/device public keys, membership, opaque `Message.ciphertext` / nonce / ratchetHeader, archive ciphertext, media object keys/sizes, metadata timestamps/IDs.
 
-**Server never sees:** message plaintext, location coords (in ciphertext body), album/image plaintext, Jarvis prompts, personal memory, companion dialogue.
+**Server never sees:** message plaintext, location coords (in ciphertext body), album/image plaintext, Sophia prompts, personal memory, companion dialogue.
 
 **Client decrypt:** X3DH/Double Ratchet + archive path (`frontend/lib/crypto/*`, IndexedDB vault in `frontend/lib/idb.ts`). AI modules consume `LocalMessage.plaintext` **only after** local decrypt.
 
 **Prior AI hooks (all on-device):**
 
 - Companion observations / dialogue / suggestions / summarize context builders
-- Jarvis planner → agent runtime
+- Sophia planner → agent runtime
 - Optional **research query** to `POST /research/search` (Brave)—user-initiated query string only, not chat dump (`backend/src/routes/research.ts`)
 - Optional browser speech cloud if user opts in (`speech-input.ts`)—explicit warning path
 
@@ -111,10 +111,10 @@ Dialogue turns are in-page memory only (cleared on thread leave / Clear)—not l
 
 1. **`createAgentRuntime`** — extend with Radar actions: `create_task`, `create_reminder`, `dismiss_finding`, `edit_commitment` (still propose → approve; never auto-outbound).
 2. **`companion-runtime` event model** — same post-decrypt message stream for Radar scanners (debounce, dedupe by message id, cancel on thread switch).
-3. **`jarvis-planner` / `companion` prompt builders** — Q&A over Radar store; keep JSON-quoting untrusted chat excerpts.
+3. **`sophia-planner` / `companion` prompt builders** — Q&A over Radar store; keep JSON-quoting untrusted chat excerpts.
 4. **`local-provider` + worker** — default engine for commitment extraction and briefing prose.
 5. **`personal-memory` patterns** — inspect/delete UX; migrate toward a richer local store (see below).
-6. **Inbox Jarvis panel UI** in `inbox-app.tsx` — host for Radar findings list + Q&A (avoid a disconnected surface).
+6. **Inbox Sophia panel UI** in `inbox-app.tsx` — host for Radar findings list + Q&A (avoid a disconnected surface).
 7. **Auth + membership** — any sync API must reuse `requireUser` + owner/`userId` filters; never trust client-supplied owner ids.
 8. **Redis pub/sub** — optional later for `radar:sync` *ciphertext or opaque sync tokens only*; not for plaintext findings.
 9. **Research route pattern** — model for rate-limited, authenticated, non-chat external calls if cloud AI is ever authorized.
@@ -129,7 +129,7 @@ Dialogue turns are in-page memory only (cleared on thread leave / Clear)—not l
 | Client-side Radar store (IndexedDB) | E2EE-safe analysis results must live where plaintext already is |
 | Conversation AI authorization flags (client + optional server consent receipt) | “Authorized conversations” + cloud opt-in |
 | Finding lifecycle (pending → accepted task / dismissed) | User control before consequential persistence |
-| Q&A retrieval over local Radar + memory | Jarvis panel over authorized context |
+| Q&A retrieval over local Radar + memory | Sophia panel over authorized context |
 | Per-user settings keying | Multi-account browser isolation |
 | Server task sync (minimal, user-owned, **non-message** fields or E2EE blobs) | Multi-device / multi-user product stance—without putting chat plaintext on server |
 | Job queue (Redis/Bull) | **Not required for milestone 1** if analysis is on-device; revisit only for server-side authorized cloud jobs |
@@ -177,7 +177,7 @@ Reminder
 - `frontend/lib/ai/radar-extractor.ts` — heuristic + optional local-LLM extraction from authorized decrypted messages
 - `frontend/lib/ai/radar-store.ts` — IndexedDB findings/commitments keyed by `userId`
 - `frontend/lib/ai/radar-briefing.ts` — daily briefing builder
-- Wire into `agent-runtime` + inbox Jarvis panel
+- Wire into `agent-runtime` + inbox Sophia panel
 
 ---
 
@@ -202,7 +202,7 @@ Reminder
 | Finding propose / edit / dismiss UI | **On-device** | Matches agent-runtime approval model |
 | Accepted tasks / reminders / projects (user-approved structured data) | **Server (user-owned)** + local cache | Multi-device & multi-user product; not chat ciphertext |
 | Daily briefing generation | **On-device** | Uses local findings + tasks |
-| Jarvis Q&A over commitments | **On-device** (local model / planner) | Keeps context private |
+| Sophia Q&A over commitments | **On-device** (local model / planner) | Keeps context private |
 | Cloud LLM extraction | **Off by default**; only after `AiAuthorizationConsent` + per-conversation allow | Product rule |
 | Redis queues for analysis | **Skip in milestone 1** | No server plaintext jobs |
 | Push “reminder due” events | Server can notify **task id / remindAt only** over existing WS pattern | No message body |
@@ -228,7 +228,7 @@ Extend `agent-runtime` tool unions and inbox approval UI instead of introducing 
 
 ## 8. Phased implementation — first milestone only
 
-**Goal:** Radar + Jarvis Q&A panel over authorized context. No calendar/email/GitHub. No automatic outbound messages.
+**Goal:** Radar + Sophia Q&A panel over authorized context. No calendar/email/GitHub. No automatic outbound messages.
 
 ### Phase M1.0 — Foundations (client)
 1. Per-user assistant settings key (`userId` suffix).
@@ -238,8 +238,8 @@ Extend `agent-runtime` tool unions and inbox approval UI instead of introducing 
 
 ### Phase M1.1 — Approval loop
 5. New agent tools: `accept_finding` → task, `dismiss_finding`, `snooze_reminder` (propose/approve).
-6. Inbox Jarvis panel section: Pending findings → Approve / Edit / Dismiss.
-7. Unit tests mirroring `agent-runtime.test.ts` / `jarvis-planner.test.ts`.
+6. Inbox Sophia panel section: Pending findings → Approve / Edit / Dismiss.
+7. Unit tests mirroring `agent-runtime.test.ts` / `sophia-planner.test.ts`.
 
 ### Phase M1.2 — Minimal server sync
 8. Prisma `Project` / `Task` / `Reminder` + CRUD routes with owner authz tests.
@@ -248,10 +248,10 @@ Extend `agent-runtime` tool unions and inbox approval UI instead of introducing 
 
 ### Phase M1.3 — Q&A + briefing
 11. Planner intents: “what’s outstanding?”, “what did I promise X?” over local radar-store + tasks.
-12. Daily briefing view in Jarvis panel (local generation).
+12. Daily briefing view in Sophia panel (local generation).
 13. Observability: client counters; server metrics on task CRUD only.
 
-**Exit criteria:** User can allow a thread, see proposed commitments from decrypted history, approve into tasks, ask Jarvis NL questions about those tasks/findings, with zero chat plaintext on server/Redis/logs.
+**Exit criteria:** User can allow a thread, see proposed commitments from decrypted history, approve into tasks, ask Sophia NL questions about those tasks/findings, with zero chat plaintext on server/Redis/logs.
 
 ---
 
@@ -285,7 +285,7 @@ Extend `agent-runtime` tool unions and inbox approval UI instead of introducing 
 
 | Question | Answer |
 |---|---|
-| Can Radar ship inside existing Jarvis? | **Yes** — extend client runtime + inbox panel |
+| Can Radar ship inside existing Sophia? | **Yes** — extend client runtime + inbox panel |
 | Does server already have tasks/reminders? | **No** — add minimal user-owned schema |
 | Is Redis safe for private chat? | **Yes today** (ciphertext/metadata only); no analysis queues yet |
 | Default analysis locus | **On-device** post-decrypt |

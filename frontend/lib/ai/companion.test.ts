@@ -214,7 +214,7 @@ describe("private multi-turn companion", () => {
       }),
     );
 
-    expect(prompt[0]?.content).toContain("Jarvis");
+    expect(prompt[0]?.content).toContain("Sophia");
     expect(prompt[0]?.content).toContain("No personal notes are included.");
     expect(prompt[0]?.content).toContain("Jordanian/Levantine");
     expect(prompt[0]?.content).toContain("professional tone");
