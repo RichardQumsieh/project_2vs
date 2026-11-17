@@ -13,6 +13,8 @@ import {
   verifyTotp,
 } from "../auth-security.js";
 import {
+  authCookieBase,
+  authCookieSameSite,
   clearSessionCookie,
   createTotpSetupToken,
   getSession,
@@ -102,10 +104,7 @@ async function verifyAndConsumeLoginFactor(
 
 function setTrustedBrowserCookie(reply: Parameters<typeof setSessionCookie>[0], token: string) {
   reply.setCookie(trustedBrowserCookieName, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: env.COOKIE_SECURE,
-    path: "/",
+    ...authCookieBase(),
     maxAge: trustedBrowserLifetimeMs / 1000,
   });
 }
@@ -114,7 +113,7 @@ function clearTrustedBrowserCookie(reply: Parameters<typeof clearSessionCookie>[
   reply.clearCookie(trustedBrowserCookieName, {
     path: "/",
     secure: env.COOKIE_SECURE,
-    sameSite: "lax",
+    sameSite: authCookieSameSite(),
   });
 }
 

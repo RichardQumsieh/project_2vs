@@ -87,12 +87,27 @@ export async function verifyTotpSetupToken(token: string) {
   return payload.sub;
 }
 
-export function setSessionCookie(reply: FastifyReply, token: string) {
-  reply.setCookie(env.COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: "lax",
+/**
+ * Cross-site SPA → API (e.g. sophia.apps.grok.bot → api.sophia-build.com) needs
+ * SameSite=None; Secure so credentialed fetch can send the session cookie.
+ * Local http keeps Lax (browsers reject SameSite=None without Secure).
+ */
+export function authCookieSameSite(): "none" | "lax" {
+  return env.COOKIE_SECURE ? "none" : "lax";
+}
+
+export function authCookieBase() {
+  return {
+    httpOnly: true as const,
+    sameSite: authCookieSameSite(),
     secure: env.COOKIE_SECURE,
     path: "/",
+  };
+}
+
+export function setSessionCookie(reply: FastifyReply, token: string) {
+  reply.setCookie(env.COOKIE_NAME, token, {
+    ...authCookieBase(),
     maxAge: 7 * 24 * 60 * 60,
   });
 }
@@ -101,7 +116,7 @@ export function clearSessionCookie(reply: FastifyReply) {
   reply.clearCookie(env.COOKIE_NAME, {
     path: "/",
     secure: env.COOKIE_SECURE,
-    sameSite: "lax",
+    sameSite: authCookieSameSite(),
   });
 }
 
