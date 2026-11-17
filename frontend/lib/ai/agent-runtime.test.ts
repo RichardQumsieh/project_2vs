@@ -397,4 +397,21 @@ describe("permissioned local agent runtime", () => {
       description: "edited",
     });
   });
+
+  it("preserves provenance on propose and revise", async () => {
+    const { runtime } = setup();
+    const proposal = runtime.propose(
+      {
+        type: "propose_follow_up",
+        title: "Nudge",
+      },
+      { provenance: "briefing" },
+    );
+    expect(proposal.provenance).toBe("briefing");
+    const revised = runtime.revise(proposal.id, {
+      type: "propose_follow_up",
+      title: "Nudge Dana",
+    });
+    expect(revised.provenance).toBe("briefing");
+  });
 });

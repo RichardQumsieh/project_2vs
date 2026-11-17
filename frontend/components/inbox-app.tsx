@@ -90,11 +90,17 @@ import {
   buildApprovedSearchUrl,
   createAgentRuntime,
   type AgentProposal,
+  type AgentProposalProvenance,
   type AgentRuntime,
   type AgentToolAction,
 } from "@/lib/ai/agent-runtime";
 import { downloadSophiaDocument } from "@/lib/ai/sophia-documents";
 import { SophiaRobot } from "@/components/sophia-robot";
+import { SophiaCommandHints } from "@/components/sophia-command-hints";
+import {
+  SophiaApproveSuccess,
+  SophiaProposalCard,
+} from "@/components/sophia-proposal-card";
 import {
   isSophiaAddressed,
   parseSophiaCommand,
@@ -774,6 +780,8 @@ function ThreadConversation({
     useState<CompanionObservation | null>(null);
   const [agentProposals, setAgentProposals] = useState<AgentProposal[]>([]);
   const [agentActionError, setAgentActionError] = useState<string | null>(null);
+  const [approveFlash, setApproveFlash] = useState<string | null>(null);
+  const approveFlashTimer = useRef<number | null>(null);
   const [jobDefaults, setJobDefaults] = useState<JobManagerDefaults>({});
   const jobDefaultsRef = useRef<JobManagerDefaults>({});
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -951,6 +959,14 @@ function ThreadConversation({
   useEffect(() => {
     jobDefaultsRef.current = jobDefaults;
   }, [jobDefaults]);
+
+  useEffect(() => {
+    return () => {
+      if (approveFlashTimer.current !== null) {
+        window.clearTimeout(approveFlashTimer.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     radarUserIdRef.current = activeUserId;
@@ -2439,6 +2455,33 @@ function ThreadConversation({
     });
   }
 
+  function flashApproveSuccess(proposal: AgentProposal) {
+    if (approveFlashTimer.current !== null) {
+      window.clearTimeout(approveFlashTimer.current);
+    }
+    setApproveFlash(`Approved · ${agentActionSummary(proposal.action)}`);
+    approveFlashTimer.current = window.setTimeout(() => {
+      setApproveFlash(null);
+      approveFlashTimer.current = null;
+    }, 2_400);
+  }
+
+  function insertCompanionHint(text: string) {
+    setCompanionInput((current) => {
+      const trimmedStart = current.trimStart();
+      if (trimmedStart.startsWith("/")) {
+        return text;
+      }
+      if (!current.trim()) {
+        return text;
+      }
+      if (/\s$/.test(current)) {
+        return `${current}${text}`;
+      }
+      return `${current} ${text}`;
+    });
+  }
+
   async function approveAgentProposal(proposal: AgentProposal) {
     if (
       proposal.action.type === "send_message" &&
@@ -2453,6 +2496,7 @@ function ThreadConversation({
     try {
       setAgentActionError(null);
       await agentRuntimeRef.current?.approve(proposal.id);
+      flashApproveSuccess(proposal);
       if (proposal.action.type === "send_message") {
         setAgentActionError(null);
       }
@@ -2509,79 +2553,104 @@ function ThreadConversation({
     }
     const recipientUsername = conversation?.peer?.username;
     const defaults = jobDefaultsRef.current;
+    const commandOpts = { provenance: "command" as const };
     for (const intent of actionable) {
       switch (intent.type) {
         case "create_document":
-          runtime.propose({
-            type: "create_document",
-            filename: intent.document.filename,
-            title: intent.document.title,
-            body: intent.document.body,
-            mimeType: intent.document.mimeType,
-            ...(intent.document.presentation
-              ? { presentation: intent.document.presentation }
-              : {}),
-          });
+          runtime.propose(
+            {
+              type: "create_document",
+              filename: intent.document.filename,
+              title: intent.document.title,
+              body: intent.document.body,
+              mimeType: intent.document.mimeType,
+              ...(intent.document.presentation
+                ? { presentation: intent.document.presentation }
+                : {}),
+            },
+            commandOpts,
+          );
           break;
         case "research":
-          runtime.propose({
-            type: "web_search",
-            query: intent.query,
-            provider: "duckduckgo",
-          });
+          runtime.propose(
+            {
+              type: "web_search",
+              query: intent.query,
+              provider: "duckduckgo",
+            },
+            commandOpts,
+          );
           break;
         case "draft_message":
           if (!recipientUsername) {
             throw new Error("Select a conversation before drafting a message.");
           }
-          runtime.propose({
-            type: "draft_message",
-            conversationId,
-            recipientUsername,
-            body: intent.body,
-          });
+          runtime.propose(
+            {
+              type: "draft_message",
+              conversationId,
+              recipientUsername,
+              body: intent.body,
+            },
+            commandOpts,
+          );
           break;
         case "remember_fact":
-          runtime.propose({
-            type: "remember_fact",
-            fact: intent.fact,
-          });
+          runtime.propose(
+            {
+              type: "remember_fact",
+              fact: intent.fact,
+            },
+            commandOpts,
+          );
           break;
         case "forget_fact":
-          runtime.propose({
-            type: "forget_fact",
-            query: intent.query,
-          });
+          runtime.propose(
+            {
+              type: "forget_fact",
+              query: intent.query,
+            },
+            commandOpts,
+          );
           break;
         case "draft_email":
-          runtime.propose({
-            type: "draft_email",
-            provider: intent.provider,
-            to: intent.to,
-            subject: intent.subject,
-            body: intent.body,
-            ...(intent.cc ? { cc: intent.cc } : {}),
-          });
+          runtime.propose(
+            {
+              type: "draft_email",
+              provider: intent.provider,
+              to: intent.to,
+              subject: intent.subject,
+              body: intent.body,
+              ...(intent.cc ? { cc: intent.cc } : {}),
+            },
+            commandOpts,
+          );
           break;
         case "create_calendar_event":
-          runtime.propose({
-            type: "create_calendar_event",
-            provider: intent.provider,
-            title: intent.title,
-            startsAt: intent.startsAt,
-            endsAt: intent.endsAt,
-            allDay: intent.allDay,
-            description: intent.description,
-          });
+          runtime.propose(
+            {
+              type: "create_calendar_event",
+              provider: intent.provider,
+              title: intent.title,
+              startsAt: intent.startsAt,
+              endsAt: intent.endsAt,
+              allDay: intent.allDay,
+              description: intent.description,
+            },
+            commandOpts,
+          );
           break;
         case "create_github_issue":
-          runtime.propose({
-            type: "create_github_issue",
-            owner: intent.owner,
-            repo: intent.repo,
-            title: intent.title,
-            body: intent.body,
-          });
+          runtime.propose(
+            {
+              type: "create_github_issue",
+              owner: intent.owner,
+              repo: intent.repo,
+              title: intent.title,
+              body: intent.body,
+            },
+            commandOpts,
+          );
           break;
         case "create_linear_issue": {
           const teamId = intent.teamId?.trim() || defaults.linearTeamId?.trim();
@@ -2590,12 +2659,15 @@ function ThreadConversation({
               "Set a Linear team id in Sophia job defaults before filing Linear issues.",
             );
           }
-          runtime.propose({
-            type: "create_linear_issue",
-            title: intent.title,
-            teamId,
-            description: intent.description,
-          });
+          runtime.propose(
+            {
+              type: "create_linear_issue",
+              title: intent.title,
+              teamId,
+              description: intent.description,
+            },
+            commandOpts,
+          );
           break;
         }
         case "post_slack_message": {
@@ -2606,45 +2678,57 @@ function ThreadConversation({
               "Set a Slack channel id in Sophia job defaults (or connect Slack mirrors) before posting.",
             );
           }
-          runtime.propose({
-            type: "post_slack_message",
-            channelId,
-            channelName: intent.channelName ?? defaults.slackChannelName,
-            text: intent.text,
-          });
+          runtime.propose(
+            {
+              type: "post_slack_message",
+              channelId,
+              channelName: intent.channelName ?? defaults.slackChannelName,
+              text: intent.text,
+            },
+            commandOpts,
+          );
           break;
         }
         case "propose_follow_up":
-          runtime.propose({
-            type: "propose_follow_up",
-            title: intent.title,
-            dueAt: intent.dueAt,
-            conversationId: intent.conversationId ?? conversationId,
-            sourceFindingId: intent.sourceFindingId,
-            notes: intent.notes,
-          });
+          runtime.propose(
+            {
+              type: "propose_follow_up",
+              title: intent.title,
+              dueAt: intent.dueAt,
+              conversationId: intent.conversationId ?? conversationId,
+              sourceFindingId: intent.sourceFindingId,
+              notes: intent.notes,
+            },
+            commandOpts,
+          );
           break;
         case "reschedule_commitment":
-          runtime.propose({
-            type: "reschedule_commitment",
-            taskDraftId: intent.taskDraftId,
-            title: intent.title,
-            dueAt: intent.dueAt,
-            previousDueAt: intent.previousDueAt,
-          });
+          runtime.propose(
+            {
+              type: "reschedule_commitment",
+              taskDraftId: intent.taskDraftId,
+              title: intent.title,
+              dueAt: intent.dueAt,
+              previousDueAt: intent.previousDueAt,
+            },
+            commandOpts,
+          );
           break;
       }
     }
   }
 
-  function proposeAgentAction(action: AgentToolAction) {
+  function proposeAgentAction(
+    action: AgentToolAction,
+    provenance: AgentProposalProvenance = "companion",
+  ) {
     const runtime = agentRuntimeRef.current;
     if (!runtime) {
       setAgentActionError("Sophia actions are not ready yet.");
       return;
     }
     try {
-      runtime.propose(action);
+      runtime.propose(action, { provenance });
       setAgentActionError(null);
       setCompanionOpen(true);
     } catch (error) {
@@ -2665,7 +2749,7 @@ function ThreadConversation({
       return;
     }
     for (const action of actions.slice(0, 4)) {
-      proposeAgentAction(action);
+      proposeAgentAction(action, "deadline");
     }
   }
 
@@ -2681,7 +2765,7 @@ function ThreadConversation({
       now: new Date(),
     });
     if (action) {
-      proposeAgentAction(action);
+      proposeAgentAction(action, "briefing");
     }
   }
 
@@ -2759,19 +2843,26 @@ function ThreadConversation({
       return;
     }
     const edit = radarFindingEdits[finding.id];
+    const radarOpts = { provenance: "radar" as const };
     try {
       if (kind === "accept") {
-        runtime.propose({
-          type: "accept_finding",
-          findingId: finding.id,
-          title: (edit?.title ?? finding.title).trim() || finding.title,
-          dueAt: (edit?.dueAt ?? finding.dueAt)?.trim() || undefined,
-        });
+        runtime.propose(
+          {
+            type: "accept_finding",
+            findingId: finding.id,
+            title: (edit?.title ?? finding.title).trim() || finding.title,
+            dueAt: (edit?.dueAt ?? finding.dueAt)?.trim() || undefined,
+          },
+          radarOpts,
+        );
       } else if (kind === "dismiss") {
-        runtime.propose({
-          type: "dismiss_finding",
-          findingId: finding.id,
-        });
+        runtime.propose(
+          {
+            type: "dismiss_finding",
+            findingId: finding.id,
+          },
+          radarOpts,
+        );
       } else if (kind === "secondary") {
         const secondaries = buildRadarSecondaryActions(
           {
@@ -2782,16 +2873,19 @@ function ThreadConversation({
           jobDefaultsRef.current,
         );
         for (const action of secondaries.slice(0, 3)) {
-          runtime.propose(action);
+          runtime.propose(action, radarOpts);
         }
       } else {
         const until = new Date();
         until.setDate(until.getDate() + 1);
-        runtime.propose({
-          type: "snooze_reminder",
-          findingId: finding.id,
-          until: until.toISOString(),
-        });
+        runtime.propose(
+          {
+            type: "snooze_reminder",
+            findingId: finding.id,
+            until: until.toISOString(),
+          },
+          radarOpts,
+        );
       }
       setAgentActionError(null);
       setCompanionOpen(true);
@@ -3993,15 +4087,18 @@ function ThreadConversation({
           initial={
             reduceMotion
               ? { opacity: 1 }
-              : { opacity: 0, y: 18, scale: 0.985 }
+              : { opacity: 0, y: 22, scale: 0.97 }
           }
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={
             reduceMotion
               ? { opacity: 0 }
-              : { opacity: 0, y: 12, scale: 0.985 }
+              : { opacity: 0, y: 14, scale: 0.98 }
           }
-          transition={{ duration: reduceMotion ? 0 : 0.2, ease: "easeOut" }}
+          transition={{
+            duration: reduceMotion ? 0 : 0.28,
+            ease: [0.22, 1, 0.36, 1],
+          }}
           className="fixed inset-x-0 bottom-[env(safe-area-inset-bottom)] top-[max(5.5rem,env(safe-area-inset-top))] z-40 flex min-h-0 flex-col overflow-hidden border border-white/10 bg-[#0b0f16]/[0.98] shadow-2xl shadow-black/50 backdrop-blur-xl sm:absolute sm:inset-x-auto sm:right-3 sm:bottom-3 sm:top-16 sm:w-[min(92vw,32rem)] sm:rounded-3xl md:right-4 md:w-[min(52vw,30rem)] lg:right-5 lg:w-[min(42vw,28rem)]"
         >
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
@@ -4285,10 +4382,11 @@ function ThreadConversation({
                       What should we take care of?
                     </p>
                     <p>
-                      Say “@Sophia …” or “Sophia, …” for compound job ops (schedule, draft email/Slack, file GitHub/Linear, follow up, reschedule), Radar Q&amp;A, research, meetings, and notes. Pattern matches stage immediately; free-form uses the local model. Nothing external runs until you approve.
+                      Use mention chips or slash hints below, or say “@Sophia …” / “Sophia, …” for compound job ops. Pattern matches stage immediately; free-form uses the local model. Nothing external runs until you approve the exact payload.
                     </p>
                   </div>
                 ) : null}
+                <SophiaApproveSuccess message={approveFlash} />
                 {companionTurns.map((turn) => (
                   <article
                     key={turn.id}
@@ -4535,98 +4633,42 @@ function ThreadConversation({
                     </div>
                   </div>
                 </details>
-                {agentProposals
-                  .filter(
-                    (proposal) =>
-                      proposal.action.type === "create_document" ||
-                      proposal.action.type === "remember_fact" ||
-                      proposal.action.type === "forget_fact" ||
-                      proposal.action.type === "draft_message" ||
-                      proposal.action.type === "web_search" ||
-                      proposal.action.type === "accept_finding" ||
-                      proposal.action.type === "dismiss_finding" ||
-                      proposal.action.type === "snooze_reminder" ||
-                      isJobManagerTool(proposal.action.type),
-                  )
-                  .map((proposal) => (
-                    <div
-                      key={proposal.id}
-                      className="space-y-2 rounded-xl border border-amber-200/20 bg-amber-200/[0.04] p-3"
-                    >
-                      <p className="text-[10px] uppercase tracking-wide text-amber-100/70">
-                        Approval required
-                        {isJobManagerTool(proposal.action.type)
-                          ? " · provider write / local job"
-                          : ""}
-                      </p>
-                      <p className="text-xs text-white/80">
-                        {agentActionSummary(proposal.action)}
-                      </p>
-                      {proposal.action.type === "create_document" ? (
-                        <>
-                          {proposal.action.mimeType.includes("presentationml") ? (
-                            <p className="text-[11px] text-cyan-100/70">
-                              Local PowerPoint (.pptx) · technology briefing deck
-                            </p>
-                          ) : null}
-                          <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-2 text-[11px] text-white/70">
-                            {proposal.action.body.slice(0, 1_200)}
-                            {proposal.action.body.length > 1_200 ? "…" : ""}
-                          </pre>
-                        </>
-                      ) : null}
-                      {proposal.action.type === "remember_fact" ? (
-                        <p className="break-words text-xs text-white/70">
-                          {proposal.action.fact}
-                        </p>
-                      ) : null}
-                      {proposal.action.type === "forget_fact" ? (
-                        <p className="break-words text-xs text-white/70">
-                          Match: {proposal.action.query}
-                        </p>
-                      ) : null}
-                      {proposal.action.type === "draft_message" ? (
-                        <p className="whitespace-pre-wrap break-words rounded-lg bg-black/30 p-2 text-xs text-white/80">
-                          {proposal.action.body}
-                        </p>
-                      ) : null}
-                      {proposal.action.type === "web_search" ? (
-                        <p className="break-words text-xs text-white/70">
-                          {proposal.action.query}
-                        </p>
-                      ) : null}
-                      {isJobManagerTool(proposal.action.type) ? (
-                        <pre className="max-h-36 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-2 text-[11px] text-white/70">
-                          {JSON.stringify(proposal.action, null, 2).slice(0, 1_600)}
-                        </pre>
-                      ) : null}
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => void approveAgentProposal(proposal)}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => cancelAgentProposal(proposal)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                <AnimatePresence initial={false}>
+                  {agentProposals
+                    .filter(
+                      (proposal) =>
+                        proposal.action.type === "create_document" ||
+                        proposal.action.type === "remember_fact" ||
+                        proposal.action.type === "forget_fact" ||
+                        proposal.action.type === "draft_message" ||
+                        proposal.action.type === "web_search" ||
+                        proposal.action.type === "accept_finding" ||
+                        proposal.action.type === "dismiss_finding" ||
+                        proposal.action.type === "snooze_reminder" ||
+                        isJobManagerTool(proposal.action.type),
+                    )
+                    .map((proposal) => (
+                      <SophiaProposalCard
+                        key={proposal.id}
+                        proposal={proposal}
+                        onApprove={approveAgentProposal}
+                        onCancel={cancelAgentProposal}
+                      />
+                    ))}
+                </AnimatePresence>
               </div>
               <div className="shrink-0 border-t border-white/10 bg-[#0b0c0e]/95 p-3 sm:p-4">
                 <form className="space-y-2" onSubmit={(event) => void submitCompanionMessage(event)}>
+                  <SophiaCommandHints
+                    input={companionInput}
+                    disabled={companionBusy}
+                    onInsert={insertCompanionHint}
+                  />
                   <textarea
                     aria-label="Message Sophia"
                     className="min-h-24 max-h-40 w-full resize-y rounded-2xl border border-white/10 bg-white/[0.035] p-3.5 text-sm leading-relaxed text-white outline-none transition-[border-color,background-color,box-shadow] duration-200 placeholder:text-white/30 focus:border-(--accent)/50 focus:bg-white/[0.05] focus:shadow-[0_0_0_3px_rgba(216,178,110,0.08)]"
                     maxLength={2_000}
-                    placeholder='Sophia, prepare a presentation… or ask anything else'
+                    placeholder="@Sophia … or /schedule · nothing sends until you approve"
                     value={companionInput}
                     onChange={(event) => setCompanionInput(event.target.value)}
                   />
