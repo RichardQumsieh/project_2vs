@@ -5,17 +5,10 @@ import Link from "next/link";
 export default function LoginPage() {
   return (
     <AuthPageShell
-      eyebrow="Welcome back"
-      title="Unlock this device."
-      description={
-        <>
-          Enter your password and authenticator code. Your local vault opens only on this device.
-        </>
-      }
       footer={
         <>
           New here?{" "}
-          <Link href="/signup" className="text-white">
+          <Link href="/signup" className="font-medium text-(--foreground)">
             Create an account
           </Link>
         </>

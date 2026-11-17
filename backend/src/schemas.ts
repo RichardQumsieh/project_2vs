@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { passwordPolicyFailure } from "./password-policy.js";
 
 export const registerSchema = z.object({
   username: z
@@ -9,7 +10,7 @@ export const registerSchema = z.object({
     .trim()
     .toLowerCase(),
   email: z.string().trim().email().toLowerCase(),
-  password: z.string().min(12).max(128),
+  password: z.string().max(128),
   passwordConfirm: z.string().min(1),
   displayName: z.string().trim().min(1).max(80).optional(),
 }).refine(
@@ -18,6 +19,12 @@ export const registerSchema = z.object({
   {
     message: "Passwords do not match",
     path: ["passwordConfirm"],
+  },
+).refine(
+  ({ password, email }) => passwordPolicyFailure(password, email) === null,
+  {
+    message: "Password does not meet the strength rules.",
+    path: ["password"],
   },
 );
 
@@ -40,7 +47,7 @@ export const forgotPasswordSchema = z.object({
 
 export const resetPasswordSchema = z.object({
   token: z.string().min(32),
-  password: z.string().min(12).max(128),
+  password: z.string().max(128),
   passwordConfirm: z.string().min(1),
   code: z.string().trim().min(1).max(32),
 }).refine(
@@ -49,6 +56,12 @@ export const resetPasswordSchema = z.object({
   {
     message: "Passwords do not match",
     path: ["passwordConfirm"],
+  },
+).refine(
+  ({ password }) => passwordPolicyFailure(password) === null,
+  {
+    message: "Password does not meet the strength rules.",
+    path: ["password"],
   },
 );
 
