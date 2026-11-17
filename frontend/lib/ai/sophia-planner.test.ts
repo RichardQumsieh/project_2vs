@@ -138,4 +138,82 @@ describe("fast Sophia command planner", () => {
     });
   });
 
+  it("stages job-manager actions from @Sophia compound commands", () => {
+    const plan = parseSophiaCommand(
+      "@Sophia schedule 30m with Dana Thursday and draft email to dana@acme.com about the proposal; file github issue in acme/ops for the follow-up",
+      {
+        now: new Date("2026-11-13T12:00:00.000Z"),
+        jobDefaults: {
+          calendarProvider: "google",
+          emailProvider: "gmail",
+        },
+      },
+    );
+    expect(plan.addressedToSophia).toBe(true);
+    expect(plan.intents.map((intent) => intent.type)).toEqual(
+      expect.arrayContaining([
+        "create_calendar_event",
+        "draft_email",
+        "create_github_issue",
+      ]),
+    );
+    expect(plan.spokenReply).toMatch(/approve/i);
+    const calendar = plan.intents.find(
+      (intent) => intent.type === "create_calendar_event",
+    );
+    expect(calendar).toMatchObject({
+      type: "create_calendar_event",
+      title: "30m with Dana",
+      provider: "google",
+    });
+    const email = plan.intents.find((intent) => intent.type === "draft_email");
+    expect(email).toMatchObject({
+      type: "draft_email",
+      to: ["dana@acme.com"],
+    });
+  });
+
+  it("stages Linear, Slack, follow-up, and reschedule with defaults and local Radar", () => {
+    const follow = parseSophiaCommand("Sophia follow up on the vendor quote Friday", {
+      now: new Date("2026-11-13T12:00:00.000Z"),
+    });
+    expect(follow.intents[0]).toMatchObject({
+      type: "propose_follow_up",
+      dueAt: "2026-11-20",
+    });
+
+    const slack = parseSophiaCommand(
+      "Sophia draft Slack to #ops summarizing the launch checklist",
+      {
+        jobDefaults: {
+          slackChannelId: "C01ABCDEF",
+          slackChannelName: "ops",
+        },
+      },
+    );
+    expect(slack.intents[0]).toMatchObject({
+      type: "post_slack_message",
+      channelId: "C01ABCDEF",
+      channelName: "ops",
+    });
+
+    const linear = parseSophiaCommand("Sophia file Linear for the onboarding blocker", {
+      jobDefaults: { linearTeamId: "team_abc" },
+    });
+    expect(linear.intents[0]).toMatchObject({
+      type: "create_linear_issue",
+      teamId: "team_abc",
+    });
+
+    const reschedule = parseSophiaCommand("Sophia reschedule the proposal to Friday", {
+      radarStore: radarFixture(),
+      now: new Date("2026-11-13T12:00:00.000Z"),
+    });
+    expect(reschedule.intents[0]).toMatchObject({
+      type: "reschedule_commitment",
+      taskDraftId: "task-1",
+      dueAt: "2026-11-20",
+    });
+  });
+
 });

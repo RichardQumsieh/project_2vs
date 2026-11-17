@@ -91,13 +91,26 @@ import {
   createAgentRuntime,
   type AgentProposal,
   type AgentRuntime,
+  type AgentToolAction,
 } from "@/lib/ai/agent-runtime";
 import { downloadSophiaDocument } from "@/lib/ai/sophia-documents";
 import { SophiaRobot } from "@/components/sophia-robot";
 import {
+  isSophiaAddressed,
   parseSophiaCommand,
   type SophiaIntent,
 } from "@/lib/ai/sophia-planner";
+import {
+  buildBriefingStagedAction,
+  buildDeadlineProposals,
+  buildRadarSecondaryActions,
+  isJobManagerTool,
+  type JobManagerDefaults,
+} from "@/lib/ai/sophia-job-tools";
+import {
+  loadJobDefaults,
+  saveJobDefaults,
+} from "@/lib/ai/sophia-job-defaults";
 import {
   addMemoryFact,
   loadPersonalMemory,
@@ -113,6 +126,7 @@ import {
 } from "@/lib/ai/companion-runtime";
 import {
   acceptFindingAsTaskDraft,
+  createFollowUpTaskDraft,
   dismissFinding,
   emptyRadarStoreState,
   isConversationAllowed,
@@ -121,9 +135,11 @@ import {
   saveRadarStore,
   setConversationAllowed,
   snoozeFinding,
+  updateTaskDraft,
   upsertFindings,
   type RadarFinding,
   type RadarStoreState,
+  type RadarTaskDraft,
 } from "@/lib/ai/radar-store";
 import { createRadarRuntime, type RadarRuntime } from "@/lib/ai/radar-runtime";
 import { syncAcceptedTaskDraft } from "@/lib/ai/radar-sync";
@@ -758,6 +774,8 @@ function ThreadConversation({
     useState<CompanionObservation | null>(null);
   const [agentProposals, setAgentProposals] = useState<AgentProposal[]>([]);
   const [agentActionError, setAgentActionError] = useState<string | null>(null);
+  const [jobDefaults, setJobDefaults] = useState<JobManagerDefaults>({});
+  const jobDefaultsRef = useRef<JobManagerDefaults>({});
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [researchQuery, setResearchQuery] = useState("");
   const [approvedSearchUrl, setApprovedSearchUrl] = useState<string | null>(null);
@@ -923,6 +941,16 @@ function ThreadConversation({
   useEffect(() => {
     setPersonalMemory(activeUserId ? loadPersonalMemory(activeUserId) : []);
   }, [activeUserId]);
+
+  useEffect(() => {
+    const defaults = loadJobDefaults(activeUserId);
+    jobDefaultsRef.current = defaults;
+    setJobDefaults(defaults);
+  }, [activeUserId]);
+
+  useEffect(() => {
+    jobDefaultsRef.current = jobDefaults;
+  }, [jobDefaults]);
 
   useEffect(() => {
     radarUserIdRef.current = activeUserId;
@@ -2039,6 +2067,108 @@ function ThreadConversation({
             throw new Error("Could not snooze this Radar reminder in this browser.");
           }
         },
+        draftEmail: async (action) => {
+          await api.createEmailDraft(action.provider, {
+            to: action.to,
+            subject: action.subject,
+            body: action.body,
+            ...(action.cc ? { cc: action.cc } : {}),
+          });
+        },
+        createCalendarEvent: async (action) => {
+          await api.createCalendarEvent(action.provider, {
+            title: action.title,
+            startsAt: action.startsAt,
+            endsAt: action.endsAt,
+            allDay: action.allDay,
+            description: action.description,
+          });
+        },
+        createGitHubIssue: async (action) => {
+          await api.createGitHubIssue({
+            owner: action.owner,
+            repo: action.repo,
+            title: action.title,
+            body: action.body,
+          });
+        },
+        createLinearIssue: async (action) => {
+          await api.createLinearIssue({
+            title: action.title,
+            teamId: action.teamId,
+            description: action.description,
+          });
+        },
+        postSlackMessage: async (action) => {
+          await api.postSlackMessage({
+            channelId: action.channelId,
+            text: action.text,
+          });
+        },
+        proposeFollowUp: async (action) => {
+          if (!activeUserId) {
+            throw new Error("Sign in before saving follow-ups.");
+          }
+          const next = createFollowUpTaskDraft(radarStoreRef.current, {
+            title: action.title,
+            dueAt: action.dueAt,
+            conversationId: action.conversationId ?? conversationId,
+            findingId: action.sourceFindingId,
+          });
+          radarStoreRef.current = next;
+          setRadarStore(next);
+          if (!(await saveRadarStore(activeUserId, next))) {
+            throw new Error("Could not save the follow-up on this device.");
+          }
+          const draft = next.taskDrafts[0];
+          if (draft) {
+            try {
+              await api.createTask({
+                title: draft.title,
+                dueAt: draft.dueAt,
+                source: "RADAR",
+                clientDraftId: draft.id,
+                conversationId: draft.conversationId,
+              });
+            } catch (error) {
+              setRadarStoreError(
+                error instanceof Error
+                  ? `Saved locally, but server sync failed: ${error.message}`
+                  : "Saved locally, but server sync failed.",
+              );
+            }
+          }
+        },
+        rescheduleCommitment: async (action) => {
+          if (!activeUserId) {
+            throw new Error("Sign in before rescheduling commitments.");
+          }
+          const next = updateTaskDraft(radarStoreRef.current, action.taskDraftId, {
+            title: action.title,
+            dueAt: action.dueAt,
+          });
+          radarStoreRef.current = next;
+          setRadarStore(next);
+          if (!(await saveRadarStore(activeUserId, next))) {
+            throw new Error("Could not reschedule this local commitment.");
+          }
+          if (
+            action.calendarProvider &&
+            action.externalEventId &&
+            action.startsAt &&
+            action.endsAt
+          ) {
+            await api.updateCalendarEvent(
+              action.calendarProvider,
+              action.externalEventId,
+              {
+                title: action.title,
+                startsAt: action.startsAt,
+                endsAt: action.endsAt,
+              },
+            );
+          }
+        },
       },
       onProposalsChanged: setAgentProposals,
     });
@@ -2123,6 +2253,22 @@ function ThreadConversation({
       if (!valid) return;
       setAgentActionError(null);
       const bodyText = form.getValues("body").trim();
+      if (
+        assistantSettings?.enabled &&
+        assistantSettings.sophiaVoiceCommands &&
+        isSophiaAddressed(bodyText) &&
+        selectedReplyIds.length === 0
+      ) {
+        form.setValue("body", "", {
+          shouldDirty: false,
+          shouldTouch: false,
+          shouldValidate: true,
+        });
+        setCompanionOpen(true);
+        setCompanionInput(bodyText);
+        void sendCompanionMessage(bodyText);
+        return;
+      }
       if (selectedReplyIds.length > 0) {
         const refs = selectedReplyIds
           .map((id) => visibleMessages.find((message) => message.id === id))
@@ -2362,6 +2508,7 @@ function ThreadConversation({
       throw new Error("Sophia actions are not ready yet.");
     }
     const recipientUsername = conversation?.peer?.username;
+    const defaults = jobDefaultsRef.current;
     for (const intent of actionable) {
       switch (intent.type) {
         case "create_document":
@@ -2406,7 +2553,135 @@ function ThreadConversation({
             query: intent.query,
           });
           break;
+        case "draft_email":
+          runtime.propose({
+            type: "draft_email",
+            provider: intent.provider,
+            to: intent.to,
+            subject: intent.subject,
+            body: intent.body,
+            ...(intent.cc ? { cc: intent.cc } : {}),
+          });
+          break;
+        case "create_calendar_event":
+          runtime.propose({
+            type: "create_calendar_event",
+            provider: intent.provider,
+            title: intent.title,
+            startsAt: intent.startsAt,
+            endsAt: intent.endsAt,
+            allDay: intent.allDay,
+            description: intent.description,
+          });
+          break;
+        case "create_github_issue":
+          runtime.propose({
+            type: "create_github_issue",
+            owner: intent.owner,
+            repo: intent.repo,
+            title: intent.title,
+            body: intent.body,
+          });
+          break;
+        case "create_linear_issue": {
+          const teamId = intent.teamId?.trim() || defaults.linearTeamId?.trim();
+          if (!teamId) {
+            throw new Error(
+              "Set a Linear team id in Sophia job defaults before filing Linear issues.",
+            );
+          }
+          runtime.propose({
+            type: "create_linear_issue",
+            title: intent.title,
+            teamId,
+            description: intent.description,
+          });
+          break;
+        }
+        case "post_slack_message": {
+          const channelId =
+            intent.channelId?.trim() || defaults.slackChannelId?.trim();
+          if (!channelId) {
+            throw new Error(
+              "Set a Slack channel id in Sophia job defaults (or connect Slack mirrors) before posting.",
+            );
+          }
+          runtime.propose({
+            type: "post_slack_message",
+            channelId,
+            channelName: intent.channelName ?? defaults.slackChannelName,
+            text: intent.text,
+          });
+          break;
+        }
+        case "propose_follow_up":
+          runtime.propose({
+            type: "propose_follow_up",
+            title: intent.title,
+            dueAt: intent.dueAt,
+            conversationId: intent.conversationId ?? conversationId,
+            sourceFindingId: intent.sourceFindingId,
+            notes: intent.notes,
+          });
+          break;
+        case "reschedule_commitment":
+          runtime.propose({
+            type: "reschedule_commitment",
+            taskDraftId: intent.taskDraftId,
+            title: intent.title,
+            dueAt: intent.dueAt,
+            previousDueAt: intent.previousDueAt,
+          });
+          break;
       }
+    }
+  }
+
+  function proposeAgentAction(action: AgentToolAction) {
+    const runtime = agentRuntimeRef.current;
+    if (!runtime) {
+      setAgentActionError("Sophia actions are not ready yet.");
+      return;
+    }
+    try {
+      runtime.propose(action);
+      setAgentActionError(null);
+      setCompanionOpen(true);
+    } catch (error) {
+      setAgentActionError(
+        error instanceof Error
+          ? error.message
+          : "Could not stage that Sophia action.",
+      );
+    }
+  }
+
+  function proposeDeadlineActions() {
+    const actions = buildDeadlineProposals(radarStoreRef.current, {
+      conversationId: conversationRadarAllowed ? conversationId : null,
+    });
+    if (!actions.length) {
+      setAgentActionError("No due-soon or overdue local commitments to stage.");
+      return;
+    }
+    for (const action of actions.slice(0, 4)) {
+      proposeAgentAction(action);
+    }
+  }
+
+  function proposeBriefingTaskAction(task: RadarTaskDraft) {
+    const briefing =
+      radarBriefing ??
+      buildDailyBriefing(radarStoreRef.current, {
+        conversationId: conversationRadarAllowed ? conversationId : null,
+        peerUsername: conversation?.peer?.username ?? null,
+      });
+    const action = buildBriefingStagedAction(briefing, {
+      task,
+      now: new Date(),
+    });
+    if (action) {
+      proposeAgentAction(action);
     }
   }
 
@@ -2476,7 +2751,7 @@ function ThreadConversation({
 
   function proposeRadarFindingAction(
     finding: RadarFinding,
-    kind: "accept" | "dismiss" | "snooze",
+    kind: "accept" | "dismiss" | "snooze" | "secondary",
   ) {
     const runtime = agentRuntimeRef.current;
     if (!runtime) {
@@ -2497,6 +2772,18 @@ function ThreadConversation({
           type: "dismiss_finding",
           findingId: finding.id,
         });
+      } else if (kind === "secondary") {
+        const secondaries = buildRadarSecondaryActions(
+          {
+            ...finding,
+            title: (edit?.title ?? finding.title).trim() || finding.title,
+            dueAt: (edit?.dueAt ?? finding.dueAt)?.trim() || finding.dueAt,
+          },
+          jobDefaultsRef.current,
+        );
+        for (const action of secondaries.slice(0, 3)) {
+          runtime.propose(action);
+        }
       } else {
         const until = new Date();
         until.setDate(until.getDate() + 1);
@@ -2663,6 +2950,7 @@ function ThreadConversation({
           ? radarStoreRef.current
           : null,
         conversationId: conversationRadarAllowed ? conversationId : null,
+        jobDefaults: jobDefaultsRef.current,
       });
       if (plan.intents.length > 0) {
         try {
@@ -3786,17 +4074,27 @@ function ThreadConversation({
                           Daily briefing · on-device
                         </p>
                         <p className="mt-1 text-[11px] text-white/50">
-                          Built from authorized local findings and accepted task drafts. Ask “what’s outstanding?” or “what did I promise X?” in chat.
+                          Built from authorized local findings and accepted task drafts. Ask “what’s outstanding?” or “what did I promise X?” in chat. Click a due task to stage a follow-up — never silent writes.
                         </p>
                       </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => refreshRadarBriefing()}
-                      >
-                        Refresh
-                      </Button>
+                      <div className="flex shrink-0 flex-col gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => refreshRadarBriefing()}
+                        >
+                          Refresh
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => proposeDeadlineActions()}
+                        >
+                          Stage deadlines
+                        </Button>
+                      </div>
                     </div>
                     {radarBriefing ? (
                       <div className="space-y-1 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-white/75">
@@ -3808,6 +4106,26 @@ function ThreadConversation({
                             {line}
                           </p>
                         ))}
+                        {radarStore.taskDrafts
+                          .filter(
+                            (draft) =>
+                              draft.status === "open" &&
+                              (!conversationRadarAllowed ||
+                                !draft.conversationId ||
+                                draft.conversationId === conversationId),
+                          )
+                          .slice(0, 4)
+                          .map((draft) => (
+                            <button
+                              key={`briefing-task-${draft.id}`}
+                              type="button"
+                              className="mt-1 block w-full rounded-lg border border-emerald-300/15 bg-emerald-300/[0.05] px-2 py-1.5 text-left text-[11px] text-emerald-50/90 transition hover:bg-emerald-300/10"
+                              onClick={() => proposeBriefingTaskAction(draft)}
+                            >
+                              Stage action · {draft.title}
+                              {draft.dueAt ? ` · due ${draft.dueAt.slice(0, 10)}` : ""}
+                            </button>
+                          ))}
                       </div>
                     ) : (
                       <p className="text-xs text-white/45">
@@ -3918,6 +4236,16 @@ function ThreadConversation({
                               >
                                 Dismiss
                               </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  proposeRadarFindingAction(finding, "secondary")
+                                }
+                              >
+                                Also stage writes
+                              </Button>
                             </div>
                           </article>
                         );
@@ -3957,7 +4285,7 @@ function ThreadConversation({
                       What should we take care of?
                     </p>
                     <p>
-                      Say “Sophia…” for compound tasks, Radar Q&amp;A (“what’s outstanding?”, “what did I promise Dana?”), research, meetings, and personal notes. Actionable requests stage permissioned approvals first.
+                      Say “@Sophia …” or “Sophia, …” for compound job ops (schedule, draft email/Slack, file GitHub/Linear, follow up, reschedule), Radar Q&amp;A, research, meetings, and notes. Pattern matches stage immediately; free-form uses the local model. Nothing external runs until you approve.
                     </p>
                   </div>
                 ) : null}
@@ -4079,6 +4407,134 @@ function ThreadConversation({
                     {speechNotice}
                   </p>
                 ) : null}
+                <details className="rounded-xl border border-white/10 bg-white/[0.025]">
+                  <summary className="cursor-pointer px-3 py-2 text-[11px] font-medium text-white/70">
+                    Job write defaults · device-local
+                  </summary>
+                  <div className="space-y-2 border-t border-white/10 p-3 text-[11px] text-white/55">
+                    <p>
+                      Prefills GitHub/Linear/Slack/calendar proposals. Connect ≠ AI consent; external writes still need approve.
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="space-y-1">
+                        Calendar
+                        <select
+                          className="h-8 w-full rounded-lg border border-white/10 bg-[#151515] px-2 text-xs text-white"
+                          value={jobDefaults.calendarProvider ?? "google"}
+                          onChange={(event) => {
+                            const next = {
+                              ...jobDefaults,
+                              calendarProvider: event.target.value as
+                                | "google"
+                                | "outlook",
+                            };
+                            setJobDefaults(next);
+                            saveJobDefaults(activeUserId, next);
+                          }}
+                        >
+                          <option value="google">Google</option>
+                          <option value="outlook">Outlook</option>
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        Email
+                        <select
+                          className="h-8 w-full rounded-lg border border-white/10 bg-[#151515] px-2 text-xs text-white"
+                          value={jobDefaults.emailProvider ?? "gmail"}
+                          onChange={(event) => {
+                            const next = {
+                              ...jobDefaults,
+                              emailProvider: event.target.value as
+                                | "gmail"
+                                | "outlook-mail",
+                            };
+                            setJobDefaults(next);
+                            saveJobDefaults(activeUserId, next);
+                          }}
+                        >
+                          <option value="gmail">Gmail</option>
+                          <option value="outlook-mail">Outlook Mail</option>
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        GitHub owner
+                        <input
+                          className="h-8 w-full rounded-lg border border-white/10 bg-[#151515] px-2 text-xs text-white"
+                          value={jobDefaults.githubOwner ?? ""}
+                          onChange={(event) => {
+                            const next = {
+                              ...jobDefaults,
+                              githubOwner: event.target.value.slice(0, 80),
+                            };
+                            setJobDefaults(next);
+                            saveJobDefaults(activeUserId, next);
+                          }}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        GitHub repo
+                        <input
+                          className="h-8 w-full rounded-lg border border-white/10 bg-[#151515] px-2 text-xs text-white"
+                          value={jobDefaults.githubRepo ?? ""}
+                          onChange={(event) => {
+                            const next = {
+                              ...jobDefaults,
+                              githubRepo: event.target.value.slice(0, 80),
+                            };
+                            setJobDefaults(next);
+                            saveJobDefaults(activeUserId, next);
+                          }}
+                        />
+                      </label>
+                      <label className="col-span-2 space-y-1">
+                        Linear team id
+                        <input
+                          className="h-8 w-full rounded-lg border border-white/10 bg-[#151515] px-2 text-xs text-white"
+                          value={jobDefaults.linearTeamId ?? ""}
+                          onChange={(event) => {
+                            const next = {
+                              ...jobDefaults,
+                              linearTeamId: event.target.value.slice(0, 64),
+                            };
+                            setJobDefaults(next);
+                            saveJobDefaults(activeUserId, next);
+                          }}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        Slack channel id
+                        <input
+                          className="h-8 w-full rounded-lg border border-white/10 bg-[#151515] px-2 text-xs text-white"
+                          value={jobDefaults.slackChannelId ?? ""}
+                          placeholder="C…"
+                          onChange={(event) => {
+                            const next = {
+                              ...jobDefaults,
+                              slackChannelId: event.target.value.slice(0, 32),
+                            };
+                            setJobDefaults(next);
+                            saveJobDefaults(activeUserId, next);
+                          }}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        Slack channel name
+                        <input
+                          className="h-8 w-full rounded-lg border border-white/10 bg-[#151515] px-2 text-xs text-white"
+                          value={jobDefaults.slackChannelName ?? ""}
+                          onChange={(event) => {
+                            const next = {
+                              ...jobDefaults,
+                              slackChannelName: event.target.value.slice(0, 80),
+                            };
+                            setJobDefaults(next);
+                            saveJobDefaults(activeUserId, next);
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </details>
                 {agentProposals
                   .filter(
                     (proposal) =>
@@ -4089,7 +4545,8 @@ function ThreadConversation({
                       proposal.action.type === "web_search" ||
                       proposal.action.type === "accept_finding" ||
                       proposal.action.type === "dismiss_finding" ||
-                      proposal.action.type === "snooze_reminder",
+                      proposal.action.type === "snooze_reminder" ||
+                      isJobManagerTool(proposal.action.type),
                   )
                   .map((proposal) => (
                     <div
@@ -4098,6 +4555,9 @@ function ThreadConversation({
                     >
                       <p className="text-[10px] uppercase tracking-wide text-amber-100/70">
                         Approval required
+                        {isJobManagerTool(proposal.action.type)
+                          ? " · provider write / local job"
+                          : ""}
                       </p>
                       <p className="text-xs text-white/80">
                         {agentActionSummary(proposal.action)}
@@ -4134,6 +4594,11 @@ function ThreadConversation({
                         <p className="break-words text-xs text-white/70">
                           {proposal.action.query}
                         </p>
+                      ) : null}
+                      {isJobManagerTool(proposal.action.type) ? (
+                        <pre className="max-h-36 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-black/30 p-2 text-[11px] text-white/70">
+                          {JSON.stringify(proposal.action, null, 2).slice(0, 1_600)}
+                        </pre>
                       ) : null}
                       <div className="flex gap-2">
                         <Button
