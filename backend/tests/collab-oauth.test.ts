@@ -5,15 +5,16 @@ import { normalizeSlackChannels } from "../src/integrations/collab-sync.js";
 import { createOAuthState, parseOAuthState } from "../src/integrations/oauth-state.js";
 
 describe("collab OAuth helpers", () => {
-  it("uses channel-read scopes without history or chat write", () => {
+  it("uses channel-read + chat:write without history (Phase 4.2)", () => {
     assert.deepEqual(collabProviders.slack.scopes, [
       "channels:read",
       "groups:read",
       "users:read",
+      "chat:write",
     ]);
     assert.ok(
       !collabProviders.slack.scopes.some((scope) =>
-        /history|chat:write|files:write|admin/i.test(scope),
+        /history|files:write|admin/i.test(scope),
       ),
     );
   });

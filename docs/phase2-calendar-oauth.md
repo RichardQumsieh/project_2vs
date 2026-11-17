@@ -17,9 +17,11 @@ Register redirect URIs:
 - `{API_PUBLIC_ORIGIN}/integrations/calendar/google/callback`
 - `{API_PUBLIC_ORIGIN}/integrations/calendar/outlook/callback`
 
-Scopes:
-- Google: `calendar.readonly`
-- Outlook: `offline_access`, `Calendars.Read`, `User.Read`
+Scopes (Phase 4.2 write upgrade):
+- Google: `calendar.events` (replaces `calendar.readonly`; users must reconsent)
+- Outlook: `offline_access`, `Calendars.ReadWrite`, `User.Read` (replaces `Calendars.Read`)
+
+Write APIs (feature-flagged `INTEGRATIONS_WRITE_ENABLED`, default off): see `docs/phase4-write-oauth.md`.
 
 ## How to try
 1. Set env vars on the API; `npx prisma migrate deploy` (or `db push` in dev).

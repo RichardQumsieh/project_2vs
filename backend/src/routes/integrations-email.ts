@@ -5,6 +5,7 @@ import { prisma } from "../db.js";
 import {
   env,
   gmailOAuthConfigured,
+  integrationsWriteEnabled,
   microsoftMailOAuthConfigured,
 } from "../env.js";
 import {
@@ -23,6 +24,7 @@ import {
   decryptIntegrationSecret,
   encryptIntegrationSecret,
 } from "../integrations/token-crypto.js";
+import { writeRequiredScopes } from "../integrations/write-scopes.js";
 import { denyUnlessOwner } from "../task-authorization.js";
 
 function providerConfigured(provider: EmailProviderId) {
@@ -227,18 +229,21 @@ export async function integrationEmailRoutes(app: FastifyInstance) {
         gmail: {
           configured: gmailOAuthConfigured,
           scopes: emailProviders.gmail.scopes,
+          requiredWriteScopes: [...writeRequiredScopes.gmail],
         },
         "outlook-mail": {
           configured: microsoftMailOAuthConfigured,
           scopes: emailProviders["outlook-mail"].scopes,
+          requiredWriteScopes: [...writeRequiredScopes.outlookMail],
         },
       },
+      writesEnabled: integrationsWriteEnabled,
       privacy: {
         storesChatPlaintext: false,
         storesFullBodies: false,
         aiUsesMailBodiesByDefault: false,
         note:
-          "Mail mirrors store subject/from/snippet only. Full bodies are not persisted for AI without a separate explicit consent later.",
+          "Mail mirrors store subject/from/snippet only. Draft writes prefer compose/ReadWrite scopes (no silent send). Writes require reconnect + INTEGRATIONS_WRITE_ENABLED.",
       },
     };
   });

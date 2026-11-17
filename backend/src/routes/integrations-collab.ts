@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { requireUser } from "../auth.js";
 import { prisma } from "../db.js";
-import { env, slackOAuthConfigured } from "../env.js";
+import { env, integrationsWriteEnabled, slackOAuthConfigured } from "../env.js";
 import {
   SLACK_CONVERSATIONS_LIST_URL,
   collabProviders,
@@ -15,6 +15,7 @@ import {
   decryptIntegrationSecret,
   encryptIntegrationSecret,
 } from "../integrations/token-crypto.js";
+import { writeRequiredScopes } from "../integrations/write-scopes.js";
 import { denyUnlessOwner } from "../task-authorization.js";
 
 function providerConfigured(provider: CollabProviderId) {
@@ -202,14 +203,16 @@ export async function integrationCollabRoutes(app: FastifyInstance) {
         slack: {
           configured: slackOAuthConfigured,
           scopes: collabProviders.slack.scopes,
+          requiredWriteScopes: [...writeRequiredScopes.slack],
         },
       },
+      writesEnabled: integrationsWriteEnabled,
       privacy: {
         storesChatPlaintext: false,
         storesMessageHistory: false,
         aiUsesCollabBodiesByDefault: false,
         note:
-          "Slack mirrors stay owner-scoped (channel names/ids only). No message history is stored. Sophia/AI will not read Slack content without a separate explicit consent later.",
+          "Slack mirrors stay owner-scoped (channel names/ids only). No channels:history. chat:write enables posting after reconnect; INTEGRATIONS_WRITE_ENABLED gates APIs.",
       },
     };
   });

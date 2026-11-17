@@ -69,33 +69,69 @@ type CollabChannel = {
   isArchived: boolean;
 };
 
+type ProviderStatus = {
+  configured: boolean;
+  scopes: string[];
+  requiredWriteScopes?: string[];
+};
+
+function normalizeScopeToken(scope: string) {
+  const trimmed = scope.trim();
+  if (!trimmed) return "";
+  if (trimmed.includes("/")) {
+    const parts = trimmed.split("/");
+    return parts[parts.length - 1]!.toLowerCase();
+  }
+  return trimmed.toLowerCase();
+}
+
+function connectionNeedsWriteUpgrade(
+  connection: Connection | undefined,
+  requiredWriteScopes: string[] | undefined,
+) {
+  if (!connection || connection.status !== "CONNECTED") {
+    return false;
+  }
+  if (!requiredWriteScopes || requiredWriteScopes.length === 0) {
+    return false;
+  }
+  const granted = new Set(connection.scopes.map(normalizeScopeToken));
+  return requiredWriteScopes.some(
+    (scope) => !granted.has(normalizeScopeToken(scope)),
+  );
+}
+
 function IntegrationsSettingsInner() {
   const searchParams = useSearchParams();
   const [calendarStatus, setCalendarStatus] = useState<{
     providers: {
-      google: { configured: boolean; scopes: string[] };
-      outlook: { configured: boolean; scopes: string[] };
+      google: ProviderStatus;
+      outlook: ProviderStatus;
     };
+    writesEnabled?: boolean;
     privacy: { note: string; storesChatPlaintext: boolean };
   } | null>(null);
   const [emailStatus, setEmailStatus] = useState<{
     providers: {
-      gmail: { configured: boolean; scopes: string[] };
-      "outlook-mail": { configured: boolean; scopes: string[] };
+      gmail: ProviderStatus;
+      "outlook-mail": ProviderStatus;
     };
+    writesEnabled?: boolean;
     privacy: { note: string; storesFullBodies: boolean };
   } | null>(null);
   const [workStatus, setWorkStatus] = useState<{
     providers: {
-      github: { configured: boolean; scopes: string[] };
-      linear: { configured: boolean; scopes: string[] };
+      github: ProviderStatus;
+      linear: ProviderStatus;
     };
+    writesEnabled?: boolean;
     privacy: { note: string; storesIssueBodies: boolean };
   } | null>(null);
   const [collabStatus, setCollabStatus] = useState<{
     providers: {
-      slack: { configured: boolean; scopes: string[] };
+      slack: ProviderStatus;
     };
+    writesEnabled?: boolean;
     privacy: { note: string; storesMessageHistory: boolean };
   } | null>(null);
   const [calendarConnections, setCalendarConnections] = useState<Connection[]>(
@@ -233,6 +269,14 @@ function IntegrationsSettingsInner() {
           {collabStatus?.privacy.note ??
             "Slack sync stores channel names/ids only — not message history or chat plaintext."}
         </p>
+        <p className="text-xs text-amber-100/70">
+          {calendarStatus?.writesEnabled ||
+          emailStatus?.writesEnabled ||
+          workStatus?.writesEnabled ||
+          collabStatus?.writesEnabled
+            ? "Provider write APIs are enabled on this server. Outbound actions still require an already-approved structured payload (Sophia propose→approve is separate)."
+            : "Provider write APIs are off until operators set INTEGRATIONS_WRITE_ENABLED after updating Google/Azure/GitHub/Linear/Slack consoles. Re-authorize connected accounts to pick up write scopes."}
+        </p>
       </section>
 
       {notice ? (
@@ -266,6 +310,10 @@ function IntegrationsSettingsInner() {
             scopes={calendarStatus?.providers[provider]?.scopes ?? []}
             configured={configured}
             connection={connection}
+            needsScopeUpgrade={connectionNeedsWriteUpgrade(
+              connection,
+              calendarStatus?.providers[provider]?.requiredWriteScopes,
+            )}
             busy={busyKey === key}
             onConnect={() => {
               setBusyKey(key);
@@ -338,6 +386,10 @@ function IntegrationsSettingsInner() {
             scopes={emailStatus?.providers[provider]?.scopes ?? []}
             configured={configured}
             connection={connection}
+            needsScopeUpgrade={connectionNeedsWriteUpgrade(
+              connection,
+              emailStatus?.providers[provider]?.requiredWriteScopes,
+            )}
             busy={busyKey === key}
             onConnect={() => {
               setBusyKey(key);
@@ -410,6 +462,10 @@ function IntegrationsSettingsInner() {
             scopes={workStatus?.providers[provider]?.scopes ?? []}
             configured={configured}
             connection={connection}
+            needsScopeUpgrade={connectionNeedsWriteUpgrade(
+              connection,
+              workStatus?.providers[provider]?.requiredWriteScopes,
+            )}
             busy={busyKey === key}
             onConnect={() => {
               setBusyKey(key);
@@ -531,6 +587,10 @@ function IntegrationsSettingsInner() {
             scopes={collabStatus?.providers[provider]?.scopes ?? []}
             configured={configured}
             connection={connection}
+            needsScopeUpgrade={connectionNeedsWriteUpgrade(
+              connection,
+              collabStatus?.providers[provider]?.requiredWriteScopes,
+            )}
             busy={busyKey === key}
             onConnect={() => {
               setBusyKey(key);
@@ -649,12 +709,14 @@ function ProviderCard(props: {
   scopes: string[];
   configured: boolean;
   connection?: Connection;
+  needsScopeUpgrade?: boolean;
   busy: boolean;
   onConnect: () => void;
   onSync: () => void;
   onDisconnect: () => void;
 }) {
-  const { label, scopes, configured, connection, busy } = props;
+  const { label, scopes, configured, connection, needsScopeUpgrade, busy } =
+    props;
   return (
     <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -670,6 +732,13 @@ function ProviderCard(props: {
                 : "OAuth client configured. Connect when ready."
               : "OAuth client env vars are not configured on the API yet."}
           </p>
+          {needsScopeUpgrade ? (
+            <p className="mt-2 text-sm text-amber-100/80">
+              Write permissions need an upgrade. Reconnect to grant the new
+              OAuth scopes before Sophia can create events, drafts, issues, or
+              Slack posts.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -678,7 +747,11 @@ function ProviderCard(props: {
             disabled={!configured || busy}
             onClick={props.onConnect}
           >
-            {connection?.status === "CONNECTED" ? "Re-authorize" : "Connect"}
+            {needsScopeUpgrade
+              ? "Upgrade permissions"
+              : connection?.status === "CONNECTED"
+                ? "Re-authorize"
+                : "Connect"}
           </Button>
           <Button
             type="button"
@@ -708,7 +781,7 @@ export default function IntegrationsSettingsPage() {
   return (
     <ProductShell
       title="Integrations"
-      subtitle="Calendars, email, work trackers, and Slack with minimum OAuth scopes. Revocable anytime. Chat E2EE stays untouched."
+      subtitle="Calendars, email, work trackers, and Slack. Reconnect to upgrade write scopes. Revocable anytime. Chat E2EE stays untouched."
     >
       <Suspense
         fallback={<p className="text-sm text-white/50">Loading integrations…</p>}

@@ -15,7 +15,11 @@ export const emailProviders: Record<EmailProviderId, EmailProviderConfig> = {
     id: "gmail",
     prismaProvider: "GMAIL",
     label: "Gmail",
-    scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+    // readonly for metadata sync; compose for draft create (prefer draft over send).
+    scopes: [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.compose",
+    ],
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
     revokeUrl: "https://oauth2.googleapis.com/revoke",
@@ -24,7 +28,8 @@ export const emailProviders: Record<EmailProviderId, EmailProviderConfig> = {
     id: "outlook-mail",
     prismaProvider: "OUTLOOK_MAIL",
     label: "Outlook Mail",
-    scopes: ["offline_access", "Mail.Read", "User.Read"],
+    // Mail.ReadWrite includes read + draft create/update (no Mail.Send by default).
+    scopes: ["offline_access", "Mail.ReadWrite", "User.Read"],
     authorizeUrl:
       "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
     tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",

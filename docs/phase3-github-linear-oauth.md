@@ -17,9 +17,11 @@ Register redirect URIs:
 - `{API_PUBLIC_ORIGIN}/integrations/work/github/callback`
 - `{API_PUBLIC_ORIGIN}/integrations/work/linear/callback`
 
-Scopes:
-- GitHub: `read:user`, `repo` (GitHub OAuth Apps have no classic read-only private-repo scope; `repo` is the minimum for private assigned issues/PRs)
-- Linear: `read`
+Scopes (Phase 4.2):
+- GitHub: `read:user`, `repo` (`repo` is already write-capable for issues/PR comments)
+- Linear: `read`, `write` (both required; `write` does not imply `read`)
+
+Issue/comment write APIs: see `docs/phase4-write-oauth.md` (`INTEGRATIONS_WRITE_ENABLED`).
 
 ## How to try
 1. Set env vars on the API; `npx prisma db push` (or migrate) after pulling schema.

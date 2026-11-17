@@ -36,6 +36,14 @@ const envSchema = z.object({
   LINEAR_OAUTH_CLIENT_SECRET: optionalEnvironmentValue,
   SLACK_OAUTH_CLIENT_ID: optionalEnvironmentValue,
   SLACK_OAUTH_CLIENT_SECRET: optionalEnvironmentValue,
+  /**
+   * Phase 4.2 owner-scoped write APIs (calendar/email/work/slack).
+   * Default OFF until provider consoles are upgraded and operators opt in.
+   */
+  INTEGRATIONS_WRITE_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   SAFE_BROWSING_API_KEY: optionalEnvironmentValue,
   TURN_URLS: optionalEnvironmentValue,
@@ -265,3 +273,6 @@ export const slackOAuthConfigured = Boolean(
   env.SLACK_OAUTH_CLIENT_SECRET &&
   env.API_PUBLIC_ORIGIN,
 );
+
+/** Master feature flag for Phase 4.2 provider write routes (default false). */
+export const integrationsWriteEnabled = env.INTEGRATIONS_WRITE_ENABLED;

@@ -4,7 +4,7 @@ export type WorkProviderConfig = {
   id: WorkProviderId;
   prismaProvider: "GITHUB" | "LINEAR";
   label: string;
-  /** Minimum scopes for assigned issue/PR metadata read. */
+  /** Work OAuth scopes (read mirrors + write issues as of Phase 4.2). */
   scopes: string[];
   authorizeUrl: string;
   tokenUrl: string;
@@ -16,8 +16,7 @@ export const workProviders: Record<WorkProviderId, WorkProviderConfig> = {
     id: "github",
     prismaProvider: "GITHUB",
     label: "GitHub",
-    // GitHub OAuth Apps have no classic read-only private-repo scope.
-    // `repo` is the documented minimum for private assigned issues/PRs.
+    // `repo` already covers issue/PR create + comments (write-capable).
     scopes: ["read:user", "repo"],
     authorizeUrl: "https://github.com/login/oauth/authorize",
     tokenUrl: "https://github.com/login/oauth/access_token",
@@ -26,7 +25,8 @@ export const workProviders: Record<WorkProviderId, WorkProviderConfig> = {
     id: "linear",
     prismaProvider: "LINEAR",
     label: "Linear",
-    scopes: ["read"],
+    // `write` does not imply `read` on Linear — keep both.
+    scopes: ["read", "write"],
     authorizeUrl: "https://linear.app/oauth/authorize",
     tokenUrl: "https://api.linear.app/oauth/token",
     revokeUrl: "https://api.linear.app/oauth/revoke",

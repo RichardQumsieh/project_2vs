@@ -5,6 +5,7 @@ import { prisma } from "../db.js";
 import {
   env,
   githubOAuthConfigured,
+  integrationsWriteEnabled,
   linearOAuthConfigured,
 } from "../env.js";
 import {
@@ -23,6 +24,7 @@ import {
   decryptIntegrationSecret,
   encryptIntegrationSecret,
 } from "../integrations/token-crypto.js";
+import { writeRequiredScopes } from "../integrations/write-scopes.js";
 import { denyUnlessOwner } from "../task-authorization.js";
 
 function providerConfigured(provider: WorkProviderId) {
@@ -328,18 +330,21 @@ export async function integrationWorkRoutes(app: FastifyInstance) {
         github: {
           configured: githubOAuthConfigured,
           scopes: workProviders.github.scopes,
+          requiredWriteScopes: [...writeRequiredScopes.github],
         },
         linear: {
           configured: linearOAuthConfigured,
           scopes: workProviders.linear.scopes,
+          requiredWriteScopes: [...writeRequiredScopes.linear],
         },
       },
+      writesEnabled: integrationsWriteEnabled,
       privacy: {
         storesChatPlaintext: false,
         storesIssueBodies: false,
         aiUsesWorkBodiesByDefault: false,
         note:
-          "Work-item mirrors stay owner-scoped (title/state/url only). Sophia/AI will not read issue bodies without a separate explicit consent later.",
+          "Work-item mirrors stay owner-scoped (title/state/url only). Issue/PR writes need repo (GitHub) or write (Linear) after reconnect; INTEGRATIONS_WRITE_ENABLED gates APIs.",
       },
     };
   });

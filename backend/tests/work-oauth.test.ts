@@ -8,16 +8,16 @@ import {
 } from "../src/integrations/work-sync.js";
 
 describe("work OAuth helpers", () => {
-  it("uses minimum GitHub/Linear scopes without write/admin", () => {
+  it("uses GitHub repo + Linear read/write without admin (Phase 4.2)", () => {
     assert.deepEqual(workProviders.github.scopes, ["read:user", "repo"]);
-    assert.deepEqual(workProviders.linear.scopes, ["read"]);
+    assert.deepEqual(workProviders.linear.scopes, ["read", "write"]);
     assert.ok(
       !workProviders.github.scopes.some((scope) =>
         /admin|delete_repo|workflow/i.test(scope),
       ),
     );
     assert.ok(
-      !workProviders.linear.scopes.some((scope) => /write|admin/i.test(scope)),
+      !workProviders.linear.scopes.some((scope) => /admin/i.test(scope)),
     );
   });
 

@@ -5,6 +5,7 @@ import { prisma } from "../db.js";
 import {
   env,
   googleCalendarOAuthConfigured,
+  integrationsWriteEnabled,
   microsoftCalendarOAuthConfigured,
 } from "../env.js";
 import {
@@ -21,6 +22,7 @@ import {
   decryptIntegrationSecret,
   encryptIntegrationSecret,
 } from "../integrations/token-crypto.js";
+import { writeRequiredScopes } from "../integrations/write-scopes.js";
 import { denyUnlessOwner } from "../task-authorization.js";
 
 function providerConfigured(provider: CalendarProviderId) {
@@ -234,17 +236,20 @@ export async function integrationCalendarRoutes(app: FastifyInstance) {
         google: {
           configured: googleCalendarOAuthConfigured,
           scopes: calendarProviders.google.scopes,
+          requiredWriteScopes: [...writeRequiredScopes.googleCalendar],
         },
         outlook: {
           configured: microsoftCalendarOAuthConfigured,
           scopes: calendarProviders.outlook.scopes,
+          requiredWriteScopes: [...writeRequiredScopes.outlookCalendar],
         },
       },
+      writesEnabled: integrationsWriteEnabled,
       privacy: {
         storesChatPlaintext: false,
         aiUsesCalendarBodiesByDefault: false,
         note:
-          "Calendar mirrors stay owner-scoped. Sophia/AI will not read event bodies without a separate explicit consent later.",
+          "Calendar mirrors stay owner-scoped. Sophia/AI will not read event bodies without a separate explicit consent later. Writes require reconnect after console scope upgrades and INTEGRATIONS_WRITE_ENABLED.",
       },
     };
   });
