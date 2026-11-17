@@ -40,7 +40,7 @@ services:
       TOTP_ENCRYPTION_KEY: 1f8364077a753ad2e85819ea23a046bb54b4ed2ad14c393f2f8cb4f5d2c9b611
       PORT: 3001
       # Literal localhost previously ignored root `.env`; interpolate so host/.env can override.
-      # Prod overlay requires FRONTEND_ORIGIN explicitly (docker-compose.prod.yml).
+      # Prod overlay defaults FRONTEND_ORIGIN to https://sophia.apps.grok.bot (docker-compose.prod.yml).
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       COOKIE_NAME: messenger_session
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
