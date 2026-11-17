@@ -14,7 +14,10 @@ services:
       # After `cp backend/.env .`, edit FRONTEND_ORIGIN — the example value is localhost.
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?Set FRONTEND_ORIGIN before starting production}
       COOKIE_NAME: messenger_session
-      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # Always Secure+SameSite=None in prod. Do NOT interpolate from root `.env`:
+      # `cp backend/.env .` copies COOKIE_SECURE=false and would keep Lax cookies,
+      # which browsers refuse to send on cross-site SPA→API fetch.
+      COOKIE_SECURE: "true"
       GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID-}
       GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET-}
       GMAIL_REFRESH_TOKEN: ${GMAIL_REFRESH_TOKEN-}
