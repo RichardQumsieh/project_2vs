@@ -91,6 +91,10 @@ export async function verifyTotpSetupToken(token: string) {
  * Cross-site SPA → API (e.g. sophia.apps.grok.bot → api.sophia-build.com) needs
  * SameSite=None; Secure so credentialed fetch can send the session cookie.
  * Local http keeps Lax (browsers reject SameSite=None without Secure).
+ *
+ * Deploy check: GET /health → cookieSameSite must be "none" in prod. Live
+ * Set-Cookie showing Secure+Lax means COOKIE_SECURE is true but this build
+ * is missing the SameSite=None change (rebuild backend image from main).
  */
 export function authCookieSameSite(): "none" | "lax" {
   return env.COOKIE_SECURE ? "none" : "lax";
