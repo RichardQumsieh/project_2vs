@@ -40,7 +40,6 @@ export function SophiaProposalCard({
 
   return (
     <motion.article
-      layout={!reduceMotion}
       initial={
         reduceMotion ? { opacity: 1 } : { opacity: 0, y: 10, scale: 0.985 }
       }
@@ -85,11 +84,9 @@ export function SophiaProposalCard({
         {sheetOpen ? (
           <motion.div
             key={`${proposal.id}-sheet`}
-            initial={
-              reduceMotion ? { opacity: 1 } : { opacity: 0, height: 0 }
-            }
-            animate={{ opacity: 1, height: "auto" }}
-            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+            initial={reduceMotion ? { opacity: 1 } : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             transition={{ duration: reduceMotion ? 0 : 0.2, ease: "easeOut" }}
             className="overflow-hidden"
           >

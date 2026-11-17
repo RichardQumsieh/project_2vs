@@ -72,7 +72,7 @@ body {
 }
 
 .inbox-shell {
-  transition: grid-template-columns 520ms cubic-bezier(.22, 1, .36, 1);
+  transition: none;
 }
 
 .inbox-shell--pro {
@@ -90,22 +90,34 @@ body {
 }
 
 .inbox-sidebar {
-  backdrop-filter: blur(18px);
+  background: #070b12;
 }
 
-.inbox-conversation-card {
-  animation: inbox-card-enter 420ms cubic-bezier(.22, 1, .36, 1) both;
+.thread-scroll {
+  scroll-behavior: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
-@keyframes inbox-card-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.thread-message {
+  contain: layout style;
+}
+
+.inbox-activity-sheet {
+  animation: inbox-sheet-in 180ms ease-out;
+}
+
+.inbox-activity-compose {
+  animation: inbox-compose-in 180ms ease-out;
+}
+
+@keyframes inbox-sheet-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes inbox-compose-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }
 
 @media (max-width: 767px) {
@@ -187,7 +199,6 @@ body {
 
 main.grid > aside {
   background: var(--glass);
-  backdrop-filter: blur(24px);
 }
 
 .ambient-background {
@@ -206,10 +217,10 @@ main.grid > aside {
   aspect-ratio: 1;
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 47% 53% 62% 38% / 46% 41% 59% 54%;
-  opacity: .46;
-  filter: blur(72px);
-  will-change: transform, border-radius;
-  animation: ambient-drift 34s ease-in-out infinite alternate;
+  opacity: .18;
+  filter: none;
+  will-change: auto;
+  animation: none;
 }
 
 .ambient-orb-one {
@@ -246,14 +257,14 @@ main.grid > aside {
 }
 
 :root[data-theme="light"] .ambient-orb {
-  opacity: .3;
-  filter: blur(82px);
+  opacity: .2;
+  filter: none;
 }
 
 @media (prefers-color-scheme: light) {
   :root[data-theme="system"] .ambient-orb {
-    opacity: .3;
-    filter: blur(82px);
+    opacity: .2;
+    filter: none;
   }
 }
 
@@ -366,10 +377,10 @@ main.grid > aside {
 .sophia-robot-viseme span {
   display: block;
   width: .18rem;
-  height: .35rem;
+  height: .9rem;
+  transform-origin: center bottom;
   border-radius: 999px;
   background: rgba(125, 211, 252, .9);
-  box-shadow: 0 0 8px rgba(56, 189, 248, .55);
 }
 
 .sophia-robot--speaking .sophia-robot-viseme {
@@ -406,8 +417,14 @@ main.grid > aside {
 }
 
 @keyframes sophia-viseme {
-  0%, 100% { height: .28rem; }
-  50% { height: .9rem; }
+  0%, 100% { transform: scaleY(.31); }
+  50% { transform: scaleY(1); }
+}
+
+@media (max-width: 900px), (pointer: coarse) {
+  .ambient-background {
+    display: none;
+  }
 }
 
 .companion-orb {

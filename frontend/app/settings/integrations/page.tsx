@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ProductShell } from "@/components/product-shell";
@@ -26,47 +27,6 @@ type Connection = {
   status: "CONNECTED" | "REVOKED" | "ERROR";
   lastSyncAt: string | null;
   lastErrorCode: string | null;
-};
-
-type CalendarEvent = {
-  id: string;
-  provider: string;
-  accountEmail: string | null;
-  title: string;
-  startsAt: string;
-  endsAt: string;
-  allDay: boolean;
-};
-
-type MailMessage = {
-  id: string;
-  provider: string;
-  accountEmail: string | null;
-  subject: string;
-  fromAddress: string;
-  receivedAt: string;
-  snippet: string;
-};
-
-type WorkItem = {
-  id: string;
-  provider: string;
-  accountEmail: string | null;
-  kind: "ISSUE" | "PULL_REQUEST";
-  number: number | null;
-  title: string;
-  state: string;
-  url: string;
-  containerKey: string;
-};
-
-type CollabChannel = {
-  id: string;
-  provider: string;
-  accountEmail: string | null;
-  name: string;
-  isPrivate: boolean;
-  isArchived: boolean;
 };
 
 type ProviderStatus = {
@@ -140,10 +100,6 @@ function IntegrationsSettingsInner() {
   const [emailConnections, setEmailConnections] = useState<Connection[]>([]);
   const [workConnections, setWorkConnections] = useState<Connection[]>([]);
   const [collabConnections, setCollabConnections] = useState<Connection[]>([]);
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [messages, setMessages] = useState<MailMessage[]>([]);
-  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
-  const [collabChannels, setCollabChannels] = useState<CollabChannel[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -158,10 +114,6 @@ function IntegrationsSettingsInner() {
       nextEmailConnections,
       nextWorkConnections,
       nextCollabConnections,
-      nextEvents,
-      nextMessages,
-      nextWorkItems,
-      nextCollabChannels,
     ] = await Promise.all([
       api.calendarIntegrationStatus(),
       api.emailIntegrationStatus(),
@@ -171,10 +123,6 @@ function IntegrationsSettingsInner() {
       api.listEmailConnections(),
       api.listWorkConnections(),
       api.listCollabConnections(),
-      api.listCalendarEvents(),
-      api.listEmailMessages(),
-      api.listWorkItems(),
-      api.listCollabChannels(),
     ]);
     setCalendarStatus(nextCalendarStatus);
     setEmailStatus(nextEmailStatus);
@@ -184,10 +132,6 @@ function IntegrationsSettingsInner() {
     setEmailConnections(nextEmailConnections.connections);
     setWorkConnections(nextWorkConnections.connections);
     setCollabConnections(nextCollabConnections.connections);
-    setEvents(nextEvents.events);
-    setMessages(nextMessages.messages);
-    setWorkItems(nextWorkItems.items);
-    setCollabChannels(nextCollabChannels.channels);
   }, []);
 
   useEffect(() => {
@@ -268,6 +212,13 @@ function IntegrationsSettingsInner() {
         <p className="text-xs text-white/45">
           {collabStatus?.privacy.note ??
             "Slack sync stores channel names/ids only — not message history or chat plaintext."}
+        </p>
+        <p className="text-sm text-white/75">
+          Recent mail and upcoming events are in the{" "}
+          <Link href="/inbox" className="underline underline-offset-2">
+            inbox
+          </Link>
+          . Compose and scheduling stay there and still require approval. This page only connects, reconnects, or upgrades scopes.
         </p>
         <p className="text-xs text-amber-100/70">
           {calendarStatus?.writesEnabled ||
@@ -522,55 +473,6 @@ function IntegrationsSettingsInner() {
         );
       })}
 
-      <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-        <h2 className="text-base font-semibold text-white">Mirrored calendar</h2>
-        {events.length === 0 ? (
-          <p className="text-sm text-white/50">No mirrored events yet.</p>
-        ) : (
-          <ul className="space-y-2 text-sm text-white/70">
-            {events.slice(0, 20).map((event) => (
-              <li
-                key={event.id}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
-              >
-                <p className="font-medium text-white/85">{event.title}</p>
-                <p className="text-xs text-white/45">
-                  {new Date(event.startsAt).toLocaleString()}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-        <h2 className="text-base font-semibold text-white">Mirrored mail</h2>
-        <p className="text-xs text-white/45">
-          Subject / from / snippet only — not full bodies or chat plaintext.
-        </p>
-        {messages.length === 0 ? (
-          <p className="text-sm text-white/50">No mirrored messages yet.</p>
-        ) : (
-          <ul className="space-y-2 text-sm text-white/70">
-            {messages.slice(0, 20).map((message) => (
-              <li
-                key={message.id}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
-              >
-                <p className="font-medium text-white/85">{message.subject}</p>
-                <p className="text-xs text-white/45">
-                  {message.fromAddress} ·{" "}
-                  {new Date(message.receivedAt).toLocaleString()}
-                </p>
-                {message.snippet ? (
-                  <p className="mt-1 text-xs text-white/55">{message.snippet}</p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
       <h2 className="text-sm font-semibold uppercase tracking-wide text-white/50">
         Collaboration
       </h2>
@@ -647,59 +549,6 @@ function IntegrationsSettingsInner() {
         );
       })}
 
-      <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-        <h2 className="text-base font-semibold text-white">Mirrored work items</h2>
-        <p className="text-xs text-white/45">
-          Title / state / url only — not issue bodies, comments, or chat plaintext.
-        </p>
-        {workItems.length === 0 ? (
-          <p className="text-sm text-white/50">No mirrored work items yet.</p>
-        ) : (
-          <ul className="space-y-2 text-sm text-white/70">
-            {workItems.slice(0, 20).map((item) => (
-              <li
-                key={item.id}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
-              >
-                <p className="font-medium text-white/85">
-                  {item.containerKey
-                    ? `${item.containerKey}${item.number != null ? `#${item.number}` : ""} · `
-                    : ""}
-                  {item.title}
-                </p>
-                <p className="text-xs text-white/45">
-                  {item.provider} · {item.kind.toLowerCase()} · {item.state}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-        <h2 className="text-base font-semibold text-white">Mirrored Slack channels</h2>
-        <p className="text-xs text-white/45">
-          Channel names/ids only — not message history or chat plaintext.
-        </p>
-        {collabChannels.length === 0 ? (
-          <p className="text-sm text-white/50">No mirrored channels yet.</p>
-        ) : (
-          <ul className="space-y-2 text-sm text-white/70">
-            {collabChannels.slice(0, 20).map((channel) => (
-              <li
-                key={channel.id}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2"
-              >
-                <p className="font-medium text-white/85">#{channel.name}</p>
-                <p className="text-xs text-white/45">
-                  {channel.isPrivate ? "private" : "public"}
-                  {channel.isArchived ? " · archived" : ""}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
     </div>
   );
 }
@@ -781,7 +630,7 @@ export default function IntegrationsSettingsPage() {
   return (
     <ProductShell
       title="Integrations"
-      subtitle="Calendars, email, work trackers, and Slack. Reconnect to upgrade write scopes. Revocable anytime. Chat E2EE stays untouched."
+      subtitle="Connect, reconnect, or upgrade scopes. Read and write mail and calendar from the inbox. Revocable anytime. Chat E2EE stays untouched."
     >
       <Suspense
         fallback={<p className="text-sm text-white/50">Loading integrations…</p>}
