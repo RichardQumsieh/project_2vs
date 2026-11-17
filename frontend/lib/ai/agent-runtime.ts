@@ -116,11 +116,23 @@ export type AgentToolAction =
       endsAt?: string;
     };
 
+export type AgentProposalProvenance =
+  | "command"
+  | "briefing"
+  | "radar"
+  | "deadline"
+  | "companion";
+
 export type AgentProposal = {
   id: string;
   action: AgentToolAction;
   createdAt: number;
   expiresAt: number;
+  provenance?: AgentProposalProvenance;
+};
+
+export type ProposeOptions = {
+  provenance?: AgentProposalProvenance;
 };
 
 export type AgentAuditEntry = {
@@ -183,8 +195,12 @@ export type AgentToolHandlers = {
 };
 
 export type AgentRuntime = {
-  propose(action: AgentToolAction): AgentProposal;
-  revise(id: string, action: AgentToolAction): AgentProposal;
+  propose(action: AgentToolAction, options?: ProposeOptions): AgentProposal;
+  revise(
+    id: string,
+    action: AgentToolAction,
+    options?: ProposeOptions,
+  ): AgentProposal;
   approve(id: string): Promise<void>;
   cancel(id: string): boolean;
   cancelAll(): void;
@@ -721,24 +737,25 @@ export function createAgentRuntime({
   }
 
   return {
-    propose(action) {
+    propose(action, options) {
       expireOldProposals();
       validateAction(action);
       if (proposals.size >= maxPendingProposals) {
         throw new Error("Review or cancel a pending action before proposing another.");
       }
       const timestamp = now();
-      const proposal = {
+      const proposal: AgentProposal = {
         id: createId(),
         action: structuredClone(action),
         createdAt: timestamp,
         expiresAt: timestamp + proposalLifetimeMs,
+        ...(options?.provenance ? { provenance: options.provenance } : {}),
       };
       proposals.set(proposal.id, proposal);
       publish();
       return proposal;
     },
-    revise(id, action) {
+    revise(id, action, options) {
       expireOldProposals();
       const existing = proposals.get(id);
       if (!existing) {
@@ -746,11 +763,13 @@ export function createAgentRuntime({
       }
       validateAction(action);
       const timestamp = now();
-      const proposal = {
+      const provenance = options?.provenance ?? existing.provenance;
+      const proposal: AgentProposal = {
         id,
         action: structuredClone(action),
         createdAt: existing.createdAt,
         expiresAt: timestamp + proposalLifetimeMs,
+        ...(provenance ? { provenance } : {}),
       };
       proposals.set(id, proposal);
       publish();
