@@ -1,5 +1,9 @@
 import type { AgentToolAction } from "@/lib/ai/agent-runtime";
 import {
+  validateOutboundAttachments,
+  type OutboundEmailAttachment,
+} from "./email-attachments";
+import {
   emailTypoWarnings,
   isEmailAddress,
   prepareOutboundEmail,
@@ -82,6 +86,7 @@ export function buildEmailDraftAction(input: {
   subject: string;
   body: string;
   delivery?: "send" | "draft";
+  attachments?: readonly OutboundEmailAttachment[];
 }):
   | {
       ok: true;
@@ -109,6 +114,10 @@ export function buildEmailDraftAction(input: {
   if (!outbound.text) {
     return { ok: false, error: "Body must be 1–20,000 characters." };
   }
+  const files = validateOutboundAttachments(input.attachments);
+  if (!files.ok) {
+    return files;
+  }
   return {
     ok: true,
     warnings: emailTypoWarnings([...to, ...cc]),
@@ -123,6 +132,7 @@ export function buildEmailDraftAction(input: {
         ? { html: outbound.html, contentType: outbound.contentType }
         : { contentType: "text/plain" as const }),
       ...(cc.length > 0 ? { cc } : {}),
+      ...(files.attachments.length > 0 ? { attachments: files.attachments } : {}),
     },
   };
 }
@@ -141,6 +151,7 @@ export function emailApiPayload(
           contentType: action.contentType ?? ("text/html" as const),
         }
       : {}),
+    ...(action.attachments?.length ? { attachments: action.attachments } : {}),
   };
 }
 

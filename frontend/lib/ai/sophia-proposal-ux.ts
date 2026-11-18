@@ -2,6 +2,7 @@ import type {
   AgentProposalProvenance,
   AgentToolAction,
 } from "./agent-runtime";
+import { formatAttachmentSize } from "../email-attachments";
 import { isJobManagerTool } from "./sophia-job-tools";
 
 export type { AgentProposalProvenance };
@@ -163,6 +164,19 @@ export function outboundPayloadFields(
           ? [{ label: "Cc", value: action.cc.join(", ") }]
           : []),
         { label: "Subject", value: action.subject },
+        ...(action.attachments?.length
+          ? [
+              {
+                label: "Attachments",
+                value: action.attachments
+                  .map(
+                    (file) =>
+                      `${file.filename} · ${file.contentType} · ${formatAttachmentSize(file.size)}`,
+                  )
+                  .join("\n"),
+              },
+            ]
+          : []),
         {
           label: "Content-Type",
           value: action.contentType ?? (action.html ? "text/html" : "text/plain"),

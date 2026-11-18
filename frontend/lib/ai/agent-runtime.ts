@@ -1,3 +1,8 @@
+import {
+  validateOutboundAttachments,
+  type OutboundEmailAttachment,
+} from "../email-attachments";
+
 export type AgentToolAction =
   | {
       type: "send_message";
@@ -70,6 +75,7 @@ export type AgentToolAction =
       delivery?: "send" | "draft";
       contentType?: "text/plain" | "text/html";
       html?: string;
+      attachments?: OutboundEmailAttachment[];
     }
   | {
       type: "create_calendar_event";
@@ -271,10 +277,14 @@ export function agentActionSummary(action: AgentToolAction) {
       return "Dismiss this Radar finding";
     case "snooze_reminder":
       return `Snooze this reminder until ${action.until.slice(0, 10)}`;
-    case "draft_email":
+    case "draft_email": {
+      const files = action.attachments?.length
+        ? ` with ${action.attachments.length} attachment${action.attachments.length === 1 ? "" : "s"}`
+        : "";
       return action.delivery === "send"
-        ? `Send ${action.provider} email to ${action.to.join(", ")}`
-        : `Create ${action.provider} draft to ${action.to.join(", ")}`;
+        ? `Send ${action.provider} email to ${action.to.join(", ")}${files}`
+        : `Create ${action.provider} draft to ${action.to.join(", ")}${files}`;
+    }
     case "create_calendar_event":
       return `Create ${action.provider} calendar event “${action.title}”`;
     case "create_github_issue":
@@ -559,6 +569,12 @@ export function createAgentRuntime({
             /<\s*script/i.test(action.html)
           ) {
             throw new Error("The email HTML payload is not allowed.");
+          }
+        }
+        if (action.attachments !== undefined) {
+          const files = validateOutboundAttachments(action.attachments);
+          if (!files.ok) {
+            throw new Error(files.error);
           }
         }
         break;

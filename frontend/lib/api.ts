@@ -1,4 +1,5 @@
 import { resolveApiUrl } from "./api-url";
+import type { OutboundEmailAttachment } from "./email-attachments";
 
 const API_URL = resolveApiUrl();
 
@@ -963,6 +964,7 @@ export const api = {
       cc?: string[];
       html?: string;
       contentType?: "text/plain" | "text/html";
+      attachments?: OutboundEmailAttachment[];
     },
   ) =>
     request<{
@@ -982,6 +984,7 @@ export const api = {
       cc?: string[];
       html?: string;
       contentType?: "text/plain" | "text/html";
+      attachments?: OutboundEmailAttachment[];
     },
   ) =>
     request<{
