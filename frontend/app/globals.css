@@ -108,12 +108,18 @@ body {
   contain: layout style;
 }
 
-.inbox-activity-sheet {
-  animation: inbox-sheet-in 180ms ease-out;
-}
+@media (prefers-reduced-motion: no-preference) {
+  .inbox-activity-sheet {
+    animation: inbox-sheet-in 180ms ease-out;
+  }
 
-.inbox-activity-compose {
-  animation: inbox-compose-in 180ms ease-out;
+  .inbox-activity-compose {
+    animation: inbox-compose-in 180ms ease-out;
+  }
+
+  .inbox-send-success {
+    animation: inbox-send-success 320ms ease-out;
+  }
 }
 
 @keyframes inbox-sheet-in {
@@ -123,6 +129,11 @@ body {
 
 @keyframes inbox-compose-in {
   from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes inbox-send-success {
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
 

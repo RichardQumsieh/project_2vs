@@ -81,7 +81,7 @@ export function EncryptedVideo({
         playsInline
         preload="metadata"
         className="max-h-[min(60dvh,28rem)] w-full rounded-2xl bg-black object-contain"
-        aria-label={payload.caption?.trim() || "Private video"}
+        aria-label={payload.caption?.trim() || "Video"}
       />
       {payload.caption?.trim() ? (
         <figcaption className="text-sm">

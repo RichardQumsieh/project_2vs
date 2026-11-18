@@ -52,7 +52,7 @@ export const SOPHIA_SLASH_HINTS: SlashHint[] = [
     id: "email",
     label: "/email",
     insert: "Sophia, draft email to ",
-    description: "Email draft",
+    description: "Email",
   },
   {
     id: "github",
@@ -153,13 +153,24 @@ export function outboundPayloadFields(
   switch (action.type) {
     case "draft_email":
       return [
+        {
+          label: "Delivery",
+          value: action.delivery === "send" ? "send" : "draft",
+        },
         { label: "Provider", value: action.provider },
         { label: "To", value: action.to.join(", ") },
         ...(action.cc?.length
           ? [{ label: "Cc", value: action.cc.join(", ") }]
           : []),
         { label: "Subject", value: action.subject },
-        { label: "Body", value: action.body },
+        {
+          label: "Content-Type",
+          value: action.contentType ?? (action.html ? "text/html" : "text/plain"),
+        },
+        { label: "Plain body", value: action.body },
+        ...(action.html
+          ? [{ label: "HTML body", value: action.html }]
+          : []),
       ];
     case "create_calendar_event":
       return [
@@ -256,7 +267,7 @@ export function approveVerb(action: AgentToolAction): string {
   if (isJobManagerTool(action.type)) {
     switch (action.type) {
       case "draft_email":
-        return "Approve draft";
+        return action.delivery === "send" ? "Approve send" : "Approve draft";
       case "post_slack_message":
         return "Approve post";
       case "create_calendar_event":

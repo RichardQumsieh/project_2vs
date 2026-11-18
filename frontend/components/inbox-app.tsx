@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowLeft, Calendar, CheckSquare, Mail, MapPin, Paperclip, Phone, Send, Settings, Smile, Video, X } from "lucide-react";
+import { ArrowLeft, Calendar, CheckSquare, Mail, MapPin, Paperclip, Phone, Send, Settings, Smile, UserRound, Video, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -38,8 +38,7 @@ import {
   type RecordedVoiceNote,
 } from "@/components/voice-note-recorder";
 import { UserDiscovery } from "@/components/user-discovery";
-import { ThemeControl } from "@/components/theme-control";
-import { GoogleDriveArchiveBackup } from "@/components/google-drive-archive-backup";
+import { SophiaMark } from "@/components/sophia-mark";
 import { useRealtime } from "@/lib/use-realtime";
 import {
   localInferenceProvider,
@@ -619,13 +618,15 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
       >
         <div className="h-full min-w-[15rem] overflow-y-auto overscroll-contain p-4 sm:p-5">
         <div className="mb-6 flex items-start justify-between gap-2">
-          <div>
-            <p className="text-[11px] tracking-[0.22em] text-cyan-200/70 uppercase">Private</p>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight text-white">Inbox</h1>
-            <p className="mt-1 text-sm text-white/50">@{me.data.user.username}</p>
+          <div className="flex min-w-0 items-start gap-2.5">
+            <SophiaMark />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold tracking-tight text-white">Sophia</p>
+              <h1 className="text-xl font-semibold tracking-tight text-white">Inbox</h1>
+              <p className="mt-1 text-sm text-white/50">@{me.data.user.username}</p>
+            </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {!activeConversationId ? <ThemeControl /> : null}
             <Link
               href="/settings"
               className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/75 transition hover:bg-white/[0.07]"
@@ -695,28 +696,36 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
           })}
         >
           <Input placeholder="Username" {...start.register("username")} />
-          <Button type="submit" size="sm">
+          <Button type="submit" size="sm" className="gap-1.5">
+            <UserRound aria-hidden="true" className="size-3.5" />
             Chat
           </Button>
         </form>
         {startError ? <p className="mb-6 text-sm text-red-300">{startError}</p> : null}
-        <div className="mb-6">
-          <GoogleDriveArchiveBackup />
-        </div>
 
         <div className="min-h-0 flex-1 space-y-2">
-          {(conversations.data ?? []).map((conversation) => (
+          {(conversations.data ?? []).map((conversation) => {
+            const label =
+              conversation.peer?.displayName ?? conversation.peer?.username ?? "Unknown";
+            return (
             <Link
               key={conversation.id}
               href={`/inbox/${conversation.id}`}
-              className="block rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3.5 transition-colors hover:border-cyan-300/25 hover:bg-white/[0.05]"
+              className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3 transition-colors hover:border-cyan-300/25 hover:bg-white/[0.05]"
             >
-              <p className="text-sm font-medium tracking-tight">
-                {conversation.peer?.displayName ?? conversation.peer?.username ?? "Unknown"}
-              </p>
-              <p className="mt-0.5 text-xs text-white/40">@{conversation.peer?.username}</p>
+              <span
+                aria-hidden="true"
+                className="grid size-9 shrink-0 place-items-center rounded-full border border-cyan-300/20 bg-cyan-300/10 text-xs font-semibold text-cyan-50"
+              >
+                {label.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="min-w-0">
+                <p className="truncate text-sm font-medium tracking-tight">{label}</p>
+                <p className="mt-0.5 truncate text-xs text-white/40">@{conversation.peer?.username}</p>
+              </span>
             </Link>
-          ))}
+            );
+          })}
           <UserDiscovery
             key={me.data.user.id}
             userId={me.data.user.id}
@@ -777,6 +786,7 @@ function ThreadConversation({
   const [selectedLocation, setSelectedLocation] =
     useState<PendingLocationShare | null>(null);
   const [locating, setLocating] = useState(false);
+  const [sentNotice, setSentNotice] = useState(false);
   const [preparingFile, setPreparingFile] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [recordingVoiceNote, setRecordingVoiceNote] = useState(false);
@@ -1744,6 +1754,8 @@ function ThreadConversation({
       setSelectedReplyIds([]);
       setReplySelectMode(false);
       setSummary(null);
+      setSentNotice(true);
+      window.setTimeout(() => setSentNotice(false), 1600);
       void queryClient.invalidateQueries({
         queryKey: ["local-messages", activeUserId, conversationId],
       });
@@ -1937,6 +1949,8 @@ function ThreadConversation({
       setSelectedLocation(null);
       form.reset();
       setSummary(null);
+      setSentNotice(true);
+      window.setTimeout(() => setSentNotice(false), 1600);
       void queryClient.invalidateQueries({
         queryKey: ["local-messages", activeUserId, conversationId],
       });
@@ -2092,12 +2106,23 @@ function ThreadConversation({
           }
         },
         draftEmail: async (action) => {
-          await api.createEmailDraft(action.provider, {
+          const payload = {
             to: action.to,
             subject: action.subject,
             body: action.body,
             ...(action.cc ? { cc: action.cc } : {}),
-          });
+            ...(action.html
+              ? {
+                  html: action.html,
+                  contentType: action.contentType ?? ("text/html" as const),
+                }
+              : {}),
+          };
+          if (action.delivery === "send") {
+            await api.sendEmail(action.provider, payload);
+            return;
+          }
+          await api.createEmailDraft(action.provider, payload);
         },
         createCalendarEvent: async (action) => {
           await api.createCalendarEvent(action.provider, {
@@ -2630,6 +2655,7 @@ function ThreadConversation({
               subject: intent.subject,
               body: intent.body,
               ...(intent.cc ? { cc: intent.cc } : {}),
+              ...(intent.delivery ? { delivery: intent.delivery } : {}),
             },
             commandOpts,
           );
@@ -3429,7 +3455,6 @@ function ThreadConversation({
         >
           <Video aria-hidden="true" className="size-4" />
         </Button>
-        <ThemeControl />
         <Link
           href="/settings"
           className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-2 text-xs text-white/75 transition-colors hover:bg-white/5"
@@ -5462,7 +5487,7 @@ function ThreadConversation({
                 ? "Add a caption (optional)"
                 : selectedReplyIds.length
                   ? `Reply to ${selectedReplyIds.length} selected…`
-                  : "Write a private message"
+                  : "Write a message"
             }
             autoComplete="off"
             className="h-10 min-w-0 flex-1 rounded-2xl border-white/10 bg-white/[0.035] px-2.5 text-xs transition-colors duration-200 focus:border-(--accent)/50 sm:h-11 sm:px-4 sm:text-sm"
@@ -5522,6 +5547,10 @@ function ThreadConversation({
         {send.isPending ? (
           <p role="status" className="mt-2 text-center text-xs text-white/50">
             Checking message links and sending securely…
+          </p>
+        ) : sentNotice ? (
+          <p role="status" className="inbox-send-success mt-2 text-center text-xs text-emerald-200/90">
+            Sent
           </p>
         ) : null}
         {preparingFile ? (

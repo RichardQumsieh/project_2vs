@@ -20,8 +20,8 @@ Keep **off** until Google/Azure/GitHub/Linear/Slack consoles include the write s
 |----------|--------|
 | Google Calendar | `calendar.events` |
 | Outlook Calendar | `offline_access`, `Calendars.ReadWrite`, `User.Read` |
-| Gmail | `gmail.readonly`, `gmail.compose` (drafts; no `gmail.send` by default) |
-| Outlook Mail | `offline_access`, `Mail.ReadWrite`, `User.Read` (no `Mail.Send` by default) |
+| Gmail | `gmail.readonly`, `gmail.compose` (drafts), `gmail.send` (approved send) |
+| Outlook Mail | `offline_access`, `Mail.ReadWrite`, `Mail.Send`, `User.Read` |
 | GitHub | `read:user`, `repo` (already write-capable for issues/PR comments) |
 | Linear | `read`, `write` |
 | Slack | `channels:read`, `groups:read`, `users:read`, `chat:write` (no `channels:history`) |
@@ -34,7 +34,8 @@ Accept **already-approved structured payloads only** (agent propose→approve is
 |--------|------|-----------------|
 | POST | `/integrations/calendar/:provider/events` | title, startsAt, endsAt, optional description/allDay |
 | PATCH | `/integrations/calendar/:provider/events/:externalEventId` | same |
-| POST | `/integrations/email/:provider/drafts` | to[], subject, body, optional cc[] |
+| POST | `/integrations/email/:provider/drafts` | to[], subject, body, optional cc[] / html |
+| POST | `/integrations/email/:provider/send` | same payload; sends only after approval |
 | POST | `/integrations/work/github/issues` | owner, repo, title, optional body |
 | PATCH | `/integrations/work/github/issues` | owner, repo, issueNumber, title/body/state |
 | POST | `/integrations/work/github/comments` | owner, repo, issueNumber, body |

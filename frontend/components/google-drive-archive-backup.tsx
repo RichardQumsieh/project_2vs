@@ -82,7 +82,7 @@ export function GoogleDriveArchiveBackup() {
       </Button>
       {open ? (
         <div
-          className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-black/75 p-4"
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget && !busy) setOpen(false);

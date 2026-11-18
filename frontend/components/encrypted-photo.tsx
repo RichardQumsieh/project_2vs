@@ -89,7 +89,7 @@ export function EncryptedPhoto({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           ref={imageRef}
-          alt={payload.caption?.trim() || "Private photo"}
+          alt={payload.caption?.trim() || "Photo"}
           width={payload.w}
           height={payload.h}
           className={`${className} cursor-zoom-in transition duration-200 hover:brightness-110`}
@@ -103,7 +103,7 @@ export function EncryptedPhoto({
       <PhotoLightbox
         open={lightboxOpen}
         src={objectUrl}
-        alt={payload.caption?.trim() || "Private photo"}
+        alt={payload.caption?.trim() || "Photo"}
         onClose={() => setLightboxOpen(false)}
       />
     </figure>

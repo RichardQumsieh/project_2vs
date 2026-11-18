@@ -22,7 +22,7 @@ export function proxy(request: NextRequest) {
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
   response.headers.set(
     "Permissions-Policy",
-    "camera=(self), microphone=(self), geolocation=()",
+    "camera=(self), microphone=(self), geolocation=(self)",
   );
   return response;
 }

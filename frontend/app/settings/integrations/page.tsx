@@ -203,7 +203,7 @@ function IntegrationsSettingsInner() {
         </p>
         <p className="text-xs text-white/45">
           {emailStatus?.privacy.note ??
-            "Mail sync stores subject/from/snippet only — not full bodies."}
+            "Mail sync stores subject/from/snippet only. Reconnect after adding gmail.send and Mail.Send so approved mail can send."}
         </p>
         <p className="text-xs text-white/45">
           {workStatus?.privacy.note ??
@@ -584,8 +584,8 @@ function ProviderCard(props: {
           {needsScopeUpgrade ? (
             <p className="mt-2 text-sm text-amber-100/80">
               Write permissions need an upgrade. Reconnect to grant the new
-              OAuth scopes before Sophia can create events, drafts, issues, or
-              Slack posts.
+              OAuth scopes before Sophia can send mail, save drafts, create
+              events, file issues, or post to Slack.
             </p>
           ) : null}
         </div>

@@ -27,7 +27,9 @@ import {
 import { parseCalendarProvider } from "../integrations/calendar-providers.js";
 import {
   buildEmailDraftCreateRequest,
+  buildEmailSendRequest,
   parseEmailDraftWriteResult,
+  parseEmailSendResult,
   validateEmailDraftWritePayload,
 } from "../integrations/email-write.js";
 import { parseEmailProvider } from "../integrations/email-providers.js";
@@ -364,6 +366,96 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
         return reply
           .code(502)
           .send({ error: "Email draft create failed", code });
+      }
+    },
+  );
+
+  // Approved send. Still requires the propose→approve payload; nothing here sends silently.
+  app.post(
+    "/integrations/email/:provider/send",
+    async (request, reply) => {
+      const session = await requireUser(request, reply);
+      if (!session) return;
+
+      const provider = parseEmailProvider(
+        (request.params as { provider: string }).provider,
+      );
+      if (!provider) {
+        return reply.code(404).send({ error: "Unknown email provider" });
+      }
+      const configured =
+        provider === "gmail" ? gmailOAuthConfigured : microsoftMailOAuthConfigured;
+      if (!configured) {
+        return reply.code(503).send({ error: "Email OAuth is not configured" });
+      }
+
+      const parsed = validateEmailDraftWritePayload(request.body);
+      if (!parsed.ok) {
+        return reply.code(400).send({ error: parsed.error });
+      }
+
+      const prismaProvider = provider === "gmail" ? "GMAIL" : "OUTLOOK_MAIL";
+      const connection = await prisma.integrationConnection.findUnique({
+        where: {
+          ownerUserId_provider: {
+            ownerUserId: session.sub,
+            provider: prismaProvider,
+          },
+        },
+      });
+      const gate = gateIntegrationWrite({
+        ownerUserId: connection?.ownerUserId,
+        sessionUserId: session.sub,
+        writesEnabled: integrationsWriteEnabled,
+        status: connection?.status,
+        grantedScopes: connection?.scopes ?? [],
+        requiredWriteScopes:
+          provider === "gmail"
+            ? writeRequiredScopes.gmail
+            : writeRequiredScopes.outlookMail,
+      });
+      if (!gate.ok) {
+        return reply.code(gate.status).send({
+          error: gate.error,
+          code: gate.code,
+          missingScopes: gate.missingScopes,
+        });
+      }
+
+      try {
+        const accessToken = await resolveEmailAccessToken(provider, connection!);
+        const req = buildEmailSendRequest(provider, parsed.payload);
+        const result = await providerFetch(req.url, {
+          method: req.method,
+          accessToken,
+          body: req.body,
+        });
+        const parsedResult = parseEmailSendResult(
+          provider,
+          result.json,
+          result.status,
+        );
+        opaqueWriteLog(request, {
+          family: "email",
+          provider,
+          connectionId: connection!.id,
+          status: result.status,
+          externalId: parsedResult?.externalMessageId ?? undefined,
+        });
+        if (!result.ok || !parsedResult) {
+          return reply.code(502).send({
+            error: "Email send failed",
+            code: `email_send_${result.status}`,
+          });
+        }
+        return {
+          ok: true,
+          externalMessageId: parsedResult.externalMessageId,
+        };
+      } catch (error) {
+        const code =
+          error instanceof Error ? error.message.slice(0, 64) : "write_failed";
+        return reply.code(502).send({ error: "Email send failed", code });
       }
     },
   );

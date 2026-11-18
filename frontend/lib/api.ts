@@ -961,12 +961,33 @@ export const api = {
       subject: string;
       body: string;
       cc?: string[];
+      html?: string;
+      contentType?: "text/plain" | "text/html";
     },
   ) =>
     request<{
       ok: true;
       externalDraftId: string;
     }>(`/integrations/email/${provider}/drafts`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  sendEmail: (
+    provider: "gmail" | "outlook-mail",
+    body: {
+      to: string[];
+      subject: string;
+      body: string;
+      cc?: string[];
+      html?: string;
+      contentType?: "text/plain" | "text/html";
+    },
+  ) =>
+    request<{
+      ok: true;
+      externalMessageId: string | null;
+    }>(`/integrations/email/${provider}/send`, {
       method: "POST",
       body: JSON.stringify(body),
     }),

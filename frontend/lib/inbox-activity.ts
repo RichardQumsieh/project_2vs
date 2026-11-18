@@ -1,4 +1,9 @@
 import type { AgentToolAction } from "@/lib/ai/agent-runtime";
+import {
+  emailTypoWarnings,
+  isEmailAddress,
+  prepareOutboundEmail,
+} from "./email-compose";
 
 export type InboxActivityView = "agenda" | "email" | "event";
 
@@ -12,8 +17,6 @@ export type MirroredEvent = {
   startsAt: string;
   endsAt: string;
 };
-
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function sortRecentMail<T extends MirroredMail>(items: readonly T[]): T[] {
   return [...items].sort((left, right) => {
@@ -78,35 +81,66 @@ export function buildEmailDraftAction(input: {
   cc?: string;
   subject: string;
   body: string;
+  delivery?: "send" | "draft";
 }):
-  | { ok: true; action: Extract<AgentToolAction, { type: "draft_email" }> }
+  | {
+      ok: true;
+      action: Extract<AgentToolAction, { type: "draft_email" }>;
+      warnings: string[];
+    }
   | { ok: false; error: string } {
   const to = parseAddressField(input.to);
-  if (to.length === 0 || to.length > 20 || !to.every((item) => emailPattern.test(item))) {
+  if (to.length === 0 || to.length > 20 || !to.every((item) => isEmailAddress(item))) {
     return { ok: false, error: "Enter at least one valid recipient." };
   }
   const cc = input.cc?.trim() ? parseAddressField(input.cc) : [];
-  if (cc.length > 20 || cc.some((item) => !emailPattern.test(item))) {
+  if (cc.length > 20 || cc.some((item) => !isEmailAddress(item))) {
     return { ok: false, error: "Cc addresses must be valid emails." };
   }
   const subject = input.subject.trim();
-  const body = input.body.trim();
-  if (!subject || subject.length > 200) {
+  const source = input.body.trim();
+  if (!subject || subject.length > 200 || /[\r\n]/.test(subject)) {
     return { ok: false, error: "Subject must be 1–200 characters." };
   }
-  if (!body || body.length > 20_000) {
+  if (!source || source.length > 20_000) {
+    return { ok: false, error: "Body must be 1–20,000 characters." };
+  }
+  const outbound = prepareOutboundEmail(source);
+  if (!outbound.text) {
     return { ok: false, error: "Body must be 1–20,000 characters." };
   }
   return {
     ok: true,
+    warnings: emailTypoWarnings([...to, ...cc]),
     action: {
       type: "draft_email",
       provider: input.provider,
       to,
       subject,
-      body,
+      body: outbound.text,
+      ...(input.delivery ? { delivery: input.delivery } : {}),
+      ...(outbound.html
+        ? { html: outbound.html, contentType: outbound.contentType }
+        : { contentType: "text/plain" as const }),
       ...(cc.length > 0 ? { cc } : {}),
     },
+  };
+}
+
+export function emailApiPayload(
+  action: Extract<AgentToolAction, { type: "draft_email" }>,
+) {
+  return {
+    to: action.to,
+    subject: action.subject,
+    body: action.body,
+    ...(action.cc ? { cc: action.cc } : {}),
+    ...(action.html
+      ? {
+          html: action.html,
+          contentType: action.contentType ?? ("text/html" as const),
+        }
+      : {}),
   };
 }
 

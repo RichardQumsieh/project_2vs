@@ -137,7 +137,7 @@ export async function generatePresentationPptx(
   pptx.author = "Sophia";
   pptx.title = spec.title;
   pptx.subject = spec.subject;
-  pptx.company = "Private Messenger";
+  pptx.company = "Sophia";
 
   const ink = "0F172A";
   const slate = "1E293B";

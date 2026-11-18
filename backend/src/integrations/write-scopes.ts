@@ -37,8 +37,8 @@ export function hasAllScopes(granted: string[], required: string[]) {
 export const writeRequiredScopes = {
   googleCalendar: ["calendar.events"],
   outlookCalendar: ["Calendars.ReadWrite"],
-  gmail: ["gmail.compose"],
-  outlookMail: ["Mail.ReadWrite"],
+  gmail: ["gmail.compose", "gmail.send"],
+  outlookMail: ["Mail.ReadWrite", "Mail.Send"],
   github: ["repo"],
   linear: ["write"],
   slack: ["chat:write"],

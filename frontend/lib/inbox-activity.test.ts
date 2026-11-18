@@ -63,14 +63,42 @@ describe("inbox activity actions", () => {
     });
     expect(valid).toEqual({
       ok: true,
+      warnings: [],
       action: {
         type: "draft_email",
         provider: "outlook-mail",
         to: ["ada@example.com", "bob@example.com"],
         subject: "Notes",
         body: "See you then.",
+        contentType: "text/plain",
       },
     });
+  });
+
+  it("stages a real send with HTML and warns on domain typos", () => {
+    const typo = buildEmailDraftAction({
+      provider: "gmail",
+      to: "ada@gmial.com",
+      subject: "Notes",
+      body: "See **you** then.",
+      delivery: "send",
+    });
+    expect(typo.ok).toBe(true);
+    if (typo.ok) {
+      expect(typo.warnings[0]).toMatch(/gmail\.com/);
+      expect(typo.action.delivery).toBe("send");
+      expect(typo.action.body).toBe("See you then.");
+      expect(typo.action.html).toContain("<strong>you</strong>");
+      expect(typo.action.contentType).toBe("text/html");
+    }
+    expect(
+      buildEmailDraftAction({
+        provider: "gmail",
+        to: "not-an-email",
+        subject: "Notes",
+        body: "Hello",
+      }).ok,
+    ).toBe(false);
   });
 
   it("builds a calendar event in ISO time and rejects an end before the start", () => {

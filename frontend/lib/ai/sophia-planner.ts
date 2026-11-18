@@ -48,6 +48,7 @@ export type SophiaIntent =
       subject: string;
       body: string;
       cc?: string[];
+      delivery?: "send" | "draft";
     }
   | {
       type: "create_calendar_event";
@@ -241,9 +242,13 @@ export function parseSophiaCommand(
       text,
     ) ||
       Boolean(due));
+  const wantsEmailSend =
+    /\bsend\b.+\b(e-?mail)\b/i.test(text) ||
+    /\b(e-?mail)\b.+\bsend\b/i.test(text);
   const wantsEmailDraft =
-    /\b(draft|write|compose)\b.+\b(email|e-mail)\b/i.test(text) ||
-    /\bemail\b.+\b(draft|to)\b/i.test(text);
+    !wantsEmailSend &&
+    (/\b(draft|write|compose)\b.+\b(email|e-mail)\b/i.test(text) ||
+      /\bemail\b.+\b(draft|to)\b/i.test(text));
   const wantsGithubIssue =
     /\b(file|create|open)\b.+\b(github\s+)?issue\b/i.test(text) ||
     /\bgithub\b.+\b(issue|ticket)\b/i.test(text);
@@ -258,6 +263,7 @@ export function parseSophiaCommand(
     !wantsGithubIssue &&
     !wantsLinearIssue &&
     !wantsEmailDraft &&
+    !wantsEmailSend &&
     !wantsSlackPost &&
     !wantsCalendarHold;
   const wantsReschedule =
@@ -269,6 +275,7 @@ export function parseSophiaCommand(
   const jobManagerIntent =
     wantsCalendarHold ||
     wantsEmailDraft ||
+    wantsEmailSend ||
     wantsGithubIssue ||
     wantsLinearIssue ||
     wantsSlackPost ||
@@ -311,7 +318,7 @@ export function parseSophiaCommand(
     summaries.push("remove a personal note");
   }
 
-  if (!explicitMemoryOnly && wantsEmailDraft) {
+  if (!explicitMemoryOnly && (wantsEmailDraft || wantsEmailSend)) {
     const to = parseEmailAddresses(text);
     if (to.length) {
       const subjectMatch = text.match(
@@ -326,8 +333,11 @@ export function parseSophiaCommand(
         to,
         subject,
         body: text.slice(0, 4_000),
+        delivery: wantsEmailSend ? "send" : "draft",
       });
-      summaries.push("stage an email draft");
+      summaries.push(
+        wantsEmailSend ? "stage an email to send" : "stage an email draft",
+      );
     }
   }
 
