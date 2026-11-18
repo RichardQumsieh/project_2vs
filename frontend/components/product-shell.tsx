@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ThemeControl } from "@/components/theme-control";
+import { SophiaMark } from "@/components/sophia-mark";
 
 const nav = [
   { href: "/inbox", label: "Inbox" },
@@ -28,9 +28,10 @@ export function ProductShell({
         <div className="min-w-0">
           <Link
             href="/inbox"
-            className="text-xs tracking-[0.22em] text-white/55 uppercase"
+            className="inline-flex items-center gap-2 text-sm font-semibold tracking-tight text-white"
           >
-            Private
+            <SophiaMark />
+            Sophia
           </Link>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
             {title}
@@ -40,7 +41,6 @@ export function ProductShell({
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <ThemeControl />
           <nav className="flex flex-wrap items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
             {nav.map((item) => {
               const active =

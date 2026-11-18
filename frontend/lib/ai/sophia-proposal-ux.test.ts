@@ -85,5 +85,34 @@ describe("sophia-proposal-ux", () => {
         body: "Body",
       }),
     ).toBe("Approve draft");
+    expect(
+      approveVerb({
+        type: "draft_email",
+        provider: "gmail",
+        to: ["a@example.com"],
+        subject: "Hi",
+        body: "Body",
+        delivery: "send",
+        contentType: "text/html",
+        html: "<strong>Body</strong>",
+      }),
+    ).toBe("Approve send");
+    expect(
+      outboundPayloadFields({
+        type: "draft_email",
+        provider: "gmail",
+        to: ["a@example.com"],
+        subject: "Hi",
+        body: "Body",
+        delivery: "send",
+        contentType: "text/html",
+        html: "<strong>Body</strong>",
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        { label: "Delivery", value: "send" },
+        { label: "HTML body", value: "<strong>Body</strong>" },
+      ]),
+    );
   });
 });

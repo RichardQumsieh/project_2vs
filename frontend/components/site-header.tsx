@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SophiaMark } from "@/components/sophia-mark";
-import { ThemeControl } from "@/components/theme-control";
 import { useViewerSession } from "@/lib/use-viewer";
 
 const primaryAction =
@@ -34,7 +33,6 @@ export function SiteHeader() {
         <span className="text-sm font-semibold tracking-[-0.02em] text-(--foreground)">Sophia</span>
       </Link>
       <div className="ml-auto flex items-center gap-2">
-        <ThemeControl />
         <nav aria-label="Account" aria-busy={pending} className="flex min-h-10 min-w-28 items-center justify-end gap-1">
           {pending ? (
             <span className="sr-only">Checking session</span>

@@ -243,7 +243,7 @@ export async function integrationEmailRoutes(app: FastifyInstance) {
         storesFullBodies: false,
         aiUsesMailBodiesByDefault: false,
         note:
-          "Mail mirrors store subject/from/snippet only. Draft writes prefer compose/ReadWrite scopes (no silent send). Writes require reconnect + INTEGRATIONS_WRITE_ENABLED.",
+          "Mail mirrors store subject/from/snippet only. Approved sends use gmail.send and Mail.Send; drafts still use gmail.compose and Mail.ReadWrite. Nothing is sent until you approve. Reconnect after those write scopes are added in Google Cloud and Azure.",
       },
     };
   });

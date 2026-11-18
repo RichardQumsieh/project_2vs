@@ -80,7 +80,7 @@ export function EncryptedVoiceNote({
         controls
         preload="metadata"
         className="h-10 max-w-full"
-        aria-label="Private voice note"
+        aria-label="Voice note"
       />
       <figcaption className="whitespace-pre-wrap break-words text-sm">
         <LinkSafetyText text={payload.caption?.trim() || "Voice note"} />

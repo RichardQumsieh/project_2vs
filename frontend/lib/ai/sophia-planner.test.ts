@@ -170,7 +170,17 @@ describe("fast Sophia command planner", () => {
     expect(email).toMatchObject({
       type: "draft_email",
       to: ["dana@acme.com"],
+      delivery: "draft",
     });
+    const send = parseSophiaCommand("Sophia send email to ada@example.com about the notes", {
+      now: new Date("2026-11-13T12:00:00.000Z"),
+    });
+    expect(send.intents[0]).toMatchObject({
+      type: "draft_email",
+      to: ["ada@example.com"],
+      delivery: "send",
+    });
+    expect(send.spokenReply).toMatch(/approve/i);
   });
 
   it("stages Linear, Slack, follow-up, and reschedule with defaults and local Radar", () => {

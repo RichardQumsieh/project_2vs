@@ -14,7 +14,7 @@ export function Homepage() {
   return (
     <main className="home-entry mx-auto flex w-full max-w-3xl flex-col px-4 py-14 sm:px-6 sm:py-20">
       <p className="text-xs font-medium tracking-[0.16em] text-(--muted) uppercase">
-        Private messenger
+        Encrypted messenger
       </p>
       <div className="mt-5 flex items-center gap-3">
         <SophiaMark large />

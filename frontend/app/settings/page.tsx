@@ -1,11 +1,13 @@
+import { SettingsPreferences } from "@/components/settings-preferences";
 import { ModuleCard, ProductShell } from "@/components/product-shell";
 
 export default function SettingsPage() {
   return (
     <ProductShell
       title="Settings"
-      subtitle="Production controls for privacy, Sophia, devices, and future subscription tiers."
+      subtitle="Appearance, encrypted backup, privacy, Sophia, devices, and future subscription tiers."
     >
+      <SettingsPreferences />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <ModuleCard
           href="/settings/sophia"
@@ -15,7 +17,7 @@ export default function SettingsPage() {
         <ModuleCard
           href="/settings/integrations"
           title="Integrations"
-          body="Google/Outlook calendar and mail OAuth (read-only), revocable, owner-isolated."
+          body="Connect mail and calendar. Reconnect after adding send scopes in Google Cloud and Azure."
         />
         <ModuleCard
           href="/settings/privacy"

@@ -2,7 +2,7 @@ import { ProductShell } from "@/components/product-shell";
 
 const tiers = [
   {
-    name: "Private",
+    name: "Personal",
     price: "Included",
     body: "E2EE messaging, local Sophia commands, personal memory, and PPTX drafts on this device.",
     current: true,

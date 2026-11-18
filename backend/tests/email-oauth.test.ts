@@ -7,20 +7,14 @@ import {
 } from "../src/integrations/email-sync.js";
 
 describe("email OAuth helpers", () => {
-  it("uses draft-capable mail scopes without send (Phase 4.2)", () => {
+  it("requests compose plus send scopes for approved mail", () => {
     assert.deepEqual(emailProviders.gmail.scopes, [
       "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/gmail.compose",
+      "https://www.googleapis.com/auth/gmail.send",
     ]);
     assert.ok(emailProviders["outlook-mail"].scopes.includes("Mail.ReadWrite"));
-    assert.ok(
-      !emailProviders.gmail.scopes.some((scope) => /gmail\.send$/i.test(scope)),
-    );
-    assert.ok(
-      !emailProviders["outlook-mail"].scopes.some((scope) =>
-        /Mail\.Send/i.test(scope),
-      ),
-    );
+    assert.ok(emailProviders["outlook-mail"].scopes.includes("Mail.Send"));
   });
 
   it("normalizes metadata without full bodies", () => {

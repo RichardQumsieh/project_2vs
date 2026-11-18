@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bold, CalendarDays, Italic, Link2, List, Mail } from "lucide-react";
 import Link from "next/link";
 import {
   createContext,
@@ -25,9 +26,11 @@ import {
   type AgentToolAction,
 } from "@/lib/ai/agent-runtime";
 import { loadJobDefaults } from "@/lib/ai/sophia-job-defaults";
+import { wrapComposerSelection } from "@/lib/email-compose";
 import {
   buildCalendarEventAction,
   buildEmailDraftAction,
+  emailApiPayload,
   localDayRange,
   sortRecentMail,
   toDatetimeLocalValue,
@@ -224,25 +227,51 @@ export function InboxActivityPanel({
   const [allDay, setAllDay] = useState(false);
   const [slot, setSlot] = useState(defaultRange);
   const [formError, setFormError] = useState<string | null>(null);
+  const [addressWarnings, setAddressWarnings] = useState<string[]>([]);
+  const [typoOverride, setTypoOverride] = useState(false);
+  const emailBodyRef = useRef<HTMLTextAreaElement | null>(null);
 
-  function stageEmail() {
+  function applyFormat(kind: "bold" | "italic" | "link") {
+    const element = emailBodyRef.current;
+    const start = element?.selectionStart ?? body.length;
+    const end = element?.selectionEnd ?? body.length;
+    const next = wrapComposerSelection(body, start, end, kind);
+    setBody(next.value);
+    requestAnimationFrame(() => {
+      element?.focus();
+      element?.setSelectionRange(next.start, next.end);
+    });
+  }
+
+  function stageEmail(delivery: "send" | "draft") {
     const built = buildEmailDraftAction({
       provider: emailProvider,
       to,
       cc,
       subject,
       body,
+      delivery,
     });
     if (!built.ok) {
+      setAddressWarnings([]);
+      setTypoOverride(false);
       setFormError(built.error);
+      return;
+    }
+    if (built.warnings.length > 0 && !typoOverride) {
+      setAddressWarnings(built.warnings);
+      setTypoOverride(true);
+      setFormError(null);
       return;
     }
     try {
       onStage(built.action);
       setFormError(null);
+      setAddressWarnings([]);
+      setTypoOverride(false);
       setBody("");
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Could not stage that draft.");
+      setFormError(error instanceof Error ? error.message : "Could not stage that email.");
     }
   }
 
@@ -293,7 +322,7 @@ export function InboxActivityPanel({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">Mail & calendar</p>
           <p className="truncate text-[11px] text-white/40">
-            Newest mail, soonest events. Drafts and events wait for approval.
+            Newest mail, soonest events. Mail and events wait for approval.
           </p>
         </div>
         {onClose ? (
@@ -313,17 +342,17 @@ export function InboxActivityPanel({
       >
         {(
           [
-            ["agenda", "Agenda"],
-            ["email", "Compose"],
-            ["event", "Schedule"],
+            ["agenda", "Agenda", List],
+            ["email", "Compose", Mail],
+            ["event", "Schedule", CalendarDays],
           ] as const
-        ).map(([id, label]) => (
+        ).map(([id, label, Icon]) => (
           <button
             key={id}
             type="button"
             role="tab"
             aria-selected={view === id}
-            className={`rounded-full px-2 py-1.5 text-xs font-medium transition-colors ${
+            className={`inline-flex items-center justify-center gap-1.5 rounded-full px-2 py-1.5 text-xs font-medium transition-colors ${
               view === id
                 ? "bg-white text-black"
                 : "bg-white/[0.04] text-white/65 hover:bg-white/[0.08]"
@@ -333,6 +362,7 @@ export function InboxActivityPanel({
               onViewChange(id);
             }}
           >
+            <Icon aria-hidden="true" className="size-3.5" />
             {label}
           </button>
         ))}
@@ -391,7 +421,7 @@ export function InboxActivityPanel({
             className="inbox-activity-compose space-y-3"
             onSubmit={(event) => {
               event.preventDefault();
-              stageEmail();
+              stageEmail("send");
             }}
           >
             <label className="block space-y-1 text-xs text-white/55">
@@ -403,15 +433,19 @@ export function InboxActivityPanel({
                   setEmailProvider(event.target.value as "gmail" | "outlook-mail")
                 }
               >
-                <option value="gmail">Gmail draft</option>
-                <option value="outlook-mail">Outlook draft</option>
+                <option value="gmail">Gmail</option>
+                <option value="outlook-mail">Outlook</option>
               </select>
             </label>
             <label className="block space-y-1 text-xs text-white/55">
               To
               <Input
                 value={to}
-                onChange={(event) => setTo(event.target.value)}
+                onChange={(event) => {
+                  setTo(event.target.value);
+                  setTypoOverride(false);
+                  setAddressWarnings([]);
+                }}
                 placeholder="name@example.com"
                 autoComplete="email"
                 inputMode="email"
@@ -421,7 +455,11 @@ export function InboxActivityPanel({
               Cc
               <Input
                 value={cc}
-                onChange={(event) => setCc(event.target.value)}
+                onChange={(event) => {
+                  setCc(event.target.value);
+                  setTypoOverride(false);
+                  setAddressWarnings([]);
+                }}
                 placeholder="Optional"
               />
             </label>
@@ -433,25 +471,69 @@ export function InboxActivityPanel({
                 maxLength={200}
               />
             </label>
-            <label className="block space-y-1 text-xs text-white/55">
-              Message
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-white/55">Message</span>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    className="inline-flex size-8 items-center justify-center rounded-full border border-white/10 text-white/70 hover:bg-white/10"
+                    aria-label="Bold"
+                    onClick={() => applyFormat("bold")}
+                  >
+                    <Bold aria-hidden="true" className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex size-8 items-center justify-center rounded-full border border-white/10 text-white/70 hover:bg-white/10"
+                    aria-label="Italic"
+                    onClick={() => applyFormat("italic")}
+                  >
+                    <Italic aria-hidden="true" className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex size-8 items-center justify-center rounded-full border border-white/10 text-white/70 hover:bg-white/10"
+                    aria-label="Insert link"
+                    onClick={() => applyFormat("link")}
+                  >
+                    <Link2 aria-hidden="true" className="size-3.5" />
+                  </button>
+                </div>
+              </div>
               <textarea
+                ref={emailBodyRef}
                 value={body}
                 onChange={(event) => setBody(event.target.value)}
                 rows={6}
                 className="w-full resize-none rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50"
-                placeholder="Write the draft. It is not sent."
+                placeholder="Write the message. Approval sends it."
               />
-            </label>
+            </div>
             <p className="text-[11px] leading-relaxed text-white/40">
-              Stage a draft. Approval creates it in Gmail or Outlook. This inbox does not send mail.
+              Approval sends this exact message. Nothing leaves until you approve. Stage a draft only if it should stay in the mailbox.
             </p>
+            {addressWarnings.length > 0 ? (
+              <p role="status" className="text-xs text-amber-200">
+                {addressWarnings.join(" ")} Review the address, then stage again to continue.
+              </p>
+            ) : null}
             {formError ? (
               <p role="alert" className="text-xs text-red-300">{formError}</p>
             ) : null}
-            <Button type="submit" size="sm">
-              Stage draft for approval
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" size="sm">
+                {typoOverride ? "Stage send anyway" : "Stage send for approval"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => stageEmail("draft")}
+              >
+                {typoOverride ? "Stage draft anyway" : "Stage draft instead"}
+              </Button>
+            </div>
           </form>
         ) : null}
         {view === "event" ? (
@@ -624,12 +706,12 @@ export function InboxHomeActivity() {
         dismissFinding: unsupportedAction,
         snoozeReminder: unsupportedAction,
         draftEmail: async (action) => {
-          await api.createEmailDraft(action.provider, {
-            to: action.to,
-            subject: action.subject,
-            body: action.body,
-            ...(action.cc ? { cc: action.cc } : {}),
-          });
+          const payload = emailApiPayload(action);
+          if (action.delivery === "send") {
+            await api.sendEmail(action.provider, payload);
+          } else {
+            await api.createEmailDraft(action.provider, payload);
+          }
           await queryClient.invalidateQueries({ queryKey: ["inbox-mail"] });
         },
         createCalendarEvent: async (action) => {
@@ -673,7 +755,7 @@ export function InboxHomeActivity() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="inbox-activity-sheet flex h-full min-h-0 flex-col">
       <InboxActivityPanel
         view={view}
         onViewChange={setView}

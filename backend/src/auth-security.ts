@@ -74,7 +74,7 @@ export function beginTotpSetup(email: string) {
   return {
     secret,
     otpauthUrl: generateURI({
-      issuer: "Private Messenger",
+      issuer: "Sophia",
       label: email,
       secret,
       algorithm: "sha1",
@@ -178,9 +178,9 @@ export async function sendPasswordResetEmail(
 
   const accessToken = await gmailAccessToken();
   const rawMessage = [
-    `From: Private Messenger <${env.GMAIL_SENDER}>`,
+    `From: Sophia <${env.GMAIL_SENDER}>`,
     `To: ${recipient}`,
-    "Subject: Reset your Private Messenger password",
+    "Subject: Reset your Sophia password",
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
     "",

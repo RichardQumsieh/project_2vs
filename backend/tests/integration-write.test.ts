@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { validateCalendarEventWritePayload } from "../src/integrations/calendar-write.js";
-import { validateEmailDraftWritePayload } from "../src/integrations/email-write.js";
+import {
+  buildEmailSendRequest,
+  sanitizeEmailHtml,
+  validateEmailDraftWritePayload,
+} from "../src/integrations/email-write.js";
 import {
   parseLinearIssueMutationResult,
   validateGitHubIssueWritePayload,
@@ -37,8 +41,12 @@ describe("integration write scopes", () => {
       emailProviders.gmail.scopes.some((scope) => scope.endsWith("gmail.compose")),
     );
     assert.ok(
+      emailProviders.gmail.scopes.some((scope) => scope.endsWith("gmail.send")),
+    );
+    assert.ok(
       emailProviders["outlook-mail"].scopes.includes("Mail.ReadWrite"),
     );
+    assert.ok(emailProviders["outlook-mail"].scopes.includes("Mail.Send"));
     assert.ok(!emailProviders["outlook-mail"].scopes.includes("Mail.Read"));
     assert.deepEqual(workProviders.github.scopes, ["read:user", "repo"]);
     assert.deepEqual(workProviders.linear.scopes, ["read", "write"]);
@@ -112,6 +120,7 @@ describe("integration write gate (authz + missing scope)", () => {
       assert.equal(result.status, 403);
       assert.equal(result.code, "scope_upgrade_required");
       assert.ok(result.missingScopes?.includes("gmail.compose"));
+      assert.ok(result.missingScopes?.includes("gmail.send"));
     }
   });
 
@@ -166,6 +175,52 @@ describe("integration write payload validators", () => {
       body: "Draft body",
     });
     assert.equal(draft.ok, true);
+
+    const hostile = validateEmailDraftWritePayload({
+      to: ["ada@gmial.com"],
+      subject: "Hello\nBcc: eve@evil.test",
+      body: "Draft body",
+    });
+    assert.equal(hostile.ok, false);
+
+    const html = validateEmailDraftWritePayload({
+      to: ["ada@example.com"],
+      subject: "Hello",
+      body: "Hello team",
+      html: '<script>alert(1)</script><strong onclick="x">team</strong><a href="javascript:alert(1)">x</a>',
+    });
+    assert.equal(html.ok, true);
+    if (html.ok) {
+      assert.equal(html.payload.contentType, "text/html");
+      assert.equal(html.payload.html?.includes("<script"), false);
+      assert.equal(html.payload.html?.includes("javascript:"), false);
+      assert.match(html.payload.html ?? "", /<strong>team<\/strong>/);
+    }
+    assert.equal(
+      sanitizeEmailHtml('<img src=x onerror=alert(1)>ok').includes("onerror"),
+      false,
+    );
+
+    const gmailSend = buildEmailSendRequest("gmail", {
+      to: ["ada@example.com"],
+      subject: "Hello",
+      body: "Hello team",
+      html: "<strong>team</strong>",
+      contentType: "text/html",
+    });
+    assert.equal(
+      gmailSend.url,
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    );
+    const outlookSend = buildEmailSendRequest("outlook-mail", {
+      to: ["ada@example.com"],
+      subject: "Hello",
+      body: "Hello",
+    });
+    assert.equal(
+      outlookSend.url,
+      "https://graph.microsoft.com/v1.0/me/sendMail",
+    );
 
     const issue = validateGitHubIssueWritePayload({
       owner: "acme",

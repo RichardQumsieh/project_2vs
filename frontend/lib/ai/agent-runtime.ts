@@ -67,6 +67,9 @@ export type AgentToolAction =
       subject: string;
       body: string;
       cc?: string[];
+      delivery?: "send" | "draft";
+      contentType?: "text/plain" | "text/html";
+      html?: string;
     }
   | {
       type: "create_calendar_event";
@@ -269,7 +272,9 @@ export function agentActionSummary(action: AgentToolAction) {
     case "snooze_reminder":
       return `Snooze this reminder until ${action.until.slice(0, 10)}`;
     case "draft_email":
-      return `Create ${action.provider} draft to ${action.to.join(", ")}`;
+      return action.delivery === "send"
+        ? `Send ${action.provider} email to ${action.to.join(", ")}`
+        : `Create ${action.provider} draft to ${action.to.join(", ")}`;
     case "create_calendar_event":
       return `Create ${action.provider} calendar event “${action.title}”`;
     case "create_github_issue":
@@ -536,12 +541,25 @@ export function createAgentRuntime({
           !action.subject.trim() ||
           action.subject.length > 200 ||
           action.subject.includes("\u0000") ||
+          action.subject.includes("\n") ||
+          action.subject.includes("\r") ||
           typeof action.body !== "string" ||
           !action.body.trim() ||
           action.body.length > 20_000 ||
           action.body.includes("\u0000")
         ) {
           throw new Error("The email draft action is malformed.");
+        }
+        if (action.contentType === "text/html") {
+          if (
+            typeof action.html !== "string" ||
+            !action.html.trim() ||
+            action.html.length > 40_000 ||
+            action.html.includes("\u0000") ||
+            /<\s*script/i.test(action.html)
+          ) {
+            throw new Error("The email HTML payload is not allowed.");
+          }
         }
         break;
       }

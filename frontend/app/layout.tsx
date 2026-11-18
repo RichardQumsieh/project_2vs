@@ -7,7 +7,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Sophia | Chief of staff",
   description:
-    "Sophia is the chief of staff in a private, end-to-end encrypted messenger.",
+    "Sophia is the chief of staff in an end-to-end encrypted messenger.",
 };
 
 export default async function RootLayout({
