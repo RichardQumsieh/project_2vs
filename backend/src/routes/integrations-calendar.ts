@@ -9,6 +9,16 @@ import {
   microsoftCalendarOAuthConfigured,
 } from "../env.js";
 import {
+  providerRead,
+  resolveCalendarAccessToken,
+} from "../integrations/access-token.js";
+import {
+  googleEventDetailUrl,
+  outlookEventDetailUrl,
+  parseGoogleCalendarEvent,
+  parseOutlookCalendarEvent,
+} from "../integrations/calendar-read.js";
+import {
   calendarProviders,
   parseCalendarProvider,
   type CalendarProviderId,
@@ -17,6 +27,12 @@ import {
   eventsUrlForProvider,
   normalizeEventsForProvider,
 } from "../integrations/calendar-sync.js";
+import {
+  gateIntegrationRead,
+  integrationReadLog,
+  isMirrorId,
+  readRequiredScopes,
+} from "../integrations/read-gate.js";
 import { createOAuthState, parseOAuthState } from "../integrations/oauth-state.js";
 import {
   decryptIntegrationSecret,
@@ -249,7 +265,7 @@ export async function integrationCalendarRoutes(app: FastifyInstance) {
         storesChatPlaintext: false,
         aiUsesCalendarBodiesByDefault: false,
         note:
-          "Calendar mirrors stay owner-scoped. Sophia/AI will not read event bodies without a separate explicit consent later. Writes require reconnect after console scope upgrades and INTEGRATIONS_WRITE_ENABLED.",
+          "Calendar mirrors stay owner-scoped (title and time). Opening an event fetches location, attendees, and description with your token and does not store them. Sophia/AI will not read event bodies without a separate explicit consent. Deletes use calendar.events and Calendars.ReadWrite, which already cover removal. Writes require INTEGRATIONS_WRITE_ENABLED.",
       },
     };
   });
@@ -679,5 +695,112 @@ export async function integrationCalendarRoutes(app: FastifyInstance) {
         syncedAt: event.syncedAt.toISOString(),
       })),
     };
+  });
+
+  // Live detail for the signed-in owner. Description is not written to the mirror or logs.
+  app.get("/integrations/calendar/events/:eventId", async (request, reply) => {
+    const session = await requireUser(request, reply);
+    if (!session) return;
+
+    const eventId = (request.params as { eventId?: string }).eventId ?? "";
+    if (!isMirrorId(eventId)) {
+      return reply.code(404).send({ error: "Not found" });
+    }
+
+    const event = await prisma.calendarEventMirror.findFirst({
+      where: { id: eventId, ownerUserId: session.sub },
+      include: { connection: true },
+    });
+    const provider =
+      event?.connection.provider === "GOOGLE_CALENDAR"
+        ? "google"
+        : event?.connection.provider === "OUTLOOK_CALENDAR"
+          ? "outlook"
+          : null;
+    const gate = gateIntegrationRead({
+      ownerUserId: event?.ownerUserId,
+      sessionUserId: session.sub,
+      status: event?.connection.status,
+      grantedScopes: event?.connection.scopes ?? [],
+      requiredReadScopes:
+        provider === "outlook"
+          ? readRequiredScopes.outlookCalendar
+          : readRequiredScopes.googleCalendar,
+    });
+    if (!event || !provider || !gate.ok) {
+      const failure = !gate.ok ? gate : null;
+      return reply.code(failure && event && provider ? failure.status : 404).send({
+        error: failure && event && provider ? failure.error : "Not found",
+        ...(failure && event && provider
+          ? { code: failure.code, missingScopes: failure.missingScopes }
+          : {}),
+      });
+    }
+    if (!providerConfigured(provider)) {
+      return reply.code(503).send({ error: "Calendar OAuth is not configured" });
+    }
+
+    reply.header("Cache-Control", "no-store");
+    try {
+      const accessToken = await resolveCalendarAccessToken(provider, event.connection);
+      const url =
+        provider === "google"
+          ? googleEventDetailUrl(event.calendarId, event.externalEventId)
+          : outlookEventDetailUrl(event.externalEventId);
+      const result = await providerRead(url, accessToken);
+      request.log.info(
+        integrationReadLog({
+          family: "calendar",
+          provider,
+          connectionId: event.connection.id,
+          resourceId: event.id,
+          status: result.status,
+        }),
+        "integration read",
+      );
+      if (result.tooLarge) {
+        return reply.code(502).send({
+          error: "This event is too large to open here",
+          code: "calendar_read_too_large",
+        });
+      }
+      const parsed = result.ok
+        ? provider === "google"
+          ? parseGoogleCalendarEvent(result.json)
+          : parseOutlookCalendarEvent(result.json)
+        : null;
+      if (!result.ok || !parsed) {
+        return reply.code(502).send({
+          error: "Could not read this event",
+          code: `calendar_read_${result.status || "invalid"}`,
+        });
+      }
+      return {
+        id: event.id,
+        provider,
+        title: parsed.title || event.title,
+        startsAt: parsed.startsAt || event.startsAt.toISOString(),
+        endsAt: parsed.endsAt || event.endsAt.toISOString(),
+        allDay: parsed.allDay || event.allDay,
+        location: parsed.location,
+        description: parsed.description,
+        attendees: parsed.attendees,
+        truncated: parsed.truncated,
+      };
+    } catch (error) {
+      const code =
+        error instanceof Error ? error.message.slice(0, 64) : "calendar_read_failed";
+      request.log.info(
+        integrationReadLog({
+          family: "calendar",
+          provider,
+          connectionId: event.connection.id,
+          resourceId: event.id,
+          status: 0,
+        }),
+        "integration read",
+      );
+      return reply.code(502).send({ error: "Could not read this event", code });
+    }
   });
 }

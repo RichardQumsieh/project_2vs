@@ -746,6 +746,26 @@ export const api = {
     }>(`/integrations/calendar/events${suffix}`);
   },
 
+  readCalendarEvent: (eventId: string) =>
+    request<{
+      id: string;
+      provider: "google" | "outlook";
+      title: string;
+      startsAt: string;
+      endsAt: string;
+      allDay: boolean;
+      location: string;
+      description: string;
+      attendees: { name: string; email: string; status: string }[];
+      truncated: boolean;
+    }>(`/integrations/calendar/events/${encodeURIComponent(eventId)}`),
+
+  deleteCalendarEvent: (provider: "google" | "outlook", eventId: string) =>
+    request<{ ok: true }>(
+      `/integrations/calendar/${provider}/events/${encodeURIComponent(eventId)}`,
+      { method: "DELETE" },
+    ),
+
   emailIntegrationStatus: () =>
     request<{
       providers: {
@@ -818,6 +838,11 @@ export const api = {
         syncedAt: string;
       }[];
     }>("/integrations/email/messages"),
+
+  readEmailMessage: (messageId: string) =>
+    request<{ id: string; body: string; truncated: boolean }>(
+      `/integrations/email/messages/${encodeURIComponent(messageId)}/body`,
+    ),
 
   workIntegrationStatus: () =>
     request<{

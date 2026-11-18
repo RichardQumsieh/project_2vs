@@ -8,6 +8,7 @@ import {
   integrationsWriteEnabled,
   microsoftMailOAuthConfigured,
 } from "../env.js";
+import { providerRead, resolveEmailAccessToken } from "../integrations/access-token.js";
 import {
   emailProviders,
   GMAIL_LIST_URL,
@@ -16,9 +17,21 @@ import {
   type EmailProviderId,
 } from "../integrations/email-providers.js";
 import {
+  gmailMessageBodyUrl,
+  outlookMessageBodyUrl,
+  parseGmailMessageBody,
+  parseOutlookMessageBody,
+} from "../integrations/email-read.js";
+import {
   normalizeGmailMessages,
   normalizeOutlookMailMessages,
 } from "../integrations/email-sync.js";
+import {
+  gateIntegrationRead,
+  integrationReadLog,
+  isMirrorId,
+  readRequiredScopes,
+} from "../integrations/read-gate.js";
 import { createOAuthState, parseOAuthState } from "../integrations/oauth-state.js";
 import {
   decryptIntegrationSecret,
@@ -243,7 +256,7 @@ export async function integrationEmailRoutes(app: FastifyInstance) {
         storesFullBodies: false,
         aiUsesMailBodiesByDefault: false,
         note:
-          "Mail mirrors store subject/from/snippet only. Approved sends use gmail.send and Mail.Send; drafts still use gmail.compose and Mail.ReadWrite. Nothing is sent until you approve. Reconnect after those write scopes are added in Google Cloud and Azure.",
+          "Mail mirrors store subject/from/snippet only. Opening a message fetches the body with your token and does not store it. Approved sends use gmail.send and Mail.Send; drafts still use gmail.compose and Mail.ReadWrite. Nothing is sent until you approve. Reconnect after those write scopes are added in Google Cloud and Azure.",
       },
     };
   });
@@ -599,5 +612,105 @@ export async function integrationEmailRoutes(app: FastifyInstance) {
         syncedAt: message.syncedAt.toISOString(),
       })),
     };
+  });
+
+  // Live body for the signed-in owner. Not written to the mirror or to logs.
+  app.get("/integrations/email/messages/:messageId/body", async (request, reply) => {
+    const session = await requireUser(request, reply);
+    if (!session) return;
+
+    const messageId = (request.params as { messageId?: string }).messageId ?? "";
+    if (!isMirrorId(messageId)) {
+      return reply.code(404).send({ error: "Not found" });
+    }
+
+    const message = await prisma.mailMessageMirror.findFirst({
+      where: { id: messageId, ownerUserId: session.sub },
+      include: { connection: true },
+    });
+    const provider =
+      message?.connection.provider === "GMAIL"
+        ? "gmail"
+        : message?.connection.provider === "OUTLOOK_MAIL"
+          ? "outlook-mail"
+          : null;
+    const gate = gateIntegrationRead({
+      ownerUserId: message?.ownerUserId,
+      sessionUserId: session.sub,
+      status: message?.connection.status,
+      grantedScopes: message?.connection.scopes ?? [],
+      requiredReadScopes:
+        provider === "outlook-mail"
+          ? readRequiredScopes.outlookMail
+          : readRequiredScopes.gmail,
+    });
+    if (!message || !provider || !gate.ok) {
+      const failure = !gate.ok ? gate : null;
+      return reply.code(failure && message && provider ? failure.status : 404).send({
+        error: failure && message && provider ? failure.error : "Not found",
+        ...(failure && message && provider
+          ? { code: failure.code, missingScopes: failure.missingScopes }
+          : {}),
+      });
+    }
+    if (!providerConfigured(provider)) {
+      return reply.code(503).send({ error: "Email OAuth is not configured" });
+    }
+
+    reply.header("Cache-Control", "no-store");
+    try {
+      const accessToken = await resolveEmailAccessToken(provider, message.connection);
+      const url =
+        provider === "gmail"
+          ? gmailMessageBodyUrl(message.externalMessageId)
+          : outlookMessageBodyUrl(message.externalMessageId);
+      const result = await providerRead(url, accessToken);
+      request.log.info(
+        integrationReadLog({
+          family: "email",
+          provider,
+          connectionId: message.connection.id,
+          resourceId: message.id,
+          status: result.status,
+        }),
+        "integration read",
+      );
+      if (result.tooLarge) {
+        return reply.code(502).send({
+          error: "This message is too large to open here",
+          code: "mail_read_too_large",
+        });
+      }
+      const parsed = result.ok
+        ? provider === "gmail"
+          ? parseGmailMessageBody(result.json)
+          : parseOutlookMessageBody(result.json)
+        : null;
+      if (!result.ok || !parsed) {
+        return reply.code(502).send({
+          error: "Could not read this message",
+          code: `mail_read_${result.status || "invalid"}`,
+        });
+      }
+      return {
+        id: message.id,
+        body: parsed.text,
+        truncated: parsed.truncated,
+      };
+    } catch (error) {
+      const code =
+        error instanceof Error ? error.message.slice(0, 64) : "mail_read_failed";
+      request.log.info(
+        integrationReadLog({
+          family: "email",
+          provider,
+          connectionId: message.connection.id,
+          resourceId: message.id,
+          status: 0,
+        }),
+        "integration read",
+      );
+      return reply.code(502).send({ error: "Could not read this message", code });
+    }
   });
 }

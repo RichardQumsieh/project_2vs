@@ -12,6 +12,7 @@ import {
   slackOAuthConfigured,
 } from "../env.js";
 import {
+  providerDelete,
   providerFetch,
   resolveCalendarAccessToken,
   resolveCollabAccessToken,
@@ -20,10 +21,13 @@ import {
 } from "../integrations/access-token.js";
 import {
   buildCalendarCreateRequest,
+  buildCalendarDeleteRequest,
   buildCalendarUpdateRequest,
+  calendarDeleteAccepted,
   parseCalendarWriteResult,
   validateCalendarEventWritePayload,
 } from "../integrations/calendar-write.js";
+import { isMirrorId } from "../integrations/read-gate.js";
 import { parseCalendarProvider } from "../integrations/calendar-providers.js";
 import {
   buildEmailDraftCreateRequest,
@@ -282,6 +286,96 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
         const code =
           error instanceof Error ? error.message.slice(0, 64) : "write_failed";
         return reply.code(502).send({ error: "Calendar update failed", code });
+      }
+    },
+  );
+
+  // Approved delete. eventId is the owner-scoped mirror id, not a provider id.
+  app.delete(
+    "/integrations/calendar/:provider/events/:eventId",
+    async (request, reply) => {
+      const session = await requireUser(request, reply);
+      if (!session) return;
+
+      const params = request.params as { provider: string; eventId: string };
+      const provider = parseCalendarProvider(params.provider);
+      if (!provider) {
+        return reply.code(404).send({ error: "Unknown calendar provider" });
+      }
+      if (!isMirrorId(params.eventId)) {
+        return reply.code(404).send({ error: "Not found" });
+      }
+      const configured =
+        provider === "google"
+          ? googleCalendarOAuthConfigured
+          : microsoftCalendarOAuthConfigured;
+      if (!configured) {
+        return reply.code(503).send({ error: "Calendar OAuth is not configured" });
+      }
+
+      const prismaProvider =
+        provider === "google" ? "GOOGLE_CALENDAR" : "OUTLOOK_CALENDAR";
+      const event = await prisma.calendarEventMirror.findFirst({
+        where: {
+          id: params.eventId,
+          ownerUserId: session.sub,
+          connection: { provider: prismaProvider },
+        },
+        include: { connection: true },
+      });
+      const gate = gateIntegrationWrite({
+        ownerUserId: event?.ownerUserId,
+        sessionUserId: session.sub,
+        writesEnabled: integrationsWriteEnabled,
+        status: event?.connection.status,
+        grantedScopes: event?.connection.scopes ?? [],
+        requiredWriteScopes:
+          provider === "google"
+            ? writeRequiredScopes.googleCalendar
+            : writeRequiredScopes.outlookCalendar,
+      });
+      if (!event || !gate.ok) {
+        const failure = !gate.ok ? gate : null;
+        return reply.code(failure && event ? failure.status : 404).send({
+          error: failure && event ? failure.error : "Not found",
+          ...(failure && event
+            ? { code: failure.code, missingScopes: failure.missingScopes }
+            : { code: "not_found" }),
+        });
+      }
+
+      try {
+        const accessToken = await resolveCalendarAccessToken(
+          provider,
+          event.connection,
+        );
+        const req = buildCalendarDeleteRequest(
+          provider,
+          event.calendarId,
+          event.externalEventId,
+        );
+        const result = await providerDelete(req.url, accessToken);
+        opaqueWriteLog(request, {
+          family: "calendar",
+          provider,
+          connectionId: event.connection.id,
+          status: result.status,
+          externalId: event.externalEventId,
+        });
+        if (!calendarDeleteAccepted(result.status)) {
+          return reply.code(502).send({
+            error: "Calendar delete failed",
+            code: `calendar_delete_${result.status}`,
+          });
+        }
+        await prisma.calendarEventMirror.deleteMany({
+          where: { id: event.id, ownerUserId: session.sub },
+        });
+        return { ok: true };
+      } catch (error) {
+        const code =
+          error instanceof Error ? error.message.slice(0, 64) : "write_failed";
+        return reply.code(502).send({ error: "Calendar delete failed", code });
       }
     },
   );

@@ -191,3 +191,110 @@ export function buildCalendarEventAction(input: {
     },
   };
 }
+
+const mirrorIdPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function mailProviderId(
+  provider: string,
+): "gmail" | "outlook-mail" | null {
+  if (provider === "GMAIL" || provider === "gmail") {
+    return "gmail";
+  }
+  if (provider === "OUTLOOK_MAIL" || provider === "outlook-mail") {
+    return "outlook-mail";
+  }
+  return null;
+}
+
+export function calendarProviderId(
+  provider: string,
+): "google" | "outlook" | null {
+  if (provider === "GOOGLE_CALENDAR" || provider === "google") {
+    return "google";
+  }
+  if (provider === "OUTLOOK_CALENDAR" || provider === "outlook") {
+    return "outlook";
+  }
+  return null;
+}
+
+export function extractReplyAddress(fromAddress: string) {
+  const trimmed = fromAddress.trim();
+  const angle = /<([^<>\s]+)>/.exec(trimmed);
+  const candidate = (angle?.[1] ?? trimmed).trim();
+  return isEmailAddress(candidate) ? candidate : null;
+}
+
+export function replySubject(subject: string) {
+  const cleaned =
+    subject.replace(/[\r\n\u0000]/g, " ").replace(/\s+/g, " ").trim() ||
+    "(no subject)";
+  const next = /^re:/i.test(cleaned) ? cleaned : `Re: ${cleaned}`;
+  return next.slice(0, 200);
+}
+
+export type MailReplySeed = {
+  messageId: string;
+  provider: "gmail" | "outlook-mail";
+  to: string;
+  subject: string;
+  body: string;
+};
+
+export function buildMailReplySeed(input: {
+  messageId: string;
+  provider: "gmail" | "outlook-mail";
+  fromAddress: string;
+  subject: string;
+  whenLabel: string;
+  body: string;
+}): { ok: true; seed: MailReplySeed } | { ok: false; error: string } {
+  const to = extractReplyAddress(input.fromAddress);
+  if (!to) {
+    return { ok: false, error: "This message has no reply address." };
+  }
+  const source = input.body.replace(/\r\n/g, "\n").trim().slice(0, 8_000);
+  const quoted = (source || "(no message text)")
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  const when =
+    input.whenLabel.replace(/[\r\n\u0000]/g, " ").trim() || "an earlier time";
+  const from = input.fromAddress.replace(/[\r\n\u0000]/g, " ").trim() || to;
+  return {
+    ok: true,
+    seed: {
+      messageId: input.messageId,
+      provider: input.provider,
+      to,
+      subject: replySubject(input.subject),
+      body: `\n\nOn ${when}, ${from} wrote:\n${quoted}`,
+    },
+  };
+}
+
+export function buildDeleteCalendarAction(input: {
+  provider: "google" | "outlook";
+  eventId: string;
+  title: string;
+}):
+  | { ok: true; action: Extract<AgentToolAction, { type: "delete_calendar_event" }> }
+  | { ok: false; error: string } {
+  const title = input.title.replace(/\u0000/g, "").trim();
+  if (!title || title.length > 200) {
+    return { ok: false, error: "This event needs a title before it can be removed." };
+  }
+  if (!mirrorIdPattern.test(input.eventId)) {
+    return { ok: false, error: "This event cannot be removed from here." };
+  }
+  return {
+    ok: true,
+    action: {
+      type: "delete_calendar_event",
+      provider: input.provider,
+      eventId: input.eventId,
+      title,
+    },
+  };
+}

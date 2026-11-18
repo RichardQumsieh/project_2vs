@@ -247,3 +247,54 @@ export async function providerFetch(
   }
   return { ok: response.ok, status: response.status, json };
 }
+
+const maxProviderReadChars = 1_500_000;
+
+/** GET a provider resource. The caller parses json and must not log it. */
+export async function providerRead(url: string, accessToken: string) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+  const text = await response.text();
+  if (text.length > maxProviderReadChars) {
+    return {
+      ok: false,
+      status: response.status,
+      json: null,
+      tooLarge: true as const,
+    };
+  }
+  let json: unknown = null;
+  if (text) {
+    try {
+      json = JSON.parse(text) as unknown;
+    } catch {
+      json = null;
+    }
+  }
+  return {
+    ok: response.ok,
+    status: response.status,
+    json,
+    tooLarge: false as const,
+  };
+}
+
+/** DELETE a provider resource. The response body is discarded and never logged. */
+export async function providerDelete(url: string, accessToken: string) {
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+  await response.body?.cancel().catch(() => undefined);
+  return { ok: response.ok, status: response.status };
+}

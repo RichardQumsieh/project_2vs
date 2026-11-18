@@ -13,6 +13,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { SophiaMark } from "@/components/sophia-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -38,13 +39,18 @@ import {
 import { wrapComposerSelection } from "@/lib/email-compose";
 import {
   buildCalendarEventAction,
+  buildDeleteCalendarAction,
   buildEmailDraftAction,
+  buildMailReplySeed,
+  calendarProviderId,
   emailApiPayload,
   localDayRange,
+  mailProviderId,
   sortRecentMail,
   toDatetimeLocalValue,
   upcomingEvents,
   type InboxActivityView,
+  type MailReplySeed,
 } from "@/lib/inbox-activity";
 import { currentUserId } from "@/lib/session";
 
@@ -73,6 +79,7 @@ type InboxActivityContextValue = {
   setView: (view: InboxActivityView) => void;
   mobileOpen: boolean;
   closeMobile: () => void;
+  composeRequest: number;
 };
 
 const InboxActivityContext = createContext<InboxActivityContextValue | null>(null);
@@ -82,11 +89,12 @@ export function InboxActivityState({
   setView,
   mobileOpen,
   closeMobile,
+  composeRequest,
   children,
 }: InboxActivityContextValue & { children: React.ReactNode }) {
   const value = useMemo(
-    () => ({ view, setView, mobileOpen, closeMobile }),
-    [closeMobile, mobileOpen, setView, view],
+    () => ({ view, setView, mobileOpen, closeMobile, composeRequest }),
+    [closeMobile, composeRequest, mobileOpen, setView, view],
   );
   return (
     <InboxActivityContext.Provider value={value}>
@@ -220,17 +228,21 @@ export function InboxComposeLetter({
   onClose,
   onStage,
   emailProvider: emailProviderDefault,
+  initial = null,
 }: {
   open: boolean;
   onClose: () => void;
   onStage: (action: AgentToolAction) => void;
   emailProvider: "gmail" | "outlook-mail";
+  initial?: MailReplySeed | null;
 }) {
-  const [emailProvider, setEmailProvider] = useState(emailProviderDefault);
-  const [to, setTo] = useState("");
+  const [emailProvider, setEmailProvider] = useState(
+    initial?.provider ?? emailProviderDefault,
+  );
+  const [to, setTo] = useState(initial?.to ?? "");
   const [cc, setCc] = useState("");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  const [subject, setSubject] = useState(initial?.subject ?? "");
+  const [body, setBody] = useState(initial?.body ?? "");
   const [attachments, setAttachments] = useState<OutboundEmailAttachment[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [addressWarnings, setAddressWarnings] = useState<string[]>([]);
@@ -249,7 +261,13 @@ export function InboxComposeLetter({
     if (!open) {
       return;
     }
-    toRef.current?.focus();
+    if (initial) {
+      const element = emailBodyRef.current;
+      element?.focus();
+      element?.setSelectionRange(0, 0);
+    } else {
+      toRef.current?.focus();
+    }
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -280,7 +298,7 @@ export function InboxComposeLetter({
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [initial, open]);
 
   function applyFormat(kind: "bold" | "italic" | "link") {
     const element = emailBodyRef.current;
@@ -382,7 +400,7 @@ export function InboxComposeLetter({
               Sophia
             </p>
             <h2 id="inbox-letter-title" className="mt-1 text-xl font-semibold tracking-tight">
-              New message
+              {initial ? "Reply" : "New message"}
             </h2>
           </div>
           <button
@@ -579,6 +597,61 @@ export function InboxActivityPanel({
   const [allDay, setAllDay] = useState(false);
   const [slot, setSlot] = useState(defaultRange);
   const [formError, setFormError] = useState<string | null>(null);
+  const activity = useContext(InboxActivityContext);
+  const composeRequest = activity?.composeRequest ?? 0;
+  const [handledComposeRequest, setHandledComposeRequest] = useState(composeRequest);
+  const [composeSeed, setComposeSeed] = useState<MailReplySeed | null>(null);
+  const [openMail, setOpenMail] = useState<MailRow | null>(null);
+  const [openEvent, setOpenEvent] = useState<EventRow | null>(null);
+  if (composeRequest !== handledComposeRequest) {
+    setHandledComposeRequest(composeRequest);
+    if (composeSeed) {
+      setComposeSeed(null);
+    }
+  }
+
+  function beginReply(message: MailRow, body: string) {
+    const provider = mailProviderId(message.provider);
+    if (!provider) {
+      return "This mailbox cannot send a reply from here.";
+    }
+    const built = buildMailReplySeed({
+      messageId: message.id,
+      provider,
+      fromAddress: message.fromAddress,
+      subject: message.subject,
+      whenLabel: formatWhen(message.receivedAt),
+      body,
+    });
+    if (!built.ok) {
+      return built.error;
+    }
+    setOpenMail(null);
+    setComposeSeed(built.seed);
+    return null;
+  }
+
+  function beginRemove(event: EventRow, titleText: string) {
+    const provider = calendarProviderId(event.provider);
+    if (!provider) {
+      return "This calendar cannot remove the event from here.";
+    }
+    const built = buildDeleteCalendarAction({
+      provider,
+      eventId: event.id,
+      title: titleText || event.title,
+    });
+    if (!built.ok) {
+      return built.error;
+    }
+    try {
+      onStage(built.action);
+    } catch (error) {
+      return error instanceof Error ? error.message : "Could not stage that removal.";
+    }
+    setOpenEvent(null);
+    return null;
+  }
 
   function stageEvent() {
     const range = allDay
@@ -700,7 +773,13 @@ export function InboxActivityPanel({
                     <ActivityRows
                       items={upcoming}
                       renderItem={(event) => (
-                        <EventLine event={event} />
+                        <EventLine
+                          event={event}
+                          onOpen={(item) => {
+                            setOpenMail(null);
+                            setOpenEvent(item);
+                          }}
+                        />
                       )}
                     />
                   )}
@@ -718,7 +797,13 @@ export function InboxActivityPanel({
                     <ActivityRows
                       items={recentMail}
                       renderItem={(message) => (
-                        <MailLine message={message} />
+                        <MailLine
+                          message={message}
+                          onOpen={(item) => {
+                            setOpenEvent(null);
+                            setOpenMail(item);
+                          }}
+                        />
                       )}
                     />
                   )}
@@ -726,18 +811,23 @@ export function InboxActivityPanel({
               </section>
             </div>
             <p className="shrink-0 pt-2 text-[11px] leading-relaxed text-white/35">
-              Subject, sender, and time only — not full bodies.{" "}
+              Open a message or event to read it. The mirror still keeps subject, sender, and a short snippet.{" "}
               <Link href="/settings/integrations" className="underline underline-offset-2">
                 Connect or upgrade scopes
               </Link>
             </p>
           </div>
         ) : null}
-        {view === "email" ? (
+        {view === "email" || composeSeed ? (
           <InboxComposeLetter
+            key={composeSeed?.messageId ?? "new"}
             open
-            emailProvider={emailProviderDefault}
-            onClose={() => onViewChange("agenda")}
+            initial={composeSeed}
+            emailProvider={composeSeed?.provider ?? emailProviderDefault}
+            onClose={() => {
+              setComposeSeed(null);
+              onViewChange("agenda");
+            }}
             onStage={onStage}
           />
         ) : null}
@@ -848,39 +938,333 @@ export function InboxActivityPanel({
           </form>
         ) : null}
       </div>
+      {openMail ? (
+        <MailDetailLetter
+          message={openMail}
+          onClose={() => setOpenMail(null)}
+          onReply={(body) => beginReply(openMail, body)}
+        />
+      ) : null}
+      {openEvent ? (
+        <EventDetailLetter
+          event={openEvent}
+          onClose={() => setOpenEvent(null)}
+          onRemove={(titleText) => beginRemove(openEvent, titleText)}
+        />
+      ) : null}
     </div>
   );
 }
 
-function MailLine({ message }: { message: MailRow }) {
+function MailLine({
+  message,
+  onOpen,
+}: {
+  message: MailRow;
+  onOpen: (message: MailRow) => void;
+}) {
   return (
-    <div className="flex h-full items-center gap-3 border-b border-white/[0.06] px-3">
+    <button
+      type="button"
+      className="inbox-agenda-row"
+      onClick={() => onOpen(message)}
+    >
       <Mail aria-hidden="true" className="size-4 shrink-0 text-(--accent)" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-white/90">{message.subject || "(no subject)"}</p>
-        <p className="truncate text-[11px] text-white/40">{message.fromAddress}</p>
-      </div>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-white/90">{message.subject || "(no subject)"}</span>
+        <span className="block truncate text-[11px] text-white/40">{message.fromAddress}</span>
+      </span>
       <time className="shrink-0 text-[11px] text-white/40" dateTime={message.receivedAt}>
         {formatWhen(message.receivedAt)}
       </time>
-    </div>
+    </button>
   );
 }
 
-function EventLine({ event }: { event: EventRow }) {
+function EventLine({
+  event,
+  onOpen,
+}: {
+  event: EventRow;
+  onOpen: (event: EventRow) => void;
+}) {
   return (
-    <div className="flex h-full items-center gap-3 border-b border-white/[0.06] px-3">
+    <button
+      type="button"
+      className="inbox-agenda-row"
+      onClick={() => onOpen(event)}
+    >
       <CalendarDays aria-hidden="true" className="size-4 shrink-0 text-(--accent)" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-white/90">{event.title}</p>
-        <p className="truncate text-[11px] text-white/40">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-white/90">{event.title}</span>
+        <span className="block truncate text-[11px] text-white/40">
           {event.accountEmail || event.provider}
-        </p>
-      </div>
+        </span>
+      </span>
       <time className="shrink-0 text-[11px] text-white/40" dateTime={event.startsAt}>
         {formatWhen(event.startsAt, event.allDay)}
       </time>
-    </div>
+    </button>
+  );
+}
+
+function DetailLetter({
+  titleId,
+  kicker,
+  title,
+  closeLabel,
+  onClose,
+  children,
+  footer,
+}: {
+  titleId: string;
+  kicker: string;
+  title: string;
+  closeLabel: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer: React.ReactNode;
+}) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    dialogRef.current?.focus();
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) {
+        return;
+      }
+      const nodes = [...dialogRef.current.querySelectorAll<HTMLElement>("button, a[href], textarea")]
+        .filter((node) => !node.hasAttribute("disabled"));
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (!first || !last) {
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
+    <div className="inbox-letter-stage">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        ref={dialogRef}
+        className="inbox-letter"
+      >
+        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-black/10 px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-black/55">
+              <SophiaMark />
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em]">{kicker}</p>
+            </div>
+            <h2 id={titleId} className="mt-2 truncate text-xl font-semibold tracking-tight">
+              {title}
+            </h2>
+          </div>
+          <button type="button" className="inbox-letter-icon" aria-label={closeLabel} onClick={onClose}>
+            <X aria-hidden="true" className="size-4" />
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">{children}</div>
+        <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-black/10 px-5 py-4">
+          {footer}
+        </footer>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function MailDetailLetter({
+  message,
+  onClose,
+  onReply,
+}: {
+  message: MailRow;
+  onClose: () => void;
+  onReply: (body: string) => string | null;
+}) {
+  const [actionError, setActionError] = useState<string | null>(null);
+  const bodyQuery = useQuery({
+    queryKey: ["inbox-mail-body", message.id],
+    queryFn: () => api.readEmailMessage(message.id),
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const body = bodyQuery.data?.body ?? "";
+
+  return (
+    <DetailLetter
+      titleId="inbox-mail-title"
+      kicker="Sophia"
+      title={message.subject || "(no subject)"}
+      closeLabel="Close message"
+      onClose={onClose}
+      footer={
+        <button
+          type="button"
+          className="inbox-letter-primary"
+          disabled={!bodyQuery.isSuccess}
+          onClick={() => {
+            const error = onReply(body);
+            setActionError(error);
+          }}
+        >
+          Reply
+        </button>
+      }
+    >
+      <p className="text-sm">
+        <span className="font-medium">{message.fromAddress}</span>
+        <span className="mt-1 block text-xs text-black/55">{formatWhen(message.receivedAt)}</span>
+      </p>
+      {bodyQuery.isLoading ? (
+        <p className="text-sm text-black/55">Opening this message…</p>
+      ) : null}
+      {bodyQuery.isError ? (
+        <p role="alert" className="text-sm text-red-800">
+          {bodyQuery.error instanceof Error
+            ? bodyQuery.error.message
+            : "Could not open this message."}
+        </p>
+      ) : null}
+      {bodyQuery.isSuccess ? (
+        <div className="inbox-letter-copy">
+          {body.trim() ? body : "This message has no text body."}
+        </div>
+      ) : null}
+      {bodyQuery.data?.truncated ? (
+        <p className="text-xs text-black/55">The rest of this message was left off because it is very long.</p>
+      ) : null}
+      {actionError ? (
+        <p role="alert" className="text-sm text-red-800">{actionError}</p>
+      ) : null}
+    </DetailLetter>
+  );
+}
+
+function EventDetailLetter({
+  event,
+  onClose,
+  onRemove,
+}: {
+  event: EventRow;
+  onClose: () => void;
+  onRemove: (title: string) => string | null;
+}) {
+  const [actionError, setActionError] = useState<string | null>(null);
+  const detailQuery = useQuery({
+    queryKey: ["inbox-event-detail", event.id],
+    queryFn: () => api.readCalendarEvent(event.id),
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const detail = detailQuery.data;
+  const title = detail?.title || event.title;
+  const startsAt = detail?.startsAt || event.startsAt;
+  const endsAt = detail?.endsAt || event.endsAt;
+  const allDay = detail?.allDay ?? event.allDay;
+  const attendees = detail?.attendees ?? [];
+
+  return (
+    <DetailLetter
+      titleId="inbox-event-title"
+      kicker="Sophia"
+      title={title}
+      closeLabel="Close event"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="inbox-letter-secondary" onClick={onClose}>
+            Keep
+          </button>
+          <button
+            type="button"
+            className="inbox-letter-danger"
+            onClick={() => setActionError(onRemove(title))}
+          >
+            Remove
+          </button>
+        </>
+      }
+    >
+      <p className="text-sm">
+        <time dateTime={startsAt}>{formatWhen(startsAt, allDay)}</time>
+        <span aria-hidden="true"> – </span>
+        <time dateTime={endsAt}>{formatWhen(endsAt, allDay)}</time>
+        {allDay ? <span className="ml-2 text-xs text-black/55">All day</span> : null}
+      </p>
+      {detailQuery.isLoading ? (
+        <p className="text-sm text-black/55">Opening this event…</p>
+      ) : null}
+      {detailQuery.isError ? (
+        <p role="alert" className="text-sm text-red-800">
+          {detailQuery.error instanceof Error
+            ? detailQuery.error.message
+            : "Could not open this event."}
+        </p>
+      ) : null}
+      <section>
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-black/45">Location</h3>
+        <p className="mt-1 text-sm">{detail?.location || "No location"}</p>
+      </section>
+      <section>
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-black/45">Attendees</h3>
+        {attendees.length === 0 ? (
+          <p className="mt-1 text-sm">No attendees</p>
+        ) : (
+          <ul className="mt-1 space-y-1 text-sm">
+            {attendees.map((person) => (
+              <li key={`${person.email}-${person.name}`}>
+                {person.name || person.email}
+                {person.name && person.email ? <span className="text-black/55"> · {person.email}</span> : null}
+                {person.status ? <span className="text-black/55"> · {person.status}</span> : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section>
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-black/45">Description</h3>
+        <div className="inbox-letter-copy mt-1">
+          {detail?.description?.trim() ? detail.description : "No description"}
+        </div>
+      </section>
+      {detail?.truncated ? (
+        <p className="text-xs text-black/55">The rest of the description was left off because it is very long.</p>
+      ) : null}
+      <p className="text-xs text-black/55">
+        Keep leaves the event where it is. Remove waits for your approval before anything is deleted.
+      </p>
+      {actionError ? (
+        <p role="alert" className="text-sm text-red-800">{actionError}</p>
+      ) : null}
+    </DetailLetter>
   );
 }
 
@@ -936,6 +1320,10 @@ export function InboxHomeActivity() {
             ...(action.allDay ? { allDay: true } : {}),
             ...(action.description ? { description: action.description } : {}),
           });
+          await queryClient.invalidateQueries({ queryKey: ["inbox-events"] });
+        },
+        deleteCalendarEvent: async (action) => {
+          await api.deleteCalendarEvent(action.provider, action.eventId);
           await queryClient.invalidateQueries({ queryKey: ["inbox-events"] });
         },
         createGitHubIssue: unsupportedAction,
