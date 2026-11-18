@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { bytesToBase64 } from "./email-attachments";
 import {
   buildCalendarEventAction,
   buildEmailDraftAction,
@@ -7,6 +8,9 @@ import {
   toDatetimeLocalValue,
   upcomingEvents,
 } from "./inbox-activity";
+
+const pngBase64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 describe("inbox activity ordering", () => {
   it("sorts mail newest first and breaks ties by id", () => {
@@ -97,6 +101,50 @@ describe("inbox activity actions", () => {
         to: "not-an-email",
         subject: "Notes",
         body: "Hello",
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("keeps a safe image on the staged send and drops a script", () => {
+    const binary = atob(pngBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    const attachment = {
+      filename: "pixel.png",
+      contentType: "image/png",
+      size: bytes.byteLength,
+      contentBase64: bytesToBase64(bytes),
+    };
+    const built = buildEmailDraftAction({
+      provider: "gmail",
+      to: "ada@example.com",
+      subject: "Photo",
+      body: "Attached.",
+      delivery: "send",
+      attachments: [attachment],
+    });
+    expect(built.ok).toBe(true);
+    if (built.ok) {
+      expect(built.action.attachments?.[0]?.filename).toBe("pixel.png");
+      expect(built.action.delivery).toBe("send");
+    }
+    expect(
+      buildEmailDraftAction({
+        provider: "outlook-mail",
+        to: "ada@example.com",
+        subject: "Photo",
+        body: "Attached.",
+        delivery: "send",
+        attachments: [
+          {
+            filename: "notes.pdf",
+            contentType: "application/pdf",
+            size: "%PDF-1.4\n<script>x</script>".length,
+            contentBase64: btoa("%PDF-1.4\n<script>x</script>"),
+          },
+        ],
       }).ok,
     ).toBe(false);
   });

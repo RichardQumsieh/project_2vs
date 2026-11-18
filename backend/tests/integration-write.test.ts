@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { validateCalendarEventWritePayload } from "../src/integrations/calendar-write.js";
 import {
+  buildEmailDraftCreateRequest,
   buildEmailSendRequest,
+  emailAttachmentLimits,
+  emailWriteBodyLimit,
   sanitizeEmailHtml,
   validateEmailDraftWritePayload,
 } from "../src/integrations/email-write.js";
@@ -221,6 +224,93 @@ describe("integration write payload validators", () => {
       outlookSend.url,
       "https://graph.microsoft.com/v1.0/me/sendMail",
     );
+
+    const pngBase64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const pngSize = Buffer.from(pngBase64, "base64").length;
+    const withFile = validateEmailDraftWritePayload({
+      to: ["ada@example.com"],
+      subject: "Notes",
+      body: "See the image.",
+      attachments: [
+        {
+          filename: "pixel.png",
+          contentType: "image/png",
+          size: pngSize,
+          contentBase64: pngBase64,
+        },
+      ],
+    });
+    assert.equal(withFile.ok, true);
+    if (withFile.ok) {
+      const gmailFile = buildEmailSendRequest("gmail", withFile.payload);
+      const raw = Buffer.from(
+        String((gmailFile.body as { raw: string }).raw)
+          .replace(/-/g, "+")
+          .replace(/_/g, "/"),
+        "base64",
+      ).toString("utf8");
+      assert.match(raw, /multipart\/mixed/);
+      assert.match(raw, /Content-Disposition: attachment; filename="pixel\.png"/);
+      assert.match(raw, /Content-Type: image\/png/);
+      assert.match(raw, new RegExp(pngBase64.slice(0, 40)));
+      const outlookFile = buildEmailSendRequest("outlook-mail", withFile.payload);
+      const outlookBody = outlookFile.body as {
+        message: {
+          attachments: Array<{
+            "@odata.type": string;
+            name: string;
+            contentType: string;
+            contentBytes: string;
+          }>;
+        };
+      };
+      assert.equal(
+        outlookBody.message.attachments[0]?.["@odata.type"],
+        "#microsoft.graph.fileAttachment",
+      );
+      assert.equal(outlookBody.message.attachments[0]?.name, "pixel.png");
+      assert.equal(outlookBody.message.attachments[0]?.contentBytes, pngBase64);
+      const draft = buildEmailDraftCreateRequest("outlook-mail", withFile.payload);
+      const draftBody = draft.body as {
+        isDraft: boolean;
+        attachments: Array<{ name: string }>;
+      };
+      assert.equal(draftBody.isDraft, true);
+      assert.equal(draftBody.attachments[0]?.name, "pixel.png");
+    }
+    const script = validateEmailDraftWritePayload({
+      to: ["ada@example.com"],
+      subject: "Notes",
+      body: "Nope",
+      attachments: [
+        {
+          filename: "notes.pdf",
+          contentType: "application/pdf",
+          size: Buffer.byteLength("%PDF-1.4\n<script>alert(1)</script>"),
+          contentBase64: Buffer.from(
+            "%PDF-1.4\n<script>alert(1)</script>",
+          ).toString("base64"),
+        },
+      ],
+    });
+    assert.equal(script.ok, false);
+    const svg = validateEmailDraftWritePayload({
+      to: ["ada@example.com"],
+      subject: "Notes",
+      body: "Nope",
+      attachments: [
+        {
+          filename: "icon.svg",
+          contentType: "image/svg+xml",
+          size: 4,
+          contentBase64: Buffer.from("<svg/>").toString("base64"),
+        },
+      ],
+    });
+    assert.equal(svg.ok, false);
+    const base64Budget = Math.ceil(emailAttachmentLimits.maxBytesTotal / 3) * 4;
+    assert.ok(base64Budget + 100_000 < emailWriteBodyLimit);
 
     const issue = validateGitHubIssueWritePayload({
       owner: "acme",

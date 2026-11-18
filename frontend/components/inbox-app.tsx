@@ -88,10 +88,14 @@ import {
 } from "@/lib/ai/agent-runtime";
 import { downloadSophiaDocument } from "@/lib/ai/sophia-documents";
 import { SophiaRobot } from "@/components/sophia-robot";
-import { InboxActivityPanel, InboxActivityState } from "@/components/inbox-activity-panel";
+import {
+  InboxActivityPanel,
+  InboxActivityState,
+  InboxComposeLetter,
+} from "@/components/inbox-activity-panel";
 import { SophiaCommandHints } from "@/components/sophia-command-hints";
 import { ThreadMessageList } from "@/components/thread-message-list";
-import type { InboxActivityView } from "@/lib/inbox-activity";
+import { emailApiPayload, type InboxActivityView } from "@/lib/inbox-activity";
 import {
   SophiaApproveSuccess,
   SophiaProposalCard,
@@ -491,14 +495,8 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
       closeMobile={closeHomeActivity}
     >
     <main
-      className={`inbox-shell inbox-shell--pro grid h-dvh min-h-0 w-full grid-cols-1 overflow-hidden ${
-        activeConversationId ? "fixed inset-0 z-30" : ""
-      }`}
-      style={{
-        gridTemplateColumns: activeConversationId
-          ? "minmax(0, 1fr)"
-          : "minmax(17rem, min(24rem, 36vw)) minmax(0, 1fr)",
-      }}
+      className="inbox-shell inbox-shell--pro"
+      data-pane={activeConversationId || homeActivityOpen ? "detail" : "list"}
     >
       {pendingHistoryRecoveryCode ? (
         <div
@@ -611,47 +609,27 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
             : "…"}
         </div>
       ) : null}
-      <aside
-        className={`inbox-sidebar min-h-0 min-w-0 flex-col overflow-hidden border-r border-white/10 bg-[#070b12] ${
-          activeConversationId ? "hidden" : homeActivityOpen ? "hidden md:flex" : "flex"
-        }`}
-      >
-        <div className="h-full min-w-[15rem] overflow-y-auto overscroll-contain p-4 sm:p-5">
-        <div className="mb-6 flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-start gap-2.5">
+      <aside className="inbox-sidebar flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-white/10">
+        <div className="flex h-full min-h-0 min-w-0 flex-col">
+        <div className="shrink-0 space-y-3 border-b border-white/10 p-3 sm:p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5">
             <SophiaMark />
             <div className="min-w-0">
-              <p className="text-sm font-semibold tracking-tight text-white">Sophia</p>
-              <h1 className="text-xl font-semibold tracking-tight text-white">Inbox</h1>
-              <p className="mt-1 text-sm text-white/50">@{me.data.user.username}</p>
+              <h1 className="text-base font-semibold tracking-tight text-white">Inbox</h1>
+              <p className="truncate text-xs text-white/50">@{me.data.user.username}</p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Link
-              href="/settings"
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/75 transition hover:bg-white/[0.07]"
-            >
-              <Settings aria-hidden="true" className="size-3.5" />
-              Settings
-            </Link>
-            <Link
-              href="/sophia"
-              className="rounded-full border border-cyan-300/20 px-3 py-1.5 text-xs text-cyan-100/80 transition hover:bg-cyan-300/10"
-            >
-              Sophia
-            </Link>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={loggingOut}
-              onClick={() => void logOut()}
-            >
-              {loggingOut ? "Logging out…" : "Log out"}
-            </Button>
-          </div>
+          <Link
+            href="/settings"
+            aria-label="Settings"
+            className="inline-flex size-9 items-center justify-center rounded-full border border-white/10 text-white/75 hover:bg-white/[0.07] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
+          >
+            <Settings aria-hidden="true" className="size-4" />
+          </Link>
         </div>
 
-        <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <Button
             type="button"
             size="sm"
@@ -675,14 +653,14 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
         </div>
         <button
           type="button"
-          className="mb-6 text-left text-xs text-white/45 underline underline-offset-2 hover:text-white/70"
+          className="text-left text-xs text-white/55 underline underline-offset-2 hover:text-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
           onClick={() => setHomeActivityView("agenda")}
         >
           Recent mail and upcoming events
         </button>
 
         <form
-          className="mb-6 flex gap-2"
+          className="flex gap-2"
           onSubmit={start.handleSubmit(async ({ username }) => {
             setStartError(null);
             try {
@@ -701,17 +679,24 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
             Chat
           </Button>
         </form>
-        {startError ? <p className="mb-6 text-sm text-red-300">{startError}</p> : null}
+        {startError ? <p className="text-sm text-red-300">{startError}</p> : null}
+        </div>
 
-        <div className="min-h-0 flex-1 space-y-2">
+        <nav aria-label="Conversations" className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-3">
           {(conversations.data ?? []).map((conversation) => {
             const label =
               conversation.peer?.displayName ?? conversation.peer?.username ?? "Unknown";
+            const selected = conversation.id === activeConversationId;
             return (
             <Link
               key={conversation.id}
               href={`/inbox/${conversation.id}`}
-              className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3 transition-colors hover:border-cyan-300/25 hover:bg-white/[0.05]"
+              aria-current={selected ? "page" : undefined}
+              className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent) ${
+                selected
+                  ? "border-cyan-300/40 bg-white/[0.07]"
+                  : "border-white/10 bg-white/[0.02] hover:border-cyan-300/25 hover:bg-white/[0.05]"
+              }`}
             >
               <span
                 aria-hidden="true"
@@ -731,15 +716,26 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
             userId={me.data.user.id}
             interests={me.data.user.interests}
           />
+        </nav>
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-white/10 px-3 py-2">
+          <Link
+            href="/sophia"
+            className="rounded-full px-2 py-1 text-xs text-cyan-100/80 hover:bg-cyan-300/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
+          >
+            Sophia
+          </Link>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={loggingOut}
+            onClick={() => void logOut()}
+          >
+            {loggingOut ? "Logging out…" : "Log out"}
+          </Button>
         </div>
         </div>
       </aside>
-      <section
-        className={`min-h-0 min-w-0 w-full overflow-hidden ${
-          activeConversationId || homeActivityOpen ? "flex" : "hidden md:flex"
-        }`}
-        style={{ gridColumn: activeConversationId ? "1 / -1" : "2 / -1" }}
-      >
+      <section className="inbox-stage">
         {children}
       </section>
     </main>
@@ -751,7 +747,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
 export function Thread() {
   const conversationId = useParams<{ id: string }>().id;
   return (
-    <div className="h-full min-h-0 min-w-0">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
       <ThreadConversation conversationId={conversationId} />
     </div>
   );
@@ -2106,18 +2102,7 @@ function ThreadConversation({
           }
         },
         draftEmail: async (action) => {
-          const payload = {
-            to: action.to,
-            subject: action.subject,
-            body: action.body,
-            ...(action.cc ? { cc: action.cc } : {}),
-            ...(action.html
-              ? {
-                  html: action.html,
-                  contentType: action.contentType ?? ("text/html" as const),
-                }
-              : {}),
-          };
+          const payload = emailApiPayload(action);
           if (action.delivery === "send") {
             await api.sendEmail(action.provider, payload);
             return;
@@ -3405,7 +3390,7 @@ function ThreadConversation({
   }
 
   return (
-    <div className="thread-stage relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+    <div className="thread-stage relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
       <header className="relative z-30 flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-white/10 bg-[#070b12] px-3 py-2.5 sm:px-6 sm:py-4">
         <div className="flex min-w-0 items-center gap-2">
           <Button
@@ -3488,7 +3473,7 @@ function ThreadConversation({
           }
         >
           <Mail aria-hidden="true" className="size-3.5" />
-          Mail
+          Compose
         </Button>
         <Button
           type="button"
@@ -4913,16 +4898,25 @@ function ThreadConversation({
           />
         )}
       </div>
-      {activitySheet ? (
-        <div className="inbox-activity-sheet absolute inset-0 z-10 flex min-h-0 flex-col bg-[#070b12]">
-          <InboxActivityPanel
-            view={activitySheet}
-            onViewChange={setActivitySheet}
-            onClose={() => setActivitySheet(null)}
-            onStage={stageInboxAction}
-            emailProvider={jobDefaults.emailProvider ?? "gmail"}
-            calendarProvider={jobDefaults.calendarProvider ?? "google"}
-          />
+      {activitySheet === "email" ? (
+        <InboxComposeLetter
+          open
+          onClose={() => setActivitySheet(null)}
+          onStage={stageInboxAction}
+          emailProvider={jobDefaults.emailProvider ?? "gmail"}
+        />
+      ) : activitySheet ? (
+        <div className="inbox-sheet-scrim absolute inset-0 z-10 grid place-items-center p-3 sm:p-6">
+          <div className="flex h-[min(88dvh,42rem)] w-full max-w-3xl min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#070b12] shadow-2xl">
+            <InboxActivityPanel
+              view={activitySheet}
+              onViewChange={setActivitySheet}
+              onClose={() => setActivitySheet(null)}
+              onStage={stageInboxAction}
+              emailProvider={jobDefaults.emailProvider ?? "gmail"}
+              calendarProvider={jobDefaults.calendarProvider ?? "google"}
+            />
+          </div>
         </div>
       ) : null}
       </div>

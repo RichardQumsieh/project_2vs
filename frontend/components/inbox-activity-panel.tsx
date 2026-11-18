@@ -1,16 +1,18 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bold, CalendarDays, Italic, Link2, List, Mail } from "lucide-react";
+import { Bold, CalendarDays, Italic, Link2, List, Mail, Paperclip, X } from "lucide-react";
 import Link from "next/link";
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,6 +28,13 @@ import {
   type AgentToolAction,
 } from "@/lib/ai/agent-runtime";
 import { loadJobDefaults } from "@/lib/ai/sophia-job-defaults";
+import {
+  formatAttachmentSize,
+  maxEmailAttachmentCount,
+  maxEmailAttachmentTotalBytes,
+  readEmailAttachmentFile,
+  type OutboundEmailAttachment,
+} from "@/lib/email-attachments";
 import { wrapComposerSelection } from "@/lib/email-compose";
 import {
   buildCalendarEventAction,
@@ -96,7 +105,7 @@ function ActivityRows<T extends { id: string }>({
   renderItem: (item: T) => React.ReactNode;
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
-  const [range, setRange] = useState({ start: 0, end: 8 });
+  const [range, setRange] = useState({ start: 0, end: 12 });
   const itemCount = items.length;
 
   const measure = useCallback(() => {
@@ -107,26 +116,36 @@ function ActivityRows<T extends { id: string }>({
     const start = Math.max(0, Math.floor(node.scrollTop / rowHeight) - 2);
     const end = Math.min(
       itemCount,
-      start + Math.ceil(node.clientHeight / rowHeight) + 5,
+      start + Math.ceil(node.clientHeight / rowHeight) + 6,
     );
     setRange((current) =>
       current.start === start && current.end === end ? current : { start, end },
     );
   }, [itemCount]);
 
+  useEffect(() => {
+    measure();
+    const node = scrollerRef.current;
+    if (!node || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => measure());
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [measure]);
+
   if (itemCount === 0) {
     return null;
   }
 
-  const height = Math.min(itemCount * rowHeight, 320);
   const slice = items.slice(range.start, range.end);
 
   return (
     <div
       ref={scrollerRef}
       onScroll={measure}
-      className="overflow-y-auto overscroll-contain"
-      style={{ height, contain: "strict" }}
+      className="h-full min-h-0 overflow-y-auto overscroll-contain"
+      style={{ contain: "layout style paint" }}
     >
       <div className="relative" style={{ height: itemCount * rowHeight }}>
         <div
@@ -196,6 +215,344 @@ function useMirroredActivity() {
   return { mail, events, recentMail, upcoming };
 }
 
+export function InboxComposeLetter({
+  open,
+  onClose,
+  onStage,
+  emailProvider: emailProviderDefault,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onStage: (action: AgentToolAction) => void;
+  emailProvider: "gmail" | "outlook-mail";
+}) {
+  const [emailProvider, setEmailProvider] = useState(emailProviderDefault);
+  const [to, setTo] = useState("");
+  const [cc, setCc] = useState("");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [attachments, setAttachments] = useState<OutboundEmailAttachment[]>([]);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [addressWarnings, setAddressWarnings] = useState<string[]>([]);
+  const [typoOverride, setTypoOverride] = useState(false);
+  const emailBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const toRef = useRef<HTMLInputElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const dialogRef = useRef<HTMLFormElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    toRef.current?.focus();
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+      const root = dialogRef.current;
+      if (!root) {
+        return;
+      }
+      const nodes = [...root.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href]")]
+        .filter((node) => !node.hasAttribute("disabled") && node.tabIndex !== -1);
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (!first || !last) {
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  function applyFormat(kind: "bold" | "italic" | "link") {
+    const element = emailBodyRef.current;
+    const start = element?.selectionStart ?? body.length;
+    const end = element?.selectionEnd ?? body.length;
+    const next = wrapComposerSelection(body, start, end, kind);
+    setBody(next.value);
+    requestAnimationFrame(() => {
+      element?.focus();
+      element?.setSelectionRange(next.start, next.end);
+    });
+  }
+
+  async function addFiles(list: FileList | null) {
+    if (!list || list.length === 0) {
+      return;
+    }
+    const next = [...attachments];
+    const errors: string[] = [];
+    for (const file of list) {
+      if (next.length >= maxEmailAttachmentCount) {
+        errors.push("You can attach up to 5 files.");
+        break;
+      }
+      const total = next.reduce((sum, item) => sum + item.size, 0);
+      if (total + file.size > maxEmailAttachmentTotalBytes) {
+        errors.push("Attachments together must be 2 MB or smaller.");
+        break;
+      }
+      const read = await readEmailAttachmentFile(file);
+      if (!read.ok) {
+        errors.push(`${file.name}: ${read.error}`);
+        continue;
+      }
+      next.push(read.attachment);
+    }
+    setAttachments(next);
+    setFormError(errors[0] ?? null);
+    if (fileRef.current) {
+      fileRef.current.value = "";
+    }
+  }
+
+  function stageEmail(delivery: "send" | "draft") {
+    const built = buildEmailDraftAction({
+      provider: emailProvider,
+      to,
+      cc,
+      subject,
+      body,
+      delivery,
+      attachments,
+    });
+    if (!built.ok) {
+      setAddressWarnings([]);
+      setTypoOverride(false);
+      setFormError(built.error);
+      return;
+    }
+    if (built.warnings.length > 0 && !typoOverride) {
+      setAddressWarnings(built.warnings);
+      setTypoOverride(true);
+      setFormError(null);
+      return;
+    }
+    try {
+      onStage(built.action);
+      setFormError(null);
+      setAddressWarnings([]);
+      setTypoOverride(false);
+      setBody("");
+      setAttachments([]);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Could not stage that email.");
+    }
+  }
+
+  if (!open || typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
+    <div className="inbox-letter-stage">
+      <form
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="inbox-letter-title"
+        aria-describedby="inbox-letter-note"
+        ref={dialogRef}
+        className="inbox-letter"
+        onSubmit={(event) => {
+          event.preventDefault();
+          stageEmail("send");
+        }}
+      >
+        <header className="flex items-start justify-between gap-3 border-b border-black/10 px-5 py-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-black/45">
+              Sophia
+            </p>
+            <h2 id="inbox-letter-title" className="mt-1 text-xl font-semibold tracking-tight">
+              New message
+            </h2>
+          </div>
+          <button
+            type="button"
+            className="inbox-letter-icon"
+            aria-label="Close compose"
+            onClick={onClose}
+          >
+            <X aria-hidden="true" className="size-4" />
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
+          <label className="block space-y-1 text-xs font-medium">
+            Mailbox
+            <select
+              className="inbox-letter-field"
+              value={emailProvider}
+              onChange={(event) =>
+                setEmailProvider(event.target.value as "gmail" | "outlook-mail")
+              }
+            >
+              <option value="gmail">Gmail</option>
+              <option value="outlook-mail">Outlook</option>
+            </select>
+          </label>
+          <label className="block space-y-1 text-xs font-medium">
+            To
+            <input
+              ref={toRef}
+              className="inbox-letter-field"
+              value={to}
+              onChange={(event) => {
+                setTo(event.target.value);
+                setTypoOverride(false);
+                setAddressWarnings([]);
+              }}
+              placeholder="name@example.com"
+              autoComplete="email"
+              inputMode="email"
+            />
+          </label>
+          <label className="block space-y-1 text-xs font-medium">
+            Cc
+            <input
+              className="inbox-letter-field"
+              value={cc}
+              onChange={(event) => {
+                setCc(event.target.value);
+                setTypoOverride(false);
+                setAddressWarnings([]);
+              }}
+              placeholder="Optional"
+            />
+          </label>
+          <label className="block space-y-1 text-xs font-medium">
+            Subject
+            <input
+              className="inbox-letter-field"
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              maxLength={200}
+            />
+          </label>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium">Message</span>
+              <div className="flex gap-1">
+                <button type="button" className="inbox-letter-icon" aria-label="Bold" onClick={() => applyFormat("bold")}>
+                  <Bold aria-hidden="true" className="size-3.5" />
+                </button>
+                <button type="button" className="inbox-letter-icon" aria-label="Italic" onClick={() => applyFormat("italic")}>
+                  <Italic aria-hidden="true" className="size-3.5" />
+                </button>
+                <button type="button" className="inbox-letter-icon" aria-label="Insert link" onClick={() => applyFormat("link")}>
+                  <Link2 aria-hidden="true" className="size-3.5" />
+                </button>
+              </div>
+            </div>
+            <textarea
+              ref={emailBodyRef}
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              className="inbox-letter-field inbox-letter-body"
+              placeholder="Write the message. Approval sends it."
+            />
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium">Attachments</span>
+              <button
+                type="button"
+                className="inbox-letter-quiet"
+                onClick={() => fileRef.current?.click()}
+              >
+                <Paperclip aria-hidden="true" className="size-3.5" />
+                Attach files
+              </button>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              className="sr-only"
+              tabIndex={-1}
+              multiple
+              accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+              onChange={(event) => void addFiles(event.target.files)}
+            />
+            {attachments.length > 0 ? (
+              <ul className="space-y-1">
+                {attachments.map((file, index) => (
+                  <li
+                    key={`${file.filename}-${file.size}-${index}`}
+                    className="flex items-center gap-2 rounded-lg border border-black/10 px-2 py-1.5 text-xs"
+                  >
+                    <Paperclip aria-hidden="true" className="size-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {file.filename}
+                      <span className="text-black/50"> · {formatAttachmentSize(file.size)}</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="inbox-letter-icon"
+                      aria-label={`Remove ${file.filename}`}
+                      onClick={() =>
+                        setAttachments((current) => current.filter((_, item) => item !== index))
+                      }
+                    >
+                      <X aria-hidden="true" className="size-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[11px] text-black/50">
+                Images, PDF, and Office documents. Up to 5 files, 2 MB together. No scripts.
+              </p>
+            )}
+          </div>
+        </div>
+        <footer className="space-y-2 border-t border-black/10 px-5 py-4">
+          <p id="inbox-letter-note" className="text-[11px] leading-relaxed text-black/55">
+            Approval sends this message and these files. Nothing leaves until you approve. Stage a draft only if it should stay in the mailbox.
+          </p>
+          {addressWarnings.length > 0 ? (
+            <p role="status" className="text-xs text-amber-800">
+              {addressWarnings.join(" ")} Review the address, then stage again to continue.
+            </p>
+          ) : null}
+          {formError ? (
+            <p role="alert" className="text-xs text-red-800">{formError}</p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <button type="submit" className="inbox-letter-primary">
+              {typoOverride ? "Stage send anyway" : "Stage send for approval"}
+            </button>
+            <button
+              type="button"
+              className="inbox-letter-secondary"
+              onClick={() => stageEmail("draft")}
+            >
+              {typoOverride ? "Stage draft anyway" : "Stage draft instead"}
+            </button>
+          </div>
+        </footer>
+      </form>
+    </div>,
+    document.body,
+  );
+}
+
 export function InboxActivityPanel({
   view,
   onViewChange,
@@ -216,64 +573,12 @@ export function InboxActivityPanel({
   onBack?: () => void;
 }) {
   const { mail, events, recentMail, upcoming } = useMirroredActivity();
-  const [emailProvider, setEmailProvider] = useState(emailProviderDefault);
   const [calendarProvider, setCalendarProvider] = useState(calendarProviderDefault);
-  const [to, setTo] = useState("");
-  const [cc, setCc] = useState("");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [allDay, setAllDay] = useState(false);
   const [slot, setSlot] = useState(defaultRange);
   const [formError, setFormError] = useState<string | null>(null);
-  const [addressWarnings, setAddressWarnings] = useState<string[]>([]);
-  const [typoOverride, setTypoOverride] = useState(false);
-  const emailBodyRef = useRef<HTMLTextAreaElement | null>(null);
-
-  function applyFormat(kind: "bold" | "italic" | "link") {
-    const element = emailBodyRef.current;
-    const start = element?.selectionStart ?? body.length;
-    const end = element?.selectionEnd ?? body.length;
-    const next = wrapComposerSelection(body, start, end, kind);
-    setBody(next.value);
-    requestAnimationFrame(() => {
-      element?.focus();
-      element?.setSelectionRange(next.start, next.end);
-    });
-  }
-
-  function stageEmail(delivery: "send" | "draft") {
-    const built = buildEmailDraftAction({
-      provider: emailProvider,
-      to,
-      cc,
-      subject,
-      body,
-      delivery,
-    });
-    if (!built.ok) {
-      setAddressWarnings([]);
-      setTypoOverride(false);
-      setFormError(built.error);
-      return;
-    }
-    if (built.warnings.length > 0 && !typoOverride) {
-      setAddressWarnings(built.warnings);
-      setTypoOverride(true);
-      setFormError(null);
-      return;
-    }
-    try {
-      onStage(built.action);
-      setFormError(null);
-      setAddressWarnings([]);
-      setTypoOverride(false);
-      setBody("");
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Could not stage that email.");
-    }
-  }
 
   function stageEvent() {
     const range = allDay
@@ -313,7 +618,7 @@ export function InboxActivityPanel({
         {showBack ? (
           <button
             type="button"
-            className="rounded-full px-2 py-1 text-xs text-white/70 md:hidden"
+            className="inbox-pane-back rounded-full px-2 py-1 text-xs text-white/70"
             onClick={onBack}
           >
             Back
@@ -367,9 +672,13 @@ export function InboxActivityPanel({
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 sm:px-4">
-        {view === "agenda" ? (
-          <div className="space-y-4">
+      <div
+        className={`min-h-0 flex-1 px-3 pb-3 sm:px-4 ${
+          view === "event" ? "overflow-y-auto overscroll-contain" : "flex flex-col overflow-hidden"
+        }`}
+      >
+        {view === "agenda" || view === "email" ? (
+          <div className="inbox-agenda-frame">
             {loading ? (
               <p className="text-xs text-white/45">Loading mirrored mail and events…</p>
             ) : null}
@@ -378,37 +687,45 @@ export function InboxActivityPanel({
                 Could not load mail or calendar. Connect an account in Integrations, then sync.
               </p>
             ) : null}
-            <section className="space-y-2">
-              <h3 className="text-[11px] font-medium uppercase tracking-wide text-white/40">
-                Upcoming
-              </h3>
-              {upcoming.length === 0 ? (
-                <p className="text-xs text-white/45">No upcoming events in the mirror.</p>
-              ) : (
-                <ActivityRows
-                  items={upcoming}
-                  renderItem={(event) => (
-                    <EventLine event={event} />
+            <div className="inbox-agenda-grid">
+              <section className="inbox-agenda-card">
+                <h3 className="flex items-center gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-white/45">
+                  <CalendarDays aria-hidden="true" className="size-3.5" />
+                  Upcoming
+                </h3>
+                <div className="min-h-0 flex-1">
+                  {upcoming.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-white/45">No upcoming events in the mirror.</p>
+                  ) : (
+                    <ActivityRows
+                      items={upcoming}
+                      renderItem={(event) => (
+                        <EventLine event={event} />
+                      )}
+                    />
                   )}
-                />
-              )}
-            </section>
-            <section className="space-y-2">
-              <h3 className="text-[11px] font-medium uppercase tracking-wide text-white/40">
-                Recent mail
-              </h3>
-              {recentMail.length === 0 ? (
-                <p className="text-xs text-white/45">No mirrored mail yet.</p>
-              ) : (
-                <ActivityRows
-                  items={recentMail}
-                  renderItem={(message) => (
-                    <MailLine message={message} />
+                </div>
+              </section>
+              <section className="inbox-agenda-card">
+                <h3 className="flex items-center gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-white/45">
+                  <Mail aria-hidden="true" className="size-3.5" />
+                  Recent mail
+                </h3>
+                <div className="min-h-0 flex-1">
+                  {recentMail.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-white/45">No mirrored mail yet.</p>
+                  ) : (
+                    <ActivityRows
+                      items={recentMail}
+                      renderItem={(message) => (
+                        <MailLine message={message} />
+                      )}
+                    />
                   )}
-                />
-              )}
-            </section>
-            <p className="text-[11px] leading-relaxed text-white/35">
+                </div>
+              </section>
+            </div>
+            <p className="shrink-0 pt-2 text-[11px] leading-relaxed text-white/35">
               Subject, sender, and time only — not full bodies.{" "}
               <Link href="/settings/integrations" className="underline underline-offset-2">
                 Connect or upgrade scopes
@@ -417,128 +734,16 @@ export function InboxActivityPanel({
           </div>
         ) : null}
         {view === "email" ? (
-          <form
-            className="inbox-activity-compose space-y-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              stageEmail("send");
-            }}
-          >
-            <label className="block space-y-1 text-xs text-white/55">
-              Mailbox
-              <select
-                className="h-11 w-full rounded-2xl border border-white/10 bg-[#10151e] px-3 text-sm text-white"
-                value={emailProvider}
-                onChange={(event) =>
-                  setEmailProvider(event.target.value as "gmail" | "outlook-mail")
-                }
-              >
-                <option value="gmail">Gmail</option>
-                <option value="outlook-mail">Outlook</option>
-              </select>
-            </label>
-            <label className="block space-y-1 text-xs text-white/55">
-              To
-              <Input
-                value={to}
-                onChange={(event) => {
-                  setTo(event.target.value);
-                  setTypoOverride(false);
-                  setAddressWarnings([]);
-                }}
-                placeholder="name@example.com"
-                autoComplete="email"
-                inputMode="email"
-              />
-            </label>
-            <label className="block space-y-1 text-xs text-white/55">
-              Cc
-              <Input
-                value={cc}
-                onChange={(event) => {
-                  setCc(event.target.value);
-                  setTypoOverride(false);
-                  setAddressWarnings([]);
-                }}
-                placeholder="Optional"
-              />
-            </label>
-            <label className="block space-y-1 text-xs text-white/55">
-              Subject
-              <Input
-                value={subject}
-                onChange={(event) => setSubject(event.target.value)}
-                maxLength={200}
-              />
-            </label>
-            <div className="space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-white/55">Message</span>
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    className="inline-flex size-8 items-center justify-center rounded-full border border-white/10 text-white/70 hover:bg-white/10"
-                    aria-label="Bold"
-                    onClick={() => applyFormat("bold")}
-                  >
-                    <Bold aria-hidden="true" className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex size-8 items-center justify-center rounded-full border border-white/10 text-white/70 hover:bg-white/10"
-                    aria-label="Italic"
-                    onClick={() => applyFormat("italic")}
-                  >
-                    <Italic aria-hidden="true" className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex size-8 items-center justify-center rounded-full border border-white/10 text-white/70 hover:bg-white/10"
-                    aria-label="Insert link"
-                    onClick={() => applyFormat("link")}
-                  >
-                    <Link2 aria-hidden="true" className="size-3.5" />
-                  </button>
-                </div>
-              </div>
-              <textarea
-                ref={emailBodyRef}
-                value={body}
-                onChange={(event) => setBody(event.target.value)}
-                rows={6}
-                className="w-full resize-none rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-(--accent)/50"
-                placeholder="Write the message. Approval sends it."
-              />
-            </div>
-            <p className="text-[11px] leading-relaxed text-white/40">
-              Approval sends this exact message. Nothing leaves until you approve. Stage a draft only if it should stay in the mailbox.
-            </p>
-            {addressWarnings.length > 0 ? (
-              <p role="status" className="text-xs text-amber-200">
-                {addressWarnings.join(" ")} Review the address, then stage again to continue.
-              </p>
-            ) : null}
-            {formError ? (
-              <p role="alert" className="text-xs text-red-300">{formError}</p>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              <Button type="submit" size="sm">
-                {typoOverride ? "Stage send anyway" : "Stage send for approval"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => stageEmail("draft")}
-              >
-                {typoOverride ? "Stage draft anyway" : "Stage draft instead"}
-              </Button>
-            </div>
-          </form>
+          <InboxComposeLetter
+            open
+            emailProvider={emailProviderDefault}
+            onClose={() => onViewChange("agenda")}
+            onStage={onStage}
+          />
         ) : null}
         {view === "event" ? (
           <form
-            className="inbox-activity-compose space-y-3"
+            className="mx-auto w-full max-w-2xl space-y-3"
             onSubmit={(event) => {
               event.preventDefault();
               stageEvent();
@@ -649,23 +854,32 @@ export function InboxActivityPanel({
 
 function MailLine({ message }: { message: MailRow }) {
   return (
-    <div className="flex h-full flex-col justify-center border-b border-white/[0.06] pr-1">
-      <p className="truncate text-sm text-white/90">{message.subject || "(no subject)"}</p>
-      <p className="truncate text-[11px] text-white/40">
-        {message.fromAddress} · {formatWhen(message.receivedAt)}
-      </p>
+    <div className="flex h-full items-center gap-3 border-b border-white/[0.06] px-3">
+      <Mail aria-hidden="true" className="size-4 shrink-0 text-(--accent)" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-white/90">{message.subject || "(no subject)"}</p>
+        <p className="truncate text-[11px] text-white/40">{message.fromAddress}</p>
+      </div>
+      <time className="shrink-0 text-[11px] text-white/40" dateTime={message.receivedAt}>
+        {formatWhen(message.receivedAt)}
+      </time>
     </div>
   );
 }
 
 function EventLine({ event }: { event: EventRow }) {
   return (
-    <div className="flex h-full flex-col justify-center border-b border-white/[0.06] pr-1">
-      <p className="truncate text-sm text-white/90">{event.title}</p>
-      <p className="truncate text-[11px] text-white/40">
+    <div className="flex h-full items-center gap-3 border-b border-white/[0.06] px-3">
+      <CalendarDays aria-hidden="true" className="size-4 shrink-0 text-(--accent)" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-white/90">{event.title}</p>
+        <p className="truncate text-[11px] text-white/40">
+          {event.accountEmail || event.provider}
+        </p>
+      </div>
+      <time className="shrink-0 text-[11px] text-white/40" dateTime={event.startsAt}>
         {formatWhen(event.startsAt, event.allDay)}
-        {event.accountEmail ? ` · ${event.accountEmail}` : ""}
-      </p>
+      </time>
     </div>
   );
 }
@@ -755,7 +969,7 @@ export function InboxHomeActivity() {
   }
 
   return (
-    <div className="inbox-activity-sheet flex h-full min-h-0 flex-col">
+    <div className="inbox-activity-sheet flex h-full min-h-0 w-full flex-col">
       <InboxActivityPanel
         view={view}
         onViewChange={setView}

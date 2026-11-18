@@ -82,10 +82,40 @@ body {
 }
 
 .inbox-shell--pro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   background:
     radial-gradient(ellipse at 12% -10%, rgba(56, 189, 248, .1), transparent 42%),
     radial-gradient(ellipse at 88% 0%, rgba(245, 158, 11, .07), transparent 36%),
     #06090f;
+}
+
+.inbox-stage {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.inbox-stage > * {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.inbox-sidebar {
+  background: #070b12;
+  min-width: 0;
+  min-height: 0;
 }
 
 .thread-stage {
@@ -95,8 +125,61 @@ body {
     linear-gradient(180deg, #070b12 0%, #080d14 48%, #060910 100%);
 }
 
-.inbox-sidebar {
-  background: #070b12;
+.inbox-agenda-frame {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  container-type: inline-size;
+}
+
+.inbox-agenda-grid {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.inbox-agenda-card {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+@container (min-width: 720px) {
+  .inbox-agenda-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 959px) {
+  .inbox-shell--pro[data-pane="list"] .inbox-stage {
+    display: none;
+  }
+
+  .inbox-shell--pro[data-pane="detail"] .inbox-sidebar {
+    display: none;
+  }
+}
+
+@media (min-width: 960px) {
+  .inbox-shell--pro {
+    grid-template-columns: minmax(18rem, 22rem) minmax(0, 1fr);
+  }
+
+  .inbox-pane-back {
+    display: none;
+  }
 }
 
 .thread-scroll {
@@ -108,13 +191,114 @@ body {
   contain: layout style;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .inbox-activity-sheet {
-    animation: inbox-sheet-in 180ms ease-out;
-  }
+.inbox-letter-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding:
+    max(0.75rem, env(safe-area-inset-top))
+    0.75rem
+    max(0.75rem, env(safe-area-inset-bottom));
+  background: rgba(6, 10, 16, 0.72);
+}
 
-  .inbox-activity-compose {
-    animation: inbox-compose-in 180ms ease-out;
+.inbox-sheet-scrim {
+  background: rgba(6, 10, 16, 0.72);
+}
+
+.inbox-letter {
+  display: flex;
+  width: min(44rem, 100%);
+  max-height: min(90dvh, 48rem);
+  min-height: min(70dvh, 36rem);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(28, 25, 21, 0.12);
+  border-radius: 1.25rem;
+  background: #f6f1e7;
+  color: #1c1915;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+}
+
+.inbox-letter-field {
+  width: 100%;
+  border: 1px solid rgba(28, 25, 21, 0.16);
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.72);
+  color: inherit;
+  font: inherit;
+  font-size: 0.95rem;
+  outline: none;
+  padding: 0.7rem 0.85rem;
+}
+
+.inbox-letter-field:focus {
+  border-color: var(--accent);
+}
+
+.inbox-letter-body {
+  min-height: 11rem;
+  resize: vertical;
+}
+
+.inbox-letter-icon,
+.inbox-letter-quiet,
+.inbox-letter-primary,
+.inbox-letter-secondary {
+  font: inherit;
+}
+
+.inbox-letter-icon {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(28, 25, 21, 0.14);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+}
+
+.inbox-letter-quiet,
+.inbox-letter-secondary,
+.inbox-letter-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.inbox-letter-quiet,
+.inbox-letter-secondary {
+  border: 1px solid rgba(28, 25, 21, 0.16);
+  background: transparent;
+  color: inherit;
+}
+
+.inbox-letter-primary {
+  border: 0;
+  background: #1c1915;
+  color: #f6f1e7;
+}
+
+.inbox-letter-icon:focus-visible,
+.inbox-letter-quiet:focus-visible,
+.inbox-letter-primary:focus-visible,
+.inbox-letter-secondary:focus-visible,
+.inbox-letter-field:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .inbox-letter {
+    animation: inbox-letter-in 320ms cubic-bezier(.2, .8, .2, 1);
   }
 
   .inbox-send-success {
@@ -122,13 +306,8 @@ body {
   }
 }
 
-@keyframes inbox-sheet-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes inbox-compose-in {
-  from { opacity: 0; transform: translateY(8px); }
+@keyframes inbox-letter-in {
+  from { opacity: 0; transform: translateX(100vw); }
   to { opacity: 1; transform: none; }
 }
 
@@ -137,9 +316,62 @@ body {
   to { opacity: 1; transform: none; }
 }
 
-@media (max-width: 767px) {
-  .inbox-shell--pro {
-    grid-template-columns: minmax(0, 1fr) !important;
+:root[data-theme="light"] .inbox-shell--pro,
+:root[data-theme="light"] .thread-stage,
+:root[data-theme="light"] .inbox-sidebar {
+  background: #eef2f7;
+  color: #1d293b;
+}
+
+:root[data-theme="light"] .inbox-agenda-card {
+  border-color: rgba(37, 55, 81, 0.12);
+  background: #fff;
+}
+
+:root[data-theme="light"] .inbox-letter {
+  background: #fff;
+  color: #1d293b;
+  border-color: rgba(37, 55, 81, 0.14);
+}
+
+:root[data-theme="light"] .inbox-letter-stage,
+:root[data-theme="light"] .inbox-sheet-scrim {
+  background: rgba(29, 41, 59, 0.28);
+}
+
+:root[data-theme="light"] .inbox-letter-primary {
+  background: #1d293b;
+  color: #f8fafc;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .inbox-shell--pro,
+  :root:not([data-theme]) .thread-stage,
+  :root:not([data-theme]) .inbox-sidebar,
+  :root[data-theme="system"] .inbox-shell--pro,
+  :root[data-theme="system"] .thread-stage,
+  :root[data-theme="system"] .inbox-sidebar {
+    background: #eef2f7;
+    color: #1d293b;
+  }
+
+  :root:not([data-theme]) .inbox-agenda-card,
+  :root[data-theme="system"] .inbox-agenda-card {
+    border-color: rgba(37, 55, 81, 0.12);
+    background: #fff;
+  }
+
+  :root:not([data-theme]) .inbox-letter,
+  :root[data-theme="system"] .inbox-letter {
+    background: #fff;
+    color: #1d293b;
+  }
+
+  :root:not([data-theme]) .inbox-letter-stage,
+  :root:not([data-theme]) .inbox-sheet-scrim,
+  :root[data-theme="system"] .inbox-letter-stage,
+  :root[data-theme="system"] .inbox-sheet-scrim {
+    background: rgba(29, 41, 59, 0.28);
   }
 }
 

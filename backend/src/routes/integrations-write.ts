@@ -28,6 +28,7 @@ import { parseCalendarProvider } from "../integrations/calendar-providers.js";
 import {
   buildEmailDraftCreateRequest,
   buildEmailSendRequest,
+  emailWriteBodyLimit,
   parseEmailDraftWriteResult,
   parseEmailSendResult,
   validateEmailDraftWritePayload,
@@ -288,6 +289,7 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
   // —— Email draft (prefer draft; no silent send) ——
   app.post(
     "/integrations/email/:provider/drafts",
+    { bodyLimit: emailWriteBodyLimit },
     async (request, reply) => {
       const session = await requireUser(request, reply);
       if (!session) return;
@@ -373,6 +375,7 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
   // Approved send. Still requires the propose→approve payload; nothing here sends silently.
   app.post(
     "/integrations/email/:provider/send",
+    { bodyLimit: emailWriteBodyLimit },
     async (request, reply) => {
       const session = await requireUser(request, reply);
       if (!session) return;

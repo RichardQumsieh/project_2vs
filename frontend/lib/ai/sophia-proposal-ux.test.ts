@@ -114,5 +114,30 @@ describe("sophia-proposal-ux", () => {
         { label: "HTML body", value: "<strong>Body</strong>" },
       ]),
     );
+    const withFile = outboundPayloadFields({
+      type: "draft_email",
+      provider: "gmail",
+      to: ["a@example.com"],
+      subject: "Hi",
+      body: "Body",
+      delivery: "send",
+      attachments: [
+        {
+          filename: "notes.pdf",
+          contentType: "application/pdf",
+          size: 2048,
+          contentBase64: "QUJDRA==",
+        },
+      ],
+    });
+    expect(withFile).toEqual(
+      expect.arrayContaining([
+        {
+          label: "Attachments",
+          value: "notes.pdf · application/pdf · 2.0 KB",
+        },
+      ]),
+    );
+    expect(withFile.some((field) => field.value.includes("QUJDRA=="))).toBe(false);
   });
 });
