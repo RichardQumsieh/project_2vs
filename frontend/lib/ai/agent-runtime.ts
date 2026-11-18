@@ -87,6 +87,12 @@ export type AgentToolAction =
       description?: string;
     }
   | {
+      type: "delete_calendar_event";
+      provider: "google" | "outlook";
+      eventId: string;
+      title: string;
+    }
+  | {
       type: "create_github_issue";
       owner: string;
       repo: string;
@@ -185,6 +191,9 @@ export type AgentToolHandlers = {
   ) => void | Promise<void>;
   createCalendarEvent: (
     action: Extract<AgentToolAction, { type: "create_calendar_event" }>,
+  ) => void | Promise<void>;
+  deleteCalendarEvent: (
+    action: Extract<AgentToolAction, { type: "delete_calendar_event" }>,
   ) => void | Promise<void>;
   createGitHubIssue: (
     action: Extract<AgentToolAction, { type: "create_github_issue" }>,
@@ -287,6 +296,8 @@ export function agentActionSummary(action: AgentToolAction) {
     }
     case "create_calendar_event":
       return `Create ${action.provider} calendar event “${action.title}”`;
+    case "delete_calendar_event":
+      return `Remove ${action.provider} calendar event “${action.title}”`;
     case "create_github_issue":
       return `Create GitHub issue in ${action.owner}/${action.repo}`;
     case "create_linear_issue":
@@ -602,6 +613,22 @@ export function createAgentRuntime({
         }
         break;
       }
+      case "delete_calendar_event": {
+        if (
+          (action.provider !== "google" && action.provider !== "outlook") ||
+          typeof action.eventId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            action.eventId,
+          ) ||
+          typeof action.title !== "string" ||
+          !action.title.trim() ||
+          action.title.length > 200 ||
+          action.title.includes("\u0000")
+        ) {
+          throw new Error("The calendar removal is malformed.");
+        }
+        break;
+      }
       case "create_github_issue":
         if (
           typeof action.owner !== "string" ||
@@ -751,6 +778,9 @@ export function createAgentRuntime({
         break;
       case "create_calendar_event":
         await handlers.createCalendarEvent(action);
+        break;
+      case "delete_calendar_event":
+        await handlers.deleteCalendarEvent(action);
         break;
       case "create_github_issue":
         await handlers.createGitHubIssue(action);

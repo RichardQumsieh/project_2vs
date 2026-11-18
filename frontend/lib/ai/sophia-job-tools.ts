@@ -5,6 +5,7 @@ import type { RadarFinding, RadarStoreState, RadarTaskDraft } from "./radar-stor
 export const JOB_MANAGER_TOOLS = [
   "draft_email",
   "create_calendar_event",
+  "delete_calendar_event",
   "create_github_issue",
   "create_linear_issue",
   "post_slack_message",

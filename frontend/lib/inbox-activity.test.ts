@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { bytesToBase64 } from "./email-attachments";
 import {
   buildCalendarEventAction,
+  buildDeleteCalendarAction,
   buildEmailDraftAction,
+  buildMailReplySeed,
   localDayRange,
   sortRecentMail,
   toDatetimeLocalValue,
@@ -170,6 +172,72 @@ describe("inbox activity actions", () => {
         startsAt: "2026-11-18T16:00:00.000Z",
         endsAt: "2026-11-18T15:00:00.000Z",
         allDay: false,
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("prefills a reply to the sender with Re: and quoted context", () => {
+    const built = buildMailReplySeed({
+      messageId: "11111111-1111-4111-8111-111111111111",
+      provider: "gmail",
+      fromAddress: "Ada Lovelace <ada@example.com>",
+      subject: "Deck",
+      whenLabel: "Nov 18, 2026, 9:00 AM",
+      body: "Hello\nSee the deck",
+    });
+    expect(built.ok).toBe(true);
+    if (built.ok) {
+      expect(built.seed.to).toBe("ada@example.com");
+      expect(built.seed.subject).toBe("Re: Deck");
+      expect(built.seed.body).toBe(
+        "\n\nOn Nov 18, 2026, 9:00 AM, Ada Lovelace <ada@example.com> wrote:\n> Hello\n> See the deck",
+      );
+    }
+
+    const again = buildMailReplySeed({
+      messageId: "11111111-1111-4111-8111-111111111111",
+      provider: "outlook-mail",
+      fromAddress: "ada@example.com",
+      subject: "Re: Deck",
+      whenLabel: "Nov 18",
+      body: "ok",
+    });
+    expect(again.ok).toBe(true);
+    if (again.ok) {
+      expect(again.seed.subject).toBe("Re: Deck");
+    }
+    expect(
+      buildMailReplySeed({
+        messageId: "11111111-1111-4111-8111-111111111111",
+        provider: "gmail",
+        fromAddress: "Ada Lovelace",
+        subject: "Hi",
+        whenLabel: "Nov 18",
+        body: "x",
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("stages a calendar removal and refuses an id that is not ours", () => {
+    const built = buildDeleteCalendarAction({
+      provider: "google",
+      eventId: "11111111-1111-4111-8111-111111111111",
+      title: "Standup",
+    });
+    expect(built).toEqual({
+      ok: true,
+      action: {
+        type: "delete_calendar_event",
+        provider: "google",
+        eventId: "11111111-1111-4111-8111-111111111111",
+        title: "Standup",
+      },
+    });
+    expect(
+      buildDeleteCalendarAction({
+        provider: "outlook",
+        eventId: "not-a-mirror-id",
+        title: "Standup",
       }).ok,
     ).toBe(false);
   });

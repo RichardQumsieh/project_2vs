@@ -212,9 +212,13 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
   const activeConversationId = useParams<{ id?: string }>().id;
   const [homeView, setHomeView] = useState<InboxActivityView>("agenda");
   const [homeActivityOpen, setHomeActivityOpen] = useState(false);
+  const [composeRequest, setComposeRequest] = useState(0);
   const setHomeActivityView = useCallback((view: InboxActivityView) => {
     setHomeView(view);
     setHomeActivityOpen(true);
+    if (view === "email") {
+      setComposeRequest((current) => current + 1);
+    }
   }, []);
   const closeHomeActivity = useCallback(() => {
     setHomeActivityOpen(false);
@@ -493,6 +497,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
       setView={setHomeActivityView}
       mobileOpen={homeActivityOpen}
       closeMobile={closeHomeActivity}
+      composeRequest={composeRequest}
     >
     <main
       className="inbox-shell inbox-shell--pro"
@@ -2117,6 +2122,9 @@ function ThreadConversation({
             allDay: action.allDay,
             description: action.description,
           });
+        },
+        deleteCalendarEvent: async (action) => {
+          await api.deleteCalendarEvent(action.provider, action.eventId);
         },
         createGitHubIssue: async (action) => {
           await api.createGitHubIssue({

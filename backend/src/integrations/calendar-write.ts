@@ -130,6 +130,30 @@ export function buildCalendarUpdateRequest(
   };
 }
 
+export function buildCalendarDeleteRequest(
+  provider: CalendarProviderId,
+  calendarId: string,
+  externalEventId: string,
+) {
+  const id = encodeURIComponent(externalEventId);
+  if (provider === "google") {
+    const calendar = encodeURIComponent(calendarId || "primary");
+    return {
+      url: `https://www.googleapis.com/calendar/v3/calendars/${calendar}/events/${id}`,
+      method: "DELETE" as const,
+    };
+  }
+  return {
+    url: `https://graph.microsoft.com/v1.0/me/events/${id}`,
+    method: "DELETE" as const,
+  };
+}
+
+/** 204/200 removed it. 404/410 means it is already gone, so the mirror can drop it. */
+export function calendarDeleteAccepted(status: number) {
+  return status === 200 || status === 204 || status === 404 || status === 410;
+}
+
 export function parseCalendarWriteResult(
   provider: CalendarProviderId,
   payload: unknown,

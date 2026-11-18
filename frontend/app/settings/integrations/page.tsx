@@ -199,11 +199,11 @@ function IntegrationsSettingsInner() {
         <p className="font-medium text-white/85">Privacy bar</p>
         <p>
           {calendarStatus?.privacy.note ??
-            "Calendar and mail mirrors are owner-scoped. Chat E2EE is untouched. AI does not get these bodies by default."}
+            "Calendar mirrors store title and time. Opening an event fetches the rest with your token and does not store it. Chat E2EE is untouched."}
         </p>
         <p className="text-xs text-white/45">
           {emailStatus?.privacy.note ??
-            "Mail sync stores subject/from/snippet only. Reconnect after adding gmail.send and Mail.Send so approved mail can send."}
+            "Mail mirrors store subject, sender, and a short snippet. Opening a message fetches the body with your token and does not store it."}
         </p>
         <p className="text-xs text-white/45">
           {workStatus?.privacy.note ??

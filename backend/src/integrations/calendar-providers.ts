@@ -19,7 +19,7 @@ export const calendarProviders: Record<
     id: "google",
     prismaProvider: "GOOGLE_CALENDAR",
     label: "Google Calendar",
-    // calendar.events covers view + create/update/delete of events.
+    // calendar.events covers view + create/update/delete. No extra scope for removal.
     scopes: ["https://www.googleapis.com/auth/calendar.events"],
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
@@ -29,6 +29,7 @@ export const calendarProviders: Record<
     id: "outlook",
     prismaProvider: "OUTLOOK_CALENDAR",
     label: "Outlook Calendar",
+    // Calendars.ReadWrite covers view and delete. No extra scope for removal.
     scopes: ["offline_access", "Calendars.ReadWrite", "User.Read"],
     authorizeUrl:
       "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",

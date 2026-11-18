@@ -115,6 +115,7 @@ export function providerBadgeForAction(
         ? { id: "outlook-mail", label: "Outlook Mail", tone: "sky" }
         : { id: "gmail", label: "Gmail", tone: "rose" };
     case "create_calendar_event":
+    case "delete_calendar_event":
       return action.provider === "outlook"
         ? {
             id: "outlook-calendar",
@@ -196,6 +197,12 @@ export function outboundPayloadFields(
         ...(action.description
           ? [{ label: "Description", value: action.description }]
           : []),
+      ];
+    case "delete_calendar_event":
+      return [
+        { label: "Provider", value: action.provider },
+        { label: "Title", value: action.title },
+        { label: "Event", value: action.eventId },
       ];
     case "create_github_issue":
       return [
@@ -286,6 +293,8 @@ export function approveVerb(action: AgentToolAction): string {
         return "Approve post";
       case "create_calendar_event":
         return "Approve event";
+      case "delete_calendar_event":
+        return "Approve removal";
       case "create_github_issue":
       case "create_linear_issue":
         return "Approve issue";

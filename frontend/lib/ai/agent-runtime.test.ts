@@ -25,6 +25,7 @@ function mockHandlers(): AgentToolHandlers {
     snoozeReminder: vi.fn(),
     draftEmail: vi.fn().mockResolvedValue(undefined),
     createCalendarEvent: vi.fn().mockResolvedValue(undefined),
+    deleteCalendarEvent: vi.fn().mockResolvedValue(undefined),
     createGitHubIssue: vi.fn().mockResolvedValue(undefined),
     createLinearIssue: vi.fn().mockResolvedValue(undefined),
     postSlackMessage: vi.fn().mockResolvedValue(undefined),
@@ -334,6 +335,27 @@ describe("permissioned local agent runtime", () => {
     expect(handlers.createCalendarEvent).toHaveBeenCalledTimes(1);
     expect(handlers.createGitHubIssue).toHaveBeenCalledTimes(1);
     expect(handlers.draftEmail).not.toHaveBeenCalled();
+  });
+
+  it("removes a calendar event only after approval", async () => {
+    const { runtime, handlers } = setup();
+    const removal = runtime.propose({
+      type: "delete_calendar_event",
+      provider: "outlook",
+      eventId: "11111111-1111-4111-8111-111111111111",
+      title: "Standup",
+    });
+    expect(handlers.deleteCalendarEvent).not.toHaveBeenCalled();
+    await runtime.approve(removal.id);
+    expect(handlers.deleteCalendarEvent).toHaveBeenCalledTimes(1);
+    expect(() =>
+      runtime.propose({
+        type: "delete_calendar_event",
+        provider: "google",
+        eventId: "not-a-mirror",
+        title: "Standup",
+      }),
+    ).toThrow(/removal/i);
   });
 
   it("stages Linear, Slack, follow-up, and reschedule only after approval", async () => {
