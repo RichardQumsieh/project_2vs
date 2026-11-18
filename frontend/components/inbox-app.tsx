@@ -10,6 +10,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { logAccountActivity } from "@/lib/account-activity";
 import { api } from "@/lib/api";
 import {
   acknowledgeArchiveRecoveryCode,
@@ -2110,6 +2111,12 @@ function ThreadConversation({
           const payload = emailApiPayload(action);
           if (action.delivery === "send") {
             await api.sendEmail(action.provider, payload);
+            logAccountActivity({
+              action: "BUTTON_ACTION",
+              summary: "Approved email send",
+              subjectKind: "email",
+              subjectId: action.provider,
+            });
             return;
           }
           await api.createEmailDraft(action.provider, payload);
@@ -2125,6 +2132,12 @@ function ThreadConversation({
         },
         deleteCalendarEvent: async (action) => {
           await api.deleteCalendarEvent(action.provider, action.eventId);
+          logAccountActivity({
+            action: "BUTTON_ACTION",
+            summary: "Approved calendar delete",
+            subjectKind: "calendar",
+            subjectId: action.provider,
+          });
         },
         createGitHubIssue: async (action) => {
           await api.createGitHubIssue({

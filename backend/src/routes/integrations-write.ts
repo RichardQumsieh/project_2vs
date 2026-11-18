@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { tryRecordAccountActivity } from "../account-activity-store.js";
 import { requireUser } from "../auth.js";
 import { prisma } from "../db.js";
 import {
@@ -371,6 +372,15 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
         await prisma.calendarEventMirror.deleteMany({
           where: { id: event.id, ownerUserId: session.sub },
         });
+        await tryRecordAccountActivity({
+          ownerUserId: session.sub,
+          actorUserId: session.sub,
+          actorLabel: session.username,
+          action: "CALENDAR_DELETE_APPROVED",
+          summary: "Approved calendar delete",
+          subjectKind: "calendar",
+          subjectId: provider,
+        });
         return { ok: true };
       } catch (error) {
         const code =
@@ -545,6 +555,15 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
             code: `email_send_${result.status}`,
           });
         }
+        await tryRecordAccountActivity({
+          ownerUserId: session.sub,
+          actorUserId: session.sub,
+          actorLabel: session.username,
+          action: "EMAIL_SENT",
+          summary: "Approved email send",
+          subjectKind: "email",
+          subjectId: provider,
+        });
         return {
           ok: true,
           externalMessageId: parsedResult.externalMessageId,

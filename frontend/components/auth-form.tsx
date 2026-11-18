@@ -8,7 +8,13 @@ import { QRCodeSVG } from "qrcode.react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { z } from "zod";
 import { PasswordRules } from "@/components/password-rules";
+import { logAccountActivity } from "@/lib/account-activity";
 import { ApiError, api, type TotpSetup } from "@/lib/api";
+import {
+  CLOUD_SOPHIA_CONSENT_VERSION,
+  CLOUD_SOPHIA_PURPOSE,
+  signupCloudConsentBody,
+} from "@/lib/cloud-sophia";
 import { shouldAskForDriveRecovery } from "@/lib/auth-flow";
 import { decryptAccountArchiveDriveBackup } from "@/lib/crypto/account-archive";
 import {
@@ -129,7 +135,8 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
 
 function SignupForm() {
   const router = useRouter();
-  const [step, setStep] = useState<"profile" | "email" | "password" | "enroll" | "codes">("profile");
+  const [step, setStep] = useState<"profile" | "email" | "password" | "consent" | "enroll" | "codes">("profile");
+  const [cloudConsent, setCloudConsent] = useState(false);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -156,6 +163,14 @@ function SignupForm() {
         trustBrowser,
       });
       const device = await bootstrapDevice(password);
+      if (cloudConsent) {
+        logAccountActivity({
+          action: "SETTING_CHANGED",
+          summary: "Saved cloud Sophia consent at signup",
+          subjectKind: "consent",
+          subjectId: CLOUD_SOPHIA_CONSENT_VERSION,
+        });
+      }
       setRecoveryCodes(result.recoveryCodes);
       setArchiveRecoveryCode(device.archiveRecoveryCode ?? null);
       setVaultReady(true);
@@ -225,7 +240,7 @@ function SignupForm() {
     );
   }
 
-  if (step === "password") {
+  if (step === "consent") {
     return (
       <form
         className="auth-step space-y-5"
@@ -246,6 +261,7 @@ function SignupForm() {
             email: email.trim(),
             password,
             passwordConfirm,
+            ...signupCloudConsentBody(cloudConsent),
           }).then(
             (totpSetup) => {
               setSetup(totpSetup);
@@ -258,7 +274,55 @@ function SignupForm() {
         }}
       >
         <StepHeader
-          eyebrow="Step 3 of 3"
+          eyebrow="Step 4 of 4"
+          title="Cloud Sophia, only if you agree."
+          description="This step is separate from your password. The choice starts off. You can create the account either way and withdraw later in Settings."
+        />
+        <blockquote className="rounded-xl border border-(--line) bg-(--control-bg) p-4 text-sm leading-relaxed text-(--foreground)">
+          {CLOUD_SOPHIA_PURPOSE}
+        </blockquote>
+        <p className="text-xs text-(--muted)">
+          Version {CLOUD_SOPHIA_CONSENT_VERSION}. Checking this records your new account, the time, this purpose text, and that version. Leaving it off keeps Sophia on this device.
+        </p>
+        <label className="flex items-start gap-3 text-sm text-(--muted)">
+          <input
+            type="checkbox"
+            checked={cloudConsent}
+            onChange={(event) => setCloudConsent(event.target.checked)}
+            className="mt-1 accent-(--accent)"
+          />
+          I agree that Sophia may use a hosted model for this purpose.
+        </label>
+        <FormError message={error} />
+        <button type="submit" className={primaryButton} disabled={!passwordReady || submitting}>
+          {submitting ? "Working…" : "Continue to authenticator"}
+        </button>
+        <button type="button" className={secondaryButton} onClick={() => setStep("password")}>
+          Back
+        </button>
+      </form>
+    );
+  }
+
+  if (step === "password") {
+    return (
+      <form
+        className="auth-step space-y-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!passwordReady || submitting) return;
+          setError(null);
+          if (!cryptoSupported()) {
+            setError("This browser does not support the Web Crypto APIs required for E2EE.");
+            return;
+          }
+          const failure = passwordPolicyFailure(password, email);
+          if (failure || password !== passwordConfirm) return;
+          setStep("consent");
+        }}
+      >
+        <StepHeader
+          eyebrow="Step 3 of 4"
           title="Choose a password."
           description="These rules are checked as you type and again by the API."
         />
@@ -285,7 +349,7 @@ function SignupForm() {
         />
         <FormError message={error} />
         <button type="submit" className={primaryButton} disabled={!passwordReady || submitting}>
-          {submitting ? "Working…" : "Continue to authenticator"}
+          Continue
         </button>
         <button type="button" className={secondaryButton} onClick={() => setStep("email")}>
           Back
@@ -311,7 +375,7 @@ function SignupForm() {
         }}
       >
         <StepHeader
-          eyebrow="Step 2 of 3"
+          eyebrow="Step 2 of 4"
           title="Your email."
           description="Used for sign-in and password reset. The part before @ cannot appear in your password."
         />
@@ -355,7 +419,7 @@ function SignupForm() {
       }}
     >
       <StepHeader
-        eyebrow="Step 1 of 3"
+        eyebrow="Step 1 of 4"
         title="Create your account."
         description="Sophia lives in the messenger. Start with the name people will see."
       />

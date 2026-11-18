@@ -17,6 +17,11 @@ export default function SophiaSettingsPage() {
             automatic research still live in the conversation header so they stay tied to
             the active thread. Use this page for product orientation and studio assets.
           </p>
+          <p className="text-sm leading-relaxed text-white/55">
+            Cloud Sophia is a separate consent under Privacy. It stays off until you check it.
+            The hosted model does not receive decrypted private messages. Withdraw there to
+            stop cloud calls. Your account activity log is under Settings → Activity.
+          </p>
           <ul className="space-y-2 text-sm text-white/70">
             <li>• Presentations download as real <strong className="font-medium text-white">.pptx</strong> decks.</li>
             <li>• Compound voice commands stage approvals before any download, search, or draft.</li>
@@ -34,6 +39,12 @@ export default function SophiaSettingsPage() {
               className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80"
             >
               Open Sophia studio
+            </Link>
+            <Link
+              href="/settings/privacy"
+              className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80"
+            >
+              Cloud consent
             </Link>
           </div>
         </section>

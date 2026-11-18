@@ -55,6 +55,22 @@ enum IntegrationConnectionStatus {
   ERROR
 }
 
+/// Actions the account activity log can store. Only a subset is written today.
+/// MESSAGE_*, EMAIL_RECEIVED, and INTEGRATION_CONNECT are reserved and unused.
+enum AccountActivityAction {
+  LOGIN
+  CLOUD_CONSENT_GRANTED
+  CLOUD_CONSENT_WITHDRAWN
+  SETTING_CHANGED
+  EMAIL_SENT
+  EMAIL_RECEIVED
+  CALENDAR_DELETE_APPROVED
+  BUTTON_ACTION
+  MESSAGE_SENT
+  MESSAGE_RECEIVED
+  INTEGRATION_CONNECT
+}
+
 model User {
   id                 String    @id @default(uuid())
   username           String    @unique
@@ -86,6 +102,8 @@ model User {
   tasks                Task[]
   reminders            Reminder[]
   aiConsents           AiAuthorizationConsent[]
+  cloudSophiaConsents  CloudSophiaConsent[]
+  activityEvents       AccountActivityEvent[]
   integrations         IntegrationConnection[]
   calendarEvents       CalendarEventMirror[]
   mailMessages         MailMessageMirror[]
@@ -365,6 +383,41 @@ model Reminder {
 
   @@index([ownerUserId, remindAt])
   @@index([ownerUserId, status])
+}
+
+/// Explicit cloud-Sophia grant. Off until the person checks the purpose.
+/// Withdraw sets withdrawnAt; that clears the grant and stops cloud calls.
+/// The row stays so the person can see who agreed, when, the purpose, and the version.
+model CloudSophiaConsent {
+  id          String    @id @default(uuid())
+  userId      String
+  purposeText String
+  versionId   String
+  grantedAt   DateTime  @default(now())
+  withdrawnAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, grantedAt])
+  @@index([userId, withdrawnAt])
+}
+
+/// Append-only account activity the owner can read, export, or erase in full.
+/// No per-event update route. Summaries are short metadata, never bodies or tokens.
+model AccountActivityEvent {
+  id          String                @id @default(uuid())
+  ownerUserId String
+  actorUserId String
+  actorLabel  String
+  action      AccountActivityAction
+  summary     String
+  subjectKind String?
+  subjectId   String?
+  occurredAt  DateTime              @default(now())
+
+  owner User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId, occurredAt])
 }
 
 model AiAuthorizationConsent {

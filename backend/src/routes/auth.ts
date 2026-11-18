@@ -25,6 +25,7 @@ import {
   verifyTotpSetupToken,
 } from "../auth.js";
 import { env, gmailConfigured } from "../env.js";
+import { tryRecordAccountActivity } from "../account-activity-store.js";
 import { prisma } from "../db.js";
 import {
   confirmTotpSchema,
@@ -171,15 +172,40 @@ export async function authRoutes(app: FastifyInstance) {
 
       let user;
       try {
-        user = await prisma.user.create({
-          data: {
-            username,
-            email,
-            passwordHash: await argon2.hash(password, {
-              type: argon2.argon2id,
-            }),
-            displayName: displayName ?? username,
-          },
+        const passwordHash = await argon2.hash(password, {
+          type: argon2.argon2id,
+        });
+        user = await prisma.$transaction(async (tx) => {
+          const created = await tx.user.create({
+            data: {
+              username,
+              email,
+              passwordHash,
+              displayName: displayName ?? username,
+            },
+          });
+          const consent = parsed.data.cloudSophiaConsent;
+          if (consent) {
+            await tx.cloudSophiaConsent.create({
+              data: {
+                userId: created.id,
+                purposeText: consent.purposeText,
+                versionId: consent.versionId,
+              },
+            });
+            await tx.accountActivityEvent.create({
+              data: {
+                ownerUserId: created.id,
+                actorUserId: created.id,
+                actorLabel: created.username,
+                action: "CLOUD_CONSENT_GRANTED",
+                summary: "Granted cloud Sophia consent",
+                subjectKind: "consent",
+                subjectId: consent.versionId,
+              },
+            });
+          }
+          return created;
         });
       } catch (error) {
         if (
@@ -275,6 +301,13 @@ export async function authRoutes(app: FastifyInstance) {
           });
           setSessionCookie(reply, token);
           reply.header("Cache-Control", "no-store");
+          await tryRecordAccountActivity({
+            ownerUserId: user.id,
+            actorUserId: user.id,
+            actorLabel: user.username,
+            action: "LOGIN",
+            summary: "Signed in",
+          });
           return {
             setupRequired: false,
             user: publicUser(user),
@@ -337,6 +370,13 @@ export async function authRoutes(app: FastifyInstance) {
       });
       setSessionCookie(reply, token);
       reply.header("Cache-Control", "no-store");
+      await tryRecordAccountActivity({
+        ownerUserId: user.id,
+        actorUserId: user.id,
+        actorLabel: user.username,
+        action: "LOGIN",
+        summary: "Signed in",
+      });
       return {
         setupRequired: false,
         user: publicUser(user),
@@ -461,6 +501,13 @@ export async function authRoutes(app: FastifyInstance) {
       });
       setSessionCookie(reply, token);
       reply.header("Cache-Control", "no-store");
+      await tryRecordAccountActivity({
+        ownerUserId: user.id,
+        actorUserId: user.id,
+        actorLabel: user.username,
+        action: "LOGIN",
+        summary: "Signed in",
+      });
 
       return {
         user: publicUser({

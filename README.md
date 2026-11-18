@@ -141,6 +141,20 @@ The companion can optionally perform automatic research for eligible standalone 
 
 This feature requires a server-side `BRAVE_SEARCH_API_KEY`; keep it in the backend environment, never in frontend settings or source control. For manual backend startup put it in `backend/.env`; Docker Compose also loads this file into the backend container when it exists. Recreate the backend container after changing the file so it receives the updated environment. Without a key, the endpoint responds that online research is not configured. The query passes through the app backend and Brave Search, as disclosed by the opt-in control. The app's route does not persist the query or log request bodies, but hosting/network infrastructure may have its own access logs. No chat context, companion dialogue, identity, or recipient is sent as part of the search request. Search requests are authenticated and rate-limited. Only result snippets are summarized: full pages are not fetched, source quality is not ranked, and scientific/medical evidence is not specially validated. The earlier explicit DuckDuckGo hand-off also remains available.
 
+### Cloud Sophia
+
+Cloud Sophia stays on the on-device path until a person checks a separate signup consent screen, or the same consent later under Settings → Privacy. The checkbox starts unchecked. A grant stores the account, the time, the purpose text, and version `cloud-sophia-v1`. Withdraw in Settings clears that grant and the API stops calling the hosted model.
+
+Set these in the **repo-root** `.env` that production Compose interpolates. For `npm run dev` in `backend/`, put them in `backend/.env`. Do not put the key in frontend settings or source control. If the key or base URL is unset, `POST /sophia/cloud/complete` returns 503 and does not invent a reply.
+
+- `SOPHIA_MODEL_API_KEY`
+- `SOPHIA_MODEL_BASE_URL` (HTTPS, for example `https://api.x.ai/v1`)
+- `SOPHIA_MODEL_NAME` (optional; defaults to `grok-4`)
+
+The adapter does not send a training opt-in, and it does not write prompt bodies to application logs. Connected mail, calendar, GitHub, and Linear metadata the person already linked can be included only while consent is on. Decrypted private messages are not sent. This product has no per-thread or per-send authorization that would allow that, and this slice does not decrypt chat for the model.
+
+Settings → Activity records sign-in, this consent, settings changes from these controls, approved email sends, and approved calendar deletes. It does not record every button, message bodies, or tokens. The account owner can export JSON or delete the whole log. Individual rows are not editable.
+
 ### URL reputation checks
 
 Message URLs and media captions containing URLs are checked before encryption and sending, and again on each recipient device before the app offers an **Open checked link** action. Checks use Google Safe Browsing through the authenticated backend endpoint. To enable them, create a Google Safe Browsing API key, restrict it to the Safe Browsing API, and set `SAFE_BROWSING_API_KEY` only in the backend environment (or in the production Compose environment). Do not expose the key to frontend settings or source control. Without a key, or when the provider is unavailable, URL-bearing messages cannot be sent and recipient links remain non-clickable; ordinary messages without URLs continue to work.

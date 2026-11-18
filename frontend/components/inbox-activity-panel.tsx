@@ -20,6 +20,7 @@ import {
   SophiaApproveSuccess,
   SophiaProposalCard,
 } from "@/components/sophia-proposal-card";
+import { logAccountActivity } from "@/lib/account-activity";
 import { api } from "@/lib/api";
 import {
   agentActionSummary,
@@ -1307,6 +1308,12 @@ export function InboxHomeActivity() {
           const payload = emailApiPayload(action);
           if (action.delivery === "send") {
             await api.sendEmail(action.provider, payload);
+            logAccountActivity({
+              action: "BUTTON_ACTION",
+              summary: "Approved email send",
+              subjectKind: "email",
+              subjectId: action.provider,
+            });
           } else {
             await api.createEmailDraft(action.provider, payload);
           }
@@ -1324,6 +1331,12 @@ export function InboxHomeActivity() {
         },
         deleteCalendarEvent: async (action) => {
           await api.deleteCalendarEvent(action.provider, action.eventId);
+          logAccountActivity({
+            action: "BUTTON_ACTION",
+            summary: "Approved calendar delete",
+            subjectKind: "calendar",
+            subjectId: action.provider,
+          });
           await queryClient.invalidateQueries({ queryKey: ["inbox-events"] });
         },
         createGitHubIssue: unsupportedAction,
