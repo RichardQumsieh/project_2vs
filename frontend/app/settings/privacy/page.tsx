@@ -1,32 +1,37 @@
+import { CloudSophiaSettings } from "@/components/cloud-sophia-settings";
 import { ProductShell } from "@/components/product-shell";
 
 export default function PrivacySettingsPage() {
   return (
     <ProductShell
       title="Privacy"
-      subtitle="Defaults that keep decrypted chat, Sophia prompts, and personal notes on this device."
+      subtitle="Cloud Sophia is off until you agree. Private messages stay on this device."
     >
-      <div className="space-y-4 rounded-3xl border border-white/10 bg-white/[0.035] p-5 text-sm leading-relaxed text-white/65 sm:p-6">
+      <div className="mb-4 space-y-4 rounded-3xl border border-white/10 bg-white/[0.035] p-5 text-sm leading-relaxed text-white/65 sm:p-6">
         <p>
-          Message plaintext, companion dialogue, and personal memory never leave this browser for
-          AI inference. Optional automatic research sends only a standalone question through the
-          app backend to Brave Search after you opt in.
+          Private messages stay end-to-end encrypted. This version does not send decrypted
+          private-message text to a hosted model. There is no per-thread or per-send
+          authorization for that, so Sophia does not decrypt chat in order to call the cloud.
         </p>
         <p>
-          Document downloads (including PPTX) are generated locally. Approvals are required before
-          Sophia opens search, stores a note, fills the composer, or downloads a file.
+          Companion dialogue and personal notes stay in this browser. Optional automatic
+          research still sends only a standalone question through the app backend to Brave
+          Search after you opt in. Document downloads are generated locally.
         </p>
         <p>
-          Calendar OAuth (Settings → Integrations) stores encrypted refresh tokens and
-          owner-scoped event title/time mirrors only. Connecting a calendar does not
-          authorize Sophia to use those events for AI; that requires a separate explicit
-          consent later. Chat E2EE is unchanged.
+          Connecting mail, calendar, GitHub, or Linear does not by itself let Sophia read
+          that data for a model. Cloud consent is a separate checkbox. While it is on, a
+          cloud question can include metadata from those connections you already linked:
+          calendar title and time, mail subject, sender, and a short preview, and GitHub or
+          Linear title and state. Full mail bodies are not fetched for the model. Tokens
+          are not sent. Withdraw clears the grant and stops those calls.
         </p>
         <p className="text-white/45">
-          Future audience analytics and subscription metrics will stay aggregated and
-          non-message-bearing; this page is the home for those disclosures as they ship.
+          Settings → Activity lists the events this slice actually records. It is not a log
+          of every button.
         </p>
       </div>
+      <CloudSophiaSettings />
     </ProductShell>
   );
 }

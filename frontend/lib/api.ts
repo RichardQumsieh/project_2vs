@@ -105,6 +105,25 @@ export type PublicUser = {
   avatarUrl: string | null;
 };
 
+export type AccountActivityEvent = {
+  id: string;
+  actorUserId: string;
+  actor: string;
+  occurredAt: string;
+  action: string;
+  summary: string;
+  subjectKind: string | null;
+  subjectId: string | null;
+};
+
+export type AccountActivityExport = {
+  version: 1;
+  exportedAt: string;
+  ownerUserId: string;
+  truncated: boolean;
+  events: AccountActivityEvent[];
+};
+
 export type RecommendedUser = PublicUser & {
   interests: string[];
   sharedInterestCount: number;
@@ -157,6 +176,11 @@ export const api = {
     password: string;
     passwordConfirm: string;
     displayName?: string;
+    cloudSophiaConsent?: {
+      accepted: true;
+      purposeText: string;
+      versionId: string;
+    };
   }) =>
     request<TotpSetup>(
       "/auth/register",
@@ -1115,6 +1139,77 @@ export const api = {
   disconnectCollab: (provider: "slack") =>
     request<{ ok: true }>(`/integrations/collab/${provider}`, {
       method: "DELETE",
+    }),
+
+  cloudSophiaConsent: () =>
+    request<{
+      active: boolean;
+      purposeText: string;
+      versionId: string;
+      consent: {
+        id: string;
+        purposeText: string;
+        versionId: string;
+        grantedAt: string;
+        withdrawnAt: string | null;
+      } | null;
+    }>("/sophia/cloud/consent"),
+
+  grantCloudSophiaConsent: (body: {
+    accepted: true;
+    purposeText: string;
+    versionId: string;
+  }) =>
+    request<{
+      consent: {
+        id: string;
+        purposeText: string;
+        versionId: string;
+        grantedAt: string;
+        withdrawnAt: string | null;
+      };
+    }>("/sophia/cloud/consent", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  withdrawCloudSophiaConsent: () =>
+    request<{ ok: true; withdrawn: boolean }>("/sophia/cloud/consent/withdraw", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  completeCloudSophia: (body: { prompt: string }) =>
+    request<{ reply: string }>("/sophia/cloud/complete", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  listActivity: () =>
+    request<{
+      events: AccountActivityEvent[];
+      truncated: boolean;
+      recorded: string[];
+      notRecorded: string[];
+    }>("/account/activity"),
+
+  exportActivity: () =>
+    request<AccountActivityExport>("/account/activity/export"),
+
+  deleteActivity: () =>
+    request<{ ok: true; deleted: number }>("/account/activity", {
+      method: "DELETE",
+    }),
+
+  recordActivity: (body: {
+    action: "SETTING_CHANGED" | "BUTTON_ACTION";
+    summary: string;
+    subjectKind?: "setting" | "consent" | "email" | "calendar" | "button";
+    subjectId?: string;
+  }) =>
+    request<{ event: AccountActivityEvent }>("/account/activity", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 
   listCollabChannels: () =>

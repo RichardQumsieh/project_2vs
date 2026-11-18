@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  CLOUD_SOPHIA_CONSENT_VERSION,
+  CLOUD_SOPHIA_PURPOSE,
+} from "./cloud-sophia-policy.js";
 import { passwordPolicyFailure } from "./password-policy.js";
 
 export const registerSchema = z.object({
@@ -13,6 +17,11 @@ export const registerSchema = z.object({
   password: z.string().max(128),
   passwordConfirm: z.string().min(1),
   displayName: z.string().trim().min(1).max(80).optional(),
+  cloudSophiaConsent: z.object({
+    accepted: z.literal(true),
+    purposeText: z.literal(CLOUD_SOPHIA_PURPOSE),
+    versionId: z.literal(CLOUD_SOPHIA_CONSENT_VERSION),
+  }).strict().optional(),
 }).refine(
   ({ password, passwordConfirm }) =>
     password === passwordConfirm,
@@ -400,6 +409,19 @@ export const updateReminderSchema = z.object({
   (value) => value.remindAt !== undefined || value.status !== undefined,
   "At least one field is required",
 );
+
+export const cloudSophiaConsentSchema = z.object({
+  accepted: z.literal(true),
+  purposeText: z.literal(CLOUD_SOPHIA_PURPOSE),
+  versionId: z.literal(CLOUD_SOPHIA_CONSENT_VERSION),
+}).strict();
+
+export const recordActivitySchema = z.object({
+  action: z.enum(["SETTING_CHANGED", "BUTTON_ACTION"]),
+  summary: z.string().trim().min(1).max(160),
+  subjectKind: z.enum(["setting", "consent", "email", "calendar", "button"]).optional(),
+  subjectId: z.string().trim().min(1).max(80).optional(),
+}).strict();
 
 export const createAiConsentSchema = z.object({
   scope: z.enum(["CLOUD_AI", "CONVERSATION_ANALYSIS"]),

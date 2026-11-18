@@ -5,7 +5,7 @@ export default function SettingsPage() {
   return (
     <ProductShell
       title="Settings"
-      subtitle="Appearance, encrypted backup, privacy, Sophia, devices, and future subscription tiers."
+      subtitle="Appearance, encrypted backup, privacy, activity, Sophia, devices, and future subscription tiers."
     >
       <SettingsPreferences />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -22,7 +22,12 @@ export default function SettingsPage() {
         <ModuleCard
           href="/settings/privacy"
           title="Privacy"
-          body="What stays on-device, research disclosures, and memory retention."
+          body="Cloud Sophia consent, what stays on-device, and how to withdraw."
+        />
+        <ModuleCard
+          href="/settings/activity"
+          title="Activity"
+          body="Sign-ins, consent, settings changes, and approved mail or calendar actions you can export or delete."
         />
         <ModuleCard
           href="/settings/security"

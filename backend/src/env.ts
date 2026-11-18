@@ -45,6 +45,13 @@ const envSchema = z.object({
     .default("false")
     .transform((value) => value === "true"),
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
+  /** Hosted Sophia model. Both key and HTTPS base URL are required before any call. */
+  SOPHIA_MODEL_API_KEY: optionalEnvironmentValue,
+  SOPHIA_MODEL_BASE_URL: z.preprocess(
+    (value) => value === "" ? undefined : value,
+    z.string().url().optional(),
+  ),
+  SOPHIA_MODEL_NAME: optionalEnvironmentValue,
   SAFE_BROWSING_API_KEY: optionalEnvironmentValue,
   TURN_URLS: optionalEnvironmentValue,
   TURN_SHARED_SECRET: z.preprocess(
@@ -201,6 +208,17 @@ const envSchema = z.object({
         "Set both SLACK_OAUTH_CLIENT_ID and SLACK_OAUTH_CLIENT_SECRET, or leave both empty",
       path: ["SLACK_OAUTH_CLIENT_ID"],
     });
+  }
+
+  if (values.SOPHIA_MODEL_BASE_URL) {
+    const base = new URL(values.SOPHIA_MODEL_BASE_URL);
+    if (base.protocol !== "https:" || base.username || base.password) {
+      context.addIssue({
+        code: "custom",
+        message: "SOPHIA_MODEL_BASE_URL must be an https URL without credentials",
+        path: ["SOPHIA_MODEL_BASE_URL"],
+      });
+    }
   }
 
   if (
