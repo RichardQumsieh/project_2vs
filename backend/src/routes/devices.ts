@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { timingSafeEqual } from "node:crypto";
+import { archiveRecoveryHashMatches } from "../archive-recovery.js";
 import { prisma } from "../db.js";
 import { requireUser } from "../auth.js";
 import {
@@ -96,12 +96,7 @@ export async function deviceRoutes(app: FastifyInstance) {
     });
     if (!existing) return reply.code(404).send({ error: "Account archive key not found." });
 
-    const suppliedHash = Buffer.from(parsed.data.recoveryCodeHash, "base64");
-    const savedHash = Buffer.from(existing.recoveryCodeHash, "base64");
-    if (
-      suppliedHash.length !== savedHash.length ||
-      !timingSafeEqual(suppliedHash, savedHash)
-    ) {
+    if (!archiveRecoveryHashMatches(existing.recoveryCodeHash, parsed.data.recoveryCodeHash)) {
       return reply.code(403).send({ error: "Invalid account history recovery code." });
     }
 

@@ -20,6 +20,9 @@ jobs:
       - name: Unit tests
         working-directory: frontend
         run: npm test
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc --noEmit
       - name: Assistant eval without a paid API key
         working-directory: frontend
         run: npm run eval:assistant -- --mode=mock
@@ -44,6 +47,12 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npx prisma generate
       - name: Backend tests
         working-directory: backend
         run: npm test
+      - name: Backend typecheck
+        working-directory: backend
+        run: npx tsc --noEmit

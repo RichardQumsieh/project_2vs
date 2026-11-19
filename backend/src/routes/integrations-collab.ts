@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { requireUser } from "../auth.js";
 import { prisma } from "../db.js";
-import { env, integrationsWriteEnabled, slackOAuthConfigured } from "../env.js";
+import { env, slackOAuthConfigured } from "../env.js";
+import { sessionWritesEnabled } from "../integrations/write-audience.js";
 import {
   SLACK_CONVERSATIONS_LIST_URL,
   collabProviders,
@@ -206,7 +207,7 @@ export async function integrationCollabRoutes(app: FastifyInstance) {
           requiredWriteScopes: [...writeRequiredScopes.slack],
         },
       },
-      writesEnabled: integrationsWriteEnabled,
+      writesEnabled: await sessionWritesEnabled(session),
       privacy: {
         storesChatPlaintext: false,
         storesMessageHistory: false,

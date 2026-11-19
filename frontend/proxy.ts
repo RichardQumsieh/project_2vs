@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { createContentSecurityPolicy } from "./lib/security-policy";
+import { createContentSecurityPolicy, frontendDocumentSecurityHeaders } from "./lib/security-policy";
 
 export function proxy(request: NextRequest) {
   const nonce = randomBytes(16).toString("base64");
@@ -16,14 +16,9 @@ export function proxy(request: NextRequest) {
     request: { headers: requestHeaders },
   });
   response.headers.set("Content-Security-Policy", contentSecurityPolicy);
-  response.headers.set("X-Content-Type-Options", "nosniff");
-  response.headers.set("X-Frame-Options", "DENY");
-  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  response.headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
-  response.headers.set(
-    "Permissions-Policy",
-    "camera=(self), microphone=(self), geolocation=(self)",
-  );
+  for (const [name, value] of Object.entries(frontendDocumentSecurityHeaders(request.nextUrl.protocol))) {
+    response.headers.set(name, value);
+  }
   return response;
 }
 

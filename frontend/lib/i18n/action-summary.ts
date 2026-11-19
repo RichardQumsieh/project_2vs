@@ -178,3 +178,15 @@ export function localizedActionSummary(action: AgentToolAction, t: Translate): s
       return t("summary.generic");
   }
 }
+
+const runtimeErrorKeys: Record<string, MessageKey> = {
+  "Email changes run only after explicit approval.": "approval.emailGate",
+  "Calendar deletes run only after explicit approval.": "approval.calendarDeleteGate",
+  "Calendar reschedules run only after explicit approval.": "approval.calendarRescheduleGate",
+  "The approved action could not be completed.": "approval.failed",
+};
+
+export function localizedRuntimeMessage(message: string, t: Translate): string {
+  const key = runtimeErrorKeys[message];
+  return key ? t(key) : message;
+}

@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { prisma } from "./db.js";
 import { env } from "./env.js";
+import { authCookieOptions } from "./security-config.js";
 
 const secret = new TextEncoder().encode(env.JWT_SECRET);
 const issuer = "private-messenger";
@@ -97,16 +98,11 @@ export async function verifyTotpSetupToken(token: string) {
  * is missing the SameSite=None change (rebuild backend image from main).
  */
 export function authCookieSameSite(): "none" | "lax" {
-  return env.COOKIE_SECURE ? "none" : "lax";
+  return authCookieOptions(env.COOKIE_SECURE).sameSite;
 }
 
 export function authCookieBase() {
-  return {
-    httpOnly: true as const,
-    sameSite: authCookieSameSite(),
-    secure: env.COOKIE_SECURE,
-    path: "/",
-  };
+  return authCookieOptions(env.COOKIE_SECURE);
 }
 
 export function setSessionCookie(reply: FastifyReply, token: string) {
@@ -117,11 +113,7 @@ export function setSessionCookie(reply: FastifyReply, token: string) {
 }
 
 export function clearSessionCookie(reply: FastifyReply) {
-  reply.clearCookie(env.COOKIE_NAME, {
-    path: "/",
-    secure: env.COOKIE_SECURE,
-    sameSite: authCookieSameSite(),
-  });
+  reply.clearCookie(env.COOKIE_NAME, authCookieBase());
 }
 
 export async function getSession(request: FastifyRequest) {

@@ -1,44 +1,26 @@
 import type { FastifyInstance } from "fastify";
-import { tryRecordAccountActivity } from "../account-activity-store.js";
 import { requireUser } from "../auth.js";
 import { prisma } from "../db.js";
 import {
   googleCalendarOAuthConfigured,
-  gmailOAuthConfigured,
   githubOAuthConfigured,
-  integrationsWriteEnabled,
+  integrationsWriteAllowlist,
   linearOAuthConfigured,
   microsoftCalendarOAuthConfigured,
-  microsoftMailOAuthConfigured,
   slackOAuthConfigured,
 } from "../env.js";
 import {
-  providerDelete,
   providerFetch,
   resolveCalendarAccessToken,
   resolveCollabAccessToken,
-  resolveEmailAccessToken,
   resolveWorkAccessToken,
 } from "../integrations/access-token.js";
 import {
   buildCalendarCreateRequest,
-  buildCalendarDeleteRequest,
-  buildCalendarUpdateRequest,
-  calendarDeleteAccepted,
   parseCalendarWriteResult,
   validateCalendarEventWritePayload,
 } from "../integrations/calendar-write.js";
-import { isMirrorId } from "../integrations/read-gate.js";
 import { parseCalendarProvider } from "../integrations/calendar-providers.js";
-import {
-  buildEmailDraftCreateRequest,
-  buildEmailSendRequest,
-  emailWriteBodyLimit,
-  parseEmailDraftWriteResult,
-  parseEmailSendResult,
-  validateEmailDraftWritePayload,
-} from "../integrations/email-write.js";
-import { parseEmailProvider } from "../integrations/email-providers.js";
 import {
   buildGitHubCommentCreateRequest,
   buildGitHubIssueCreateRequest,
@@ -59,8 +41,12 @@ import {
   parseSlackMessageWriteResult,
   validateSlackMessageWritePayload,
 } from "../integrations/collab-write.js";
-import { gateIntegrationWrite } from "../integrations/write-gate.js";
+import { gateWriteForSession, sessionWritesEnabled } from "../integrations/write-audience.js";
 import { writeRequiredScopes } from "../integrations/write-scopes.js";
+import {
+  mailCalendarApprovalRoutes,
+  refuseUnapprovedMailCalendarWrite,
+} from "./mail-calendar-approval.js";
 
 function opaqueWriteLog(
   request: { log: { info: (obj: object, msg?: string) => void } },
@@ -87,19 +73,30 @@ function opaqueWriteLog(
 
 /**
  * Phase 4.2 owner-scoped write APIs.
- * Accept already-approved structured payloads only (agent propose loop is P4.3).
+ * Mail and calendar sends, drafts, reschedules, and deletes do not run here.
+ * Those require POST /integrations/writes/proposals and then .../approve.
  * Never accept chat ciphertext. Logs opaque ids + status only.
  */
 export async function integrationWriteRoutes(app: FastifyInstance) {
+  await mailCalendarApprovalRoutes(app);
+
   app.get("/integrations/writes/status", async (request, reply) => {
     const session = await requireUser(request, reply);
     if (!session) return;
     reply.header("Cache-Control", "no-store");
+    const writesEnabled = await sessionWritesEnabled(session);
     return {
-      writesEnabled: integrationsWriteEnabled,
-      note: integrationsWriteEnabled
-        ? "Write APIs accept user-approved structured payloads only. No silent sends."
-        : "Write APIs are feature-flagged off (INTEGRATIONS_WRITE_ENABLED). Reconnect after upgrading provider consoles, then enable the flag.",
+      writesEnabled,
+      allowlistActive: integrationsWriteAllowlist.length > 0,
+      approvalRequired: [
+        "send_email",
+        "save_draft",
+        "reschedule_event",
+        "delete_event",
+      ],
+      note: writesEnabled
+        ? "Mail and calendar changes run only after you approve a proposal. Approving the same proposal twice does not send twice."
+        : "Write APIs are off for this account. INTEGRATIONS_WRITE_ENABLED defaults to false, and a dogfood allowlist can limit them to one user.",
       requiredWriteScopes: writeRequiredScopes,
     };
   });
@@ -140,10 +137,9 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
           },
         },
       });
-      const gate = gateIntegrationWrite({
+      const gate = await gateWriteForSession({
+        session,
         ownerUserId: connection?.ownerUserId,
-        sessionUserId: session.sub,
-        writesEnabled: integrationsWriteEnabled,
         status: connection?.status,
         grantedScopes: connection?.scopes ?? [],
         requiredWriteScopes:
@@ -199,382 +195,28 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
 
   app.patch(
     "/integrations/calendar/:provider/events/:externalEventId",
-    async (request, reply) => {
-      const session = await requireUser(request, reply);
-      if (!session) return;
-
-      const params = request.params as {
-        provider: string;
-        externalEventId: string;
-      };
-      const provider = parseCalendarProvider(params.provider);
-      if (!provider) {
-        return reply.code(404).send({ error: "Unknown calendar provider" });
-      }
-      if (!params.externalEventId || params.externalEventId.length > 200) {
-        return reply.code(400).send({ error: "Invalid externalEventId" });
-      }
-
-      const parsed = validateCalendarEventWritePayload(request.body);
-      if (!parsed.ok) {
-        return reply.code(400).send({ error: parsed.error });
-      }
-
-      const prismaProvider =
-        provider === "google" ? "GOOGLE_CALENDAR" : "OUTLOOK_CALENDAR";
-      const connection = await prisma.integrationConnection.findUnique({
-        where: {
-          ownerUserId_provider: {
-            ownerUserId: session.sub,
-            provider: prismaProvider,
-          },
-        },
-      });
-      const gate = gateIntegrationWrite({
-        ownerUserId: connection?.ownerUserId,
-        sessionUserId: session.sub,
-        writesEnabled: integrationsWriteEnabled,
-        status: connection?.status,
-        grantedScopes: connection?.scopes ?? [],
-        requiredWriteScopes:
-          provider === "google"
-            ? writeRequiredScopes.googleCalendar
-            : writeRequiredScopes.outlookCalendar,
-      });
-      if (!gate.ok) {
-        return reply.code(gate.status).send({
-          error: gate.error,
-          code: gate.code,
-          missingScopes: gate.missingScopes,
-        });
-      }
-
-      try {
-        const accessToken = await resolveCalendarAccessToken(
-          provider,
-          connection!,
-        );
-        const req = buildCalendarUpdateRequest(
-          provider,
-          params.externalEventId,
-          parsed.payload,
-        );
-        const result = await providerFetch(req.url, {
-          method: req.method,
-          accessToken,
-          body: req.body,
-        });
-        const parsedResult = parseCalendarWriteResult(provider, result.json);
-        opaqueWriteLog(request, {
-          family: "calendar",
-          provider,
-          connectionId: connection!.id,
-          status: result.status,
-          externalId: parsedResult?.externalEventId ?? params.externalEventId,
-        });
-        if (!result.ok || !parsedResult) {
-          return reply.code(502).send({
-            error: "Calendar update failed",
-            code: `calendar_write_${result.status}`,
-          });
-        }
-        return {
-          ok: true,
-          externalEventId: parsedResult.externalEventId,
-          htmlLink: parsedResult.htmlLink,
-        };
-      } catch (error) {
-        const code =
-          error instanceof Error ? error.message.slice(0, 64) : "write_failed";
-        return reply.code(502).send({ error: "Calendar update failed", code });
-      }
-    },
+    async (request, reply) =>
+      refuseUnapprovedMailCalendarWrite(request, reply),
   );
 
-  // Approved delete. eventId is the owner-scoped mirror id, not a provider id.
   app.delete(
     "/integrations/calendar/:provider/events/:eventId",
-    async (request, reply) => {
-      const session = await requireUser(request, reply);
-      if (!session) return;
-
-      const params = request.params as { provider: string; eventId: string };
-      const provider = parseCalendarProvider(params.provider);
-      if (!provider) {
-        return reply.code(404).send({ error: "Unknown calendar provider" });
-      }
-      if (!isMirrorId(params.eventId)) {
-        return reply.code(404).send({ error: "Not found" });
-      }
-      const configured =
-        provider === "google"
-          ? googleCalendarOAuthConfigured
-          : microsoftCalendarOAuthConfigured;
-      if (!configured) {
-        return reply.code(503).send({ error: "Calendar OAuth is not configured" });
-      }
-
-      const prismaProvider =
-        provider === "google" ? "GOOGLE_CALENDAR" : "OUTLOOK_CALENDAR";
-      const event = await prisma.calendarEventMirror.findFirst({
-        where: {
-          id: params.eventId,
-          ownerUserId: session.sub,
-          connection: { provider: prismaProvider },
-        },
-        include: { connection: true },
-      });
-      const gate = gateIntegrationWrite({
-        ownerUserId: event?.ownerUserId,
-        sessionUserId: session.sub,
-        writesEnabled: integrationsWriteEnabled,
-        status: event?.connection.status,
-        grantedScopes: event?.connection.scopes ?? [],
-        requiredWriteScopes:
-          provider === "google"
-            ? writeRequiredScopes.googleCalendar
-            : writeRequiredScopes.outlookCalendar,
-      });
-      if (!event || !gate.ok) {
-        const failure = !gate.ok ? gate : null;
-        return reply.code(failure && event ? failure.status : 404).send({
-          error: failure && event ? failure.error : "Not found",
-          ...(failure && event
-            ? { code: failure.code, missingScopes: failure.missingScopes }
-            : { code: "not_found" }),
-        });
-      }
-
-      try {
-        const accessToken = await resolveCalendarAccessToken(
-          provider,
-          event.connection,
-        );
-        const req = buildCalendarDeleteRequest(
-          provider,
-          event.calendarId,
-          event.externalEventId,
-        );
-        const result = await providerDelete(req.url, accessToken);
-        opaqueWriteLog(request, {
-          family: "calendar",
-          provider,
-          connectionId: event.connection.id,
-          status: result.status,
-          externalId: event.externalEventId,
-        });
-        if (!calendarDeleteAccepted(result.status)) {
-          return reply.code(502).send({
-            error: "Calendar delete failed",
-            code: `calendar_delete_${result.status}`,
-          });
-        }
-        await prisma.calendarEventMirror.deleteMany({
-          where: { id: event.id, ownerUserId: session.sub },
-        });
-        await tryRecordAccountActivity({
-          ownerUserId: session.sub,
-          actorUserId: session.sub,
-          actorLabel: session.username,
-          action: "CALENDAR_DELETE_APPROVED",
-          summary: "Approved calendar delete",
-          subjectKind: "calendar",
-          subjectId: provider,
-        });
-        return { ok: true };
-      } catch (error) {
-        const code =
-          error instanceof Error ? error.message.slice(0, 64) : "write_failed";
-        return reply.code(502).send({ error: "Calendar delete failed", code });
-      }
-    },
+    async (request, reply) =>
+      refuseUnapprovedMailCalendarWrite(request, reply),
   );
 
-  // —— Email draft (prefer draft; no silent send) ——
   app.post(
     "/integrations/email/:provider/drafts",
-    { bodyLimit: emailWriteBodyLimit },
-    async (request, reply) => {
-      const session = await requireUser(request, reply);
-      if (!session) return;
-
-      const provider = parseEmailProvider(
-        (request.params as { provider: string }).provider,
-      );
-      if (!provider) {
-        return reply.code(404).send({ error: "Unknown email provider" });
-      }
-      const configured =
-        provider === "gmail" ? gmailOAuthConfigured : microsoftMailOAuthConfigured;
-      if (!configured) {
-        return reply.code(503).send({ error: "Email OAuth is not configured" });
-      }
-
-      const parsed = validateEmailDraftWritePayload(request.body);
-      if (!parsed.ok) {
-        return reply.code(400).send({ error: parsed.error });
-      }
-
-      const prismaProvider = provider === "gmail" ? "GMAIL" : "OUTLOOK_MAIL";
-      const connection = await prisma.integrationConnection.findUnique({
-        where: {
-          ownerUserId_provider: {
-            ownerUserId: session.sub,
-            provider: prismaProvider,
-          },
-        },
-      });
-      const gate = gateIntegrationWrite({
-        ownerUserId: connection?.ownerUserId,
-        sessionUserId: session.sub,
-        writesEnabled: integrationsWriteEnabled,
-        status: connection?.status,
-        grantedScopes: connection?.scopes ?? [],
-        requiredWriteScopes:
-          provider === "gmail"
-            ? writeRequiredScopes.gmail
-            : writeRequiredScopes.outlookMail,
-      });
-      if (!gate.ok) {
-        return reply.code(gate.status).send({
-          error: gate.error,
-          code: gate.code,
-          missingScopes: gate.missingScopes,
-        });
-      }
-
-      try {
-        const accessToken = await resolveEmailAccessToken(provider, connection!);
-        const req = buildEmailDraftCreateRequest(provider, parsed.payload);
-        const result = await providerFetch(req.url, {
-          method: req.method,
-          accessToken,
-          body: req.body,
-        });
-        const parsedResult = parseEmailDraftWriteResult(provider, result.json);
-        opaqueWriteLog(request, {
-          family: "email",
-          provider,
-          connectionId: connection!.id,
-          status: result.status,
-          externalId: parsedResult?.externalDraftId,
-        });
-        if (!result.ok || !parsedResult) {
-          return reply.code(502).send({
-            error: "Email draft create failed",
-            code: `email_write_${result.status}`,
-          });
-        }
-        return { ok: true, externalDraftId: parsedResult.externalDraftId };
-      } catch (error) {
-        const code =
-          error instanceof Error ? error.message.slice(0, 64) : "write_failed";
-        return reply
-          .code(502)
-          .send({ error: "Email draft create failed", code });
-      }
-    },
+    async (request, reply) =>
+      refuseUnapprovedMailCalendarWrite(request, reply),
   );
 
-  // Approved send. Still requires the propose→approve payload; nothing here sends silently.
   app.post(
     "/integrations/email/:provider/send",
-    { bodyLimit: emailWriteBodyLimit },
-    async (request, reply) => {
-      const session = await requireUser(request, reply);
-      if (!session) return;
-
-      const provider = parseEmailProvider(
-        (request.params as { provider: string }).provider,
-      );
-      if (!provider) {
-        return reply.code(404).send({ error: "Unknown email provider" });
-      }
-      const configured =
-        provider === "gmail" ? gmailOAuthConfigured : microsoftMailOAuthConfigured;
-      if (!configured) {
-        return reply.code(503).send({ error: "Email OAuth is not configured" });
-      }
-
-      const parsed = validateEmailDraftWritePayload(request.body);
-      if (!parsed.ok) {
-        return reply.code(400).send({ error: parsed.error });
-      }
-
-      const prismaProvider = provider === "gmail" ? "GMAIL" : "OUTLOOK_MAIL";
-      const connection = await prisma.integrationConnection.findUnique({
-        where: {
-          ownerUserId_provider: {
-            ownerUserId: session.sub,
-            provider: prismaProvider,
-          },
-        },
-      });
-      const gate = gateIntegrationWrite({
-        ownerUserId: connection?.ownerUserId,
-        sessionUserId: session.sub,
-        writesEnabled: integrationsWriteEnabled,
-        status: connection?.status,
-        grantedScopes: connection?.scopes ?? [],
-        requiredWriteScopes:
-          provider === "gmail"
-            ? writeRequiredScopes.gmail
-            : writeRequiredScopes.outlookMail,
-      });
-      if (!gate.ok) {
-        return reply.code(gate.status).send({
-          error: gate.error,
-          code: gate.code,
-          missingScopes: gate.missingScopes,
-        });
-      }
-
-      try {
-        const accessToken = await resolveEmailAccessToken(provider, connection!);
-        const req = buildEmailSendRequest(provider, parsed.payload);
-        const result = await providerFetch(req.url, {
-          method: req.method,
-          accessToken,
-          body: req.body,
-        });
-        const parsedResult = parseEmailSendResult(
-          provider,
-          result.json,
-          result.status,
-        );
-        opaqueWriteLog(request, {
-          family: "email",
-          provider,
-          connectionId: connection!.id,
-          status: result.status,
-          externalId: parsedResult?.externalMessageId ?? undefined,
-        });
-        if (!result.ok || !parsedResult) {
-          return reply.code(502).send({
-            error: "Email send failed",
-            code: `email_send_${result.status}`,
-          });
-        }
-        await tryRecordAccountActivity({
-          ownerUserId: session.sub,
-          actorUserId: session.sub,
-          actorLabel: session.username,
-          action: "EMAIL_SENT",
-          summary: "Approved email send",
-          subjectKind: "email",
-          subjectId: provider,
-        });
-        return {
-          ok: true,
-          externalMessageId: parsedResult.externalMessageId,
-        };
-      } catch (error) {
-        const code =
-          error instanceof Error ? error.message.slice(0, 64) : "write_failed";
-        return reply.code(502).send({ error: "Email send failed", code });
-      }
-    },
+    async (request, reply) =>
+      refuseUnapprovedMailCalendarWrite(request, reply),
   );
+
 
   // —— GitHub issue / update / PR-or-issue comment ——
   app.post("/integrations/work/github/issues", async (request, reply) => {
@@ -597,10 +239,9 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
         },
       },
     });
-    const gate = gateIntegrationWrite({
+    const gate = await gateWriteForSession({
+      session,
       ownerUserId: connection?.ownerUserId,
-      sessionUserId: session.sub,
-      writesEnabled: integrationsWriteEnabled,
       status: connection?.status,
       grantedScopes: connection?.scopes ?? [],
       requiredWriteScopes: writeRequiredScopes.github,
@@ -672,10 +313,9 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
         },
       },
     });
-    const gate = gateIntegrationWrite({
+    const gate = await gateWriteForSession({
+      session,
       ownerUserId: connection?.ownerUserId,
-      sessionUserId: session.sub,
-      writesEnabled: integrationsWriteEnabled,
       status: connection?.status,
       grantedScopes: connection?.scopes ?? [],
       requiredWriteScopes: writeRequiredScopes.github,
@@ -749,10 +389,9 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
           },
         },
       });
-      const gate = gateIntegrationWrite({
+      const gate = await gateWriteForSession({
+        session,
         ownerUserId: connection?.ownerUserId,
-        sessionUserId: session.sub,
-        writesEnabled: integrationsWriteEnabled,
         status: connection?.status,
         grantedScopes: connection?.scopes ?? [],
         requiredWriteScopes: writeRequiredScopes.github,
@@ -823,10 +462,9 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
         },
       },
     });
-    const gate = gateIntegrationWrite({
+    const gate = await gateWriteForSession({
+      session,
       ownerUserId: connection?.ownerUserId,
-      sessionUserId: session.sub,
-      writesEnabled: integrationsWriteEnabled,
       status: connection?.status,
       grantedScopes: connection?.scopes ?? [],
       requiredWriteScopes: writeRequiredScopes.linear,
@@ -894,10 +532,9 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
         },
       },
     });
-    const gate = gateIntegrationWrite({
+    const gate = await gateWriteForSession({
+      session,
       ownerUserId: connection?.ownerUserId,
-      sessionUserId: session.sub,
-      writesEnabled: integrationsWriteEnabled,
       status: connection?.status,
       grantedScopes: connection?.scopes ?? [],
       requiredWriteScopes: writeRequiredScopes.linear,
@@ -968,10 +605,9 @@ export async function integrationWriteRoutes(app: FastifyInstance) {
           },
         },
       });
-      const gate = gateIntegrationWrite({
+      const gate = await gateWriteForSession({
+        session,
         ownerUserId: connection?.ownerUserId,
-        sessionUserId: session.sub,
-        writesEnabled: integrationsWriteEnabled,
         status: connection?.status,
         grantedScopes: connection?.scopes ?? [],
         requiredWriteScopes: writeRequiredScopes.slack,

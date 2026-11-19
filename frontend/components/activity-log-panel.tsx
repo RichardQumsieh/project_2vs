@@ -10,7 +10,9 @@ const actionKeys: Record<string, MessageKey> = {
   CLOUD_CONSENT_WITHDRAWN: "activity.consentOff",
   SETTING_CHANGED: "activity.setting",
   EMAIL_SENT: "activity.emailSent",
+  EMAIL_DRAFT_SAVED: "activity.emailDraft",
   CALENDAR_DELETE_APPROVED: "activity.calendarDelete",
+  CALENDAR_RESCHEDULE_APPROVED: "activity.calendarReschedule",
   BUTTON_ACTION: "activity.action",
 };
 
@@ -45,13 +47,13 @@ export function ActivityLogPanel() {
       },
       (loadError: unknown) => {
         if (!active) return;
-        setError(loadError instanceof ApiError ? loadError.message : "Could not load your activity log.");
+        setError(loadError instanceof ApiError ? loadError.message : t("activity.loadFailed"));
       },
     );
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   async function exportLog() {
     setBusy(true);
@@ -67,11 +69,9 @@ export function ActivityLogPanel() {
       anchor.download = "sophia-activity-log.json";
       anchor.click();
       URL.revokeObjectURL(url);
-      setNotice(document.truncated
-        ? "Exported the stored log. The file was capped."
-        : "Exported your activity log.");
+      setNotice(document.truncated ? t("activity.exportedCapped") : t("activity.exported"));
     } catch (exportError) {
-      setError(exportError instanceof ApiError ? exportError.message : "Could not export your activity log.");
+      setError(exportError instanceof ApiError ? exportError.message : t("activity.exportFailed"));
     } finally {
       setBusy(false);
     }
@@ -87,10 +87,10 @@ export function ActivityLogPanel() {
     try {
       const result = await api.deleteActivity();
       setArmed(false);
-      setNotice(`Deleted ${result.deleted} activity ${result.deleted === 1 ? "event" : "events"}.`);
+      setNotice(t("activity.deleted", { count: result.deleted }));
       await reload();
     } catch (deleteError) {
-      setError(deleteError instanceof ApiError ? deleteError.message : "Could not delete your activity log.");
+      setError(deleteError instanceof ApiError ? deleteError.message : t("activity.deleteFailed"));
     } finally {
       setBusy(false);
     }
@@ -141,7 +141,7 @@ export function ActivityLogPanel() {
         <p className="text-sm text-white/45">{t("activity.truncated")}</p>
       ) : null}
       {events.length === 0 ? (
-        <p className="text-sm text-white/45">No activity yet.</p>
+        <p className="text-sm text-white/45">{t("activity.empty")}</p>
       ) : (
         <ul className="divide-y divide-white/10 rounded-3xl border border-white/10">
           {events.map((event) => (

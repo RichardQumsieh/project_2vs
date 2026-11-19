@@ -5,9 +5,9 @@ import { prisma } from "../db.js";
 import {
   env,
   githubOAuthConfigured,
-  integrationsWriteEnabled,
   linearOAuthConfigured,
 } from "../env.js";
+import { sessionWritesEnabled } from "../integrations/write-audience.js";
 import {
   GITHUB_ASSIGNED_ISSUES_URL,
   LINEAR_GRAPHQL_URL,
@@ -338,7 +338,7 @@ export async function integrationWorkRoutes(app: FastifyInstance) {
           requiredWriteScopes: [...writeRequiredScopes.linear],
         },
       },
-      writesEnabled: integrationsWriteEnabled,
+      writesEnabled: await sessionWritesEnabled(session),
       privacy: {
         storesChatPlaintext: false,
         storesIssueBodies: false,
