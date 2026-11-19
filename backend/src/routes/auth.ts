@@ -14,7 +14,6 @@ import {
 } from "../auth-security.js";
 import {
   authCookieBase,
-  authCookieSameSite,
   clearSessionCookie,
   createTotpSetupToken,
   getSession,
@@ -24,6 +23,7 @@ import {
   signSession,
   verifyTotpSetupToken,
 } from "../auth.js";
+import { authRateLimits } from "../auth-rate-limit.js";
 import { env, gmailConfigured } from "../env.js";
 import { tryRecordAccountActivity } from "../account-activity-store.js";
 import { prisma } from "../db.js";
@@ -112,11 +112,7 @@ function setTrustedBrowserCookie(reply: Parameters<typeof setSessionCookie>[0], 
 }
 
 function clearTrustedBrowserCookie(reply: Parameters<typeof clearSessionCookie>[0]) {
-  reply.clearCookie(trustedBrowserCookieName, {
-    path: "/",
-    secure: env.COOKIE_SECURE,
-    sameSite: authCookieSameSite(),
-  });
+  reply.clearCookie(trustedBrowserCookieName, authCookieBase());
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -124,10 +120,7 @@ export async function authRoutes(app: FastifyInstance) {
     "/auth/register",
     {
       config: {
-        rateLimit: {
-          max: 5,
-          timeWindow: "15 minutes",
-        },
+        rateLimit: authRateLimits.register,
       },
     },
     async (request, reply) => {
@@ -228,10 +221,7 @@ export async function authRoutes(app: FastifyInstance) {
     "/auth/login",
     {
       config: {
-        rateLimit: {
-          max: 10,
-          timeWindow: "15 minutes",
-        },
+        rateLimit: authRateLimits.login,
       },
     },
     async (request, reply) => {
@@ -388,10 +378,7 @@ export async function authRoutes(app: FastifyInstance) {
     "/auth/totp/confirm",
     {
       config: {
-        rateLimit: {
-          max: 10,
-          timeWindow: "15 minutes",
-        },
+        rateLimit: authRateLimits.totpConfirm,
       },
     },
     async (request, reply) => {
@@ -520,7 +507,11 @@ export async function authRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post("/auth/logout", async (request, reply) => {
+  app.post("/auth/logout", {
+    config: {
+      rateLimit: authRateLimits.logout,
+    },
+  }, async (request, reply) => {
     reply.header("Cache-Control", "no-store");
     const session = await getSession(request);
     if (session) {
@@ -535,10 +526,7 @@ export async function authRoutes(app: FastifyInstance) {
     "/auth/password/forgot",
     {
       config: {
-        rateLimit: {
-          max: 5,
-          timeWindow: "15 minutes",
-        },
+        rateLimit: authRateLimits.forgotPassword,
       },
     },
     async (request, reply) => {
@@ -619,10 +607,7 @@ export async function authRoutes(app: FastifyInstance) {
     "/auth/password/reset",
     {
       config: {
-        rateLimit: {
-          max: 5,
-          timeWindow: "15 minutes",
-        },
+        rateLimit: authRateLimits.resetPassword,
       },
     },
     async (request, reply) => {

@@ -9,7 +9,7 @@ Direct-message E2EE first. Groups can reuse the same conversation type later (Se
 - Messages are encrypted separately to each active device with its own X3DH/Double Ratchet session and also to each account's stable archive public key. The server stores only opaque archive ciphertext; a newly authenticated device decrypts it locally and creates its own independent device identity and ratchets. It never restores another device's live ratchet state.
 - The portable archive is intentionally a long-lived encrypted copy for recovery, not a forward-secret ratchet: compromise of an unlocked archive private key exposes that account's archived messages. Per-device Double Ratchets remain separate. The API and frontend delivery remain trusted; this design protects against database-only access, not a malicious or fully compromised service.
 - The account archive private key is wrapped locally with the account password and with a separate random 256-bit history recovery code. Save the history recovery code when it is first shown: it is required to unlock existing history after a password reset if the old password is no longer available. The server stores a hash of this high-entropy code for recovery authorization, never the code or archive private key. Losing both the password and recovery code means the archive cannot be decrypted. Because the server stores a password-wrapped key, a database-only compromise could enable offline password guessing; use a unique, strong password.
-- Sign-in requires email and password on a browser trusted within the last 30 days. A new browser, expired trust, or change in the observed IP network prefix triggers an authenticator challenge. After TOTP succeeds, users can explicitly trust that browser for 30 days; recovery codes do not create browser trust. Trusted-browser credentials are random, HttpOnly cookies; only their hashes and a coarse network prefix are stored server-side. Logout preserves browser trust for convenience, while password reset revokes trusted browsers. IP-prefix checks are a coarse risk signal, not precise location detection. The app currently uses the direct peer IP; behind a reverse proxy this may be the proxy address, so configure Fastify's `trustProxy` for only known proxy addresses before relying on IP-based challenges. Never trust arbitrary forwarded IP headers.
+- Sign-in requires email and password on a browser trusted within the last 30 days. A new browser, expired trust, or change in the observed IP network prefix triggers an authenticator challenge. After TOTP succeeds, users can explicitly trust that browser for 30 days; recovery codes do not create browser trust. Trusted-browser credentials are random, HttpOnly cookies; only their hashes and a coarse network prefix are stored server-side. Logout preserves browser trust for convenience, while password reset revokes trusted browsers. IP-prefix checks are a coarse risk signal, not precise location detection. Client IP and HTTPS detection use Fastify `request.ip` and `request.protocol`. `TRUST_PROXY` defaults to off, so `X-Forwarded-For` and `X-Forwarded-Proto` are ignored and a client cannot spoof them. Behind a reverse proxy, set `TRUST_PROXY` to that proxy's IP or CIDR only; `true` is rejected at startup. Until it is set, every connection shares the proxy address, auth rate limits share one bucket, and HSTS stays off because the app still sees HTTP. The API process speaks HTTP; production TLS terminates at the proxy.
 - An optional Google Drive backup encrypts the archive private key in the browser with the history recovery code and uploads only the ciphertext to Drive's private `appDataFolder`. The backup requires both Google account access and the recovery code to restore. Google does not receive the code or plaintext key. It is an additional copy, not a way to recover a lost recovery code; it cannot protect against a compromised browser/device or malicious frontend delivery.
 - Existing messages are added to the account archive by an unlocked device that still has their plaintext. History already lost before a device can decrypt and backfill it cannot be recovered. The device-scoped encrypted recovery backups remain separate and are not used to clone a device's identity or ratchet sessions onto another device.
 - This protects archive contents from database-only access, not from a fully compromised API or modified frontend delivery; those remain in the application's trust boundary.
@@ -22,9 +22,13 @@ The Prisma schema matches the requested models, plus the fields a real handshake
 
 ## Run with Docker
 
-Development mode starts PostgreSQL, Redis, the API, and the Next.js app with one command:
+Development mode starts PostgreSQL, Redis, the API, and the Next.js app. Compose reads secrets from a gitignored repo-root `.env` and refuses to start without them:
 
 ```bash
+cp .env.example .env
+# Generate values. Do not commit .env, and do not reuse a key from git history.
+# JWT_SECRET=$(openssl rand -base64 32)
+# TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
 docker compose up --build
 ```
 
@@ -71,7 +75,7 @@ Set these backend environment variables from your B2 bucket and S3-compatible ap
 
 For local Docker Compose, put the values in `backend/.env` and recreate the backend container. Production Compose reads them from the shell environment, so set/export them before starting the stack. The backend configures bucket CORS for `FRONTEND_ORIGIN` on the first upload; the application key must permit the required bucket CORS update and object read/write operations. Keep the bucket private—public access is not needed.
 
-For production images, put Compose-interpolated secrets in a **repo-root** `.env` (see `.env.example`), then use the production override. `FRONTEND_ORIGIN` defaults to `https://sophia.apps.grok.bot`; `NEXT_PUBLIC_API_URL` defaults to `https://api.sophia-build.com` so API-only `build backend` does not require the frontend build arg. `COOKIE_SECURE` is forced `true` in the prod overlay.
+For production images, put Compose-interpolated secrets in a **repo-root** `.env` (see `.env.example`), then use the production override. `FRONTEND_ORIGIN` defaults to `https://sophia.apps.grok.bot`; `NEXT_PUBLIC_API_URL` defaults to `https://api.sophia-build.com` so API-only `build backend` does not require the frontend build arg. `COOKIE_SECURE` is forced `true` in the prod overlay. `NODE_ENV` is `production`. Leave `TRUST_PROXY` empty until you set it to the reverse proxy IP or CIDR; do not set `true`. The local Postgres password in Compose is a localhost default and must not be reused for a database reachable beyond the host.
 
 ```bash
 cp .env.example .env
@@ -200,6 +204,12 @@ Automatic speech is deliberately narrow: it requires the recent context and the 
 
 Future local-neural options were compared, but not added because native speech works for English in the inspected browser and neural Arabic quality/license/runtime have not been established. [Kokoro ONNX](https://huggingface.co/onnx-community/Kokoro-82M-ONNX) has browser-oriented JavaScript/ONNX support and Apache-2.0 metadata; its model card lists English voices and reports 86 MB for q8-f16 and 92.4 MB for q8, so it does not solve Arabic coverage. [Piper's Jordanian Arabic Kareem medium voice](https://huggingface.co/rhasspy/piper-voices/tree/main/ar/ar_JO/kareem/medium) is 63,201,294 bytes (~63.2 MB), 22.05 kHz, and marked medium quality; its model card points to the training dataset for licensing rather than establishing a clear redistributable voice license. Piper would also require an in-browser ONNX/phonemizer/audio pipeline. Neither candidate's naturalness, speed, memory use, or Jordanian pronunciation was tested here. Reconsider only after a license audit and local-device evaluation against native voices.
 
+## Security docs
+
+- [Vulnerability reporting](docs/SECURITY.md)
+- [Threat model and AI boundary](docs/THREAT_MODEL.md)
+- [Backup and new-device recovery drill](docs/RECOVERY.md)
+
 ## Account security and recovery
 
 - Signup requires a matching password confirmation and an authenticator-app TOTP factor. Save the one-time recovery codes shown after enrollment.
@@ -207,7 +217,7 @@ Future local-neural options were compared, but not added because native speech w
 - The browser stores a non-exportable vault-unwrapping CryptoKey for convenience. This avoids re-entering the password on refresh while the account session remains active, but weakens protection against someone who can access the already signed-in browser profile or execute same-origin script. Sign out before leaving a shared device; sign-out deletes the remembered key.
 - The password reset email link expires after 30 minutes and also requires the account's TOTP or an unused recovery code.
 - Password reset revokes all sessions and devices and increments the vault version. The next login creates a new independent device vault. Existing archived message history remains recoverable with the saved history recovery code; without it, the old password is still needed. Old device identities and ratchet states are never restored onto the new device.
-- Configure `TOTP_ENCRYPTION_KEY` as 64 hex characters (32 random bytes) and `JWT_SECRET` as a high-entropy value of at least 32 characters. Keep the TOTP key stable and backed up across deployments; losing or changing it prevents users from authenticating with their existing factors. The development Compose file contains a test-only TOTP key; never reuse it in production.
+- Configure `TOTP_ENCRYPTION_KEY` as 64 hex characters (32 random bytes) and `JWT_SECRET` as a high-entropy value of at least 32 characters. Keep the TOTP key stable and backed up across deployments; losing or changing it prevents users from authenticating with their existing factors and makes stored integration refresh tokens undecryptable. Do not commit either value. Development Compose does not embed one. A key that previously lived in `docker-compose.yml` is still in git history; treat it as public and do not use it.
 
 Password recovery email delivery uses the Gmail API. In Google Cloud, enable the Gmail API and create OAuth credentials with the `https://www.googleapis.com/auth/gmail.send` scope. Generate a refresh token for the sending mailbox, then set `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, and `GMAIL_SENDER`. Leave all four unset to disable recovery email sending. For production Compose, also set `FRONTEND_ORIGIN` and `NEXT_PUBLIC_API_URL` to the public HTTPS origins; secure cookies are enabled by default.
 

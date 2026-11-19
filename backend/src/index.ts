@@ -4,7 +4,9 @@ import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
 import { authCookieSameSite } from "./auth.js";
-import { env } from "./env.js";
+import { env, trustProxy } from "./env.js";
+import { createLoggerOptions } from "./log-redaction.js";
+import { apiSecurityHeaders } from "./security-config.js";
 import { prisma } from "./db.js";
 import { redis, redisSub } from "./redis.js";
 import { authRoutes } from "./routes/auth.js";
@@ -26,7 +28,10 @@ import { integrationCollabRoutes } from "./routes/integrations-collab.js";
 import { integrationWriteRoutes } from "./routes/integrations-write.js";
 import { registerRealtime } from "./ws.js";
 
-const app = Fastify({ logger: true });
+const app = Fastify({
+  logger: createLoggerOptions(),
+  trustProxy,
+});
 
 const allowedOrigin = new URL(env.FRONTEND_ORIGIN).origin;
 
@@ -45,6 +50,11 @@ await app.register(rateLimit, {
 });
 
 app.addHook("onRequest", async (request, reply) => {
+  const headers = apiSecurityHeaders(request.protocol);
+  for (const [name, value] of Object.entries(headers)) {
+    reply.header(name, value);
+  }
+
   if (
     request.method === "GET" ||
     request.method === "HEAD" ||
@@ -60,12 +70,14 @@ app.addHook("onRequest", async (request, reply) => {
   }
 });
 
-app.get("/health", async () => ({
+app.get("/health", async (request) => ({
   ok: true,
-  // Public deploy probe: confirms whether this image will emit SameSite=None
-  // (COOKIE_SECURE=true) vs Lax. No secrets.
+  // Public deploy probe. No secrets, proxy addresses, or message contents.
   cookieSecure: env.COOKIE_SECURE,
+  cookieHttpOnly: true,
   cookieSameSite: authCookieSameSite(),
+  trustProxy: trustProxy === false ? "disabled" : "restricted",
+  hsts: request.protocol === "https" ? "enabled" : "off",
 }));
 
 app.log.info(
@@ -73,9 +85,16 @@ app.log.info(
     cookieSecure: env.COOKIE_SECURE,
     cookieSameSite: authCookieSameSite(),
     frontendOrigin: allowedOrigin,
+    trustProxy: trustProxy === false ? "disabled" : "restricted",
   },
   "auth cookie mode",
 );
+
+if (process.env.NODE_ENV === "production" && trustProxy === false) {
+  app.log.warn(
+    "TRUST_PROXY is disabled. Forwarded client IPs and HTTPS detection are ignored. Set TRUST_PROXY to the reverse proxy IP or CIDR.",
+  );
+}
 
 await app.register(authRoutes);
 await app.register(deviceRoutes);
