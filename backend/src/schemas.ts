@@ -254,7 +254,7 @@ export const sendMessageSchema = z.union([
     ciphertext: z.string().min(1),
     nonce: z.string().min(1),
     ratchetHeader: z.unknown(),
-  }),
+  }).strict(),
 ]);
 
 export const listMessagesQuery = z.object({

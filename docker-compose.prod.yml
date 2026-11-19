@@ -11,6 +11,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in repo-root .env before starting production}
       TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?Set TOTP_ENCRYPTION_KEY in repo-root .env before starting production}
       PORT: 3001
+      NODE_ENV: production
+      # Empty ignores X-Forwarded-*. Set this to the reverse proxy IP or CIDR
+      # (for example 10.0.0.0/8). The value true is rejected at startup.
+      TRUST_PROXY: ${TRUST_PROXY:-}
       # Defaults to the live Sophia SPA origin. Override via root `.env` if the
       # published frontend origin changes. `backend/.env` / env_file does NOT
       # supply this key when `environment:` sets it.

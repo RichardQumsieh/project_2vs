@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assertProductionCookieSecure, parseTrustProxy } from "./security-config.js";
 
 const optionalEnvironmentValue = z.preprocess(
   (value) => value === "" ? undefined : value,
@@ -13,6 +14,11 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3001),
   FRONTEND_ORIGIN: z.string().url(),
   COOKIE_NAME: z.string().default("messenger_session"),
+  /**
+   * Comma-separated reverse-proxy IPs or CIDRs. Empty ignores X-Forwarded-*.
+   * The value "true" is rejected.
+   */
+  TRUST_PROXY: optionalEnvironmentValue,
   COOKIE_SECURE: z.enum(["true", "false"])
     .default(process.env.NODE_ENV === "production" ? "true" : "false")
     .transform((value) => value === "true"),
@@ -233,7 +239,13 @@ const envSchema = z.object({
   }
 });
 
-export const env = envSchema.parse(process.env);
+const parsedEnv = envSchema.parse(process.env);
+assertProductionCookieSecure(process.env.NODE_ENV, parsedEnv.COOKIE_SECURE);
+
+export const env = parsedEnv;
+
+/** `false`, or a comma-separated list of proxy addresses Fastify may trust. */
+export const trustProxy = parseTrustProxy(env.TRUST_PROXY);
 
 export const gmailConfigured = Boolean(
   env.GMAIL_CLIENT_ID &&
