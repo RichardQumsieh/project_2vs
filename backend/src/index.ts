@@ -10,6 +10,7 @@ import { redis, redisSub } from "./redis.js";
 import { authRoutes } from "./routes/auth.js";
 import { deviceRoutes } from "./routes/devices.js";
 import { conversationRoutes } from "./routes/conversations.js";
+import { groupRoutes } from "./routes/groups.js";
 import { researchRoutes } from "./routes/research.js";
 import { urlSafetyRoutes } from "./routes/url-safety.js";
 import { registerCallIceServerRoute } from "./call-signaling.js";
@@ -66,6 +67,7 @@ app.get("/health", async () => ({
   // (COOKIE_SECURE=true) vs Lax. No secrets.
   cookieSecure: env.COOKIE_SECURE,
   cookieSameSite: authCookieSameSite(),
+  groupE2ee: env.GROUP_E2EE_ENABLED,
 }));
 
 app.log.info(
@@ -80,6 +82,7 @@ app.log.info(
 await app.register(authRoutes);
 await app.register(deviceRoutes);
 await app.register(conversationRoutes);
+await app.register(groupRoutes);
 await app.register(mediaRoutes);
 await app.register(discoveryRoutes);
 await app.register(researchRoutes);

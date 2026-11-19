@@ -185,6 +185,8 @@ model Device {
   sentMessages     Message[]
   receivedMessages Message[]       @relation("MessageRecipientDevice")
   backups          DeviceBackup[]
+  groupMlsBlobsSent     GroupMlsBlob[] @relation("GroupMlsBlobSender")
+  groupMlsBlobsReceived GroupMlsBlob[] @relation("GroupMlsBlobRecipient")
 
   @@index([userId])
 }
@@ -260,6 +262,8 @@ model Conversation {
 
   directKey         String? @unique
   initiatedByUserId String?
+  /// Display label for a GROUP. Not message contents.
+  title             String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -269,6 +273,26 @@ model Conversation {
   messageDeletions MessageDeletion[]
   archiveMessages AccountArchiveMessage[]
   media           MediaObject[]
+  groupMlsBlobs   GroupMlsBlob[]
+}
+
+/// Opaque MLS (RFC 9420) wire bytes for a small group.
+/// payload is ciphertext or a public key package. Never store plaintext here.
+model GroupMlsBlob {
+  id                String   @id @default(uuid())
+  conversationId    String
+  senderDeviceId    String
+  kind              String
+  recipientDeviceId String?
+  payload           Bytes
+  bindingSignature  Bytes?
+  createdAt         DateTime @default(now())
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderDevice    Device       @relation("GroupMlsBlobSender", fields: [senderDeviceId], references: [id])
+  recipientDevice Device?      @relation("GroupMlsBlobRecipient", fields: [recipientDeviceId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
 }
 
 model ConversationMember {

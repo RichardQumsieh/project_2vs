@@ -1,4 +1,5 @@
 import { resolveApiUrl } from "./api-url";
+import { assertGroupE2eeEnabled } from "./group-e2ee-flag";
 import type { OutboundEmailAttachment } from "./email-attachments";
 
 const API_URL = resolveApiUrl();
@@ -139,6 +140,8 @@ export type TotpSetup = {
 export type Conversation = {
   id: string;
   type: "DIRECT" | "GROUP";
+  title?: string | null;
+  memberUserIds?: string[];
   updatedAt: string;
   peer: PublicUser | null;
   lastMessageAt: string | null;
@@ -456,6 +459,67 @@ export const api = {
         }),
       },
     ),
+
+  createGroup: (body: { memberUserIds: string[]; title?: string }) => {
+    assertGroupE2eeEnabled();
+    return request<Conversation>("/conversations/group", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  addGroupMember: (conversationId: string, userId: string) => {
+    assertGroupE2eeEnabled();
+    return request<{ ok: true; memberUserIds: string[] }>(
+      `/conversations/${encodeURIComponent(conversationId)}/members`,
+      { method: "POST", body: JSON.stringify({ userId }) },
+    );
+  },
+
+  removeGroupMember: (conversationId: string, userId: string) => {
+    assertGroupE2eeEnabled();
+    return request<{ ok: true; memberUserIds: string[] }>(
+      `/conversations/${encodeURIComponent(conversationId)}/members/${encodeURIComponent(userId)}`,
+      { method: "DELETE" },
+    );
+  },
+
+  postGroupMls: (
+    conversationId: string,
+    body: {
+      senderDeviceId: string;
+      kind: "key_package" | "welcome" | "commit" | "application";
+      payload: string;
+      recipientDeviceId?: string;
+      bindingSignature?: string;
+    },
+  ) => {
+    assertGroupE2eeEnabled();
+    return request<{ id: string; kind: string; payload: string }>(
+      `/conversations/${encodeURIComponent(conversationId)}/mls`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  },
+
+  groupMls: (conversationId: string, deviceId: string, after?: string) => {
+    assertGroupE2eeEnabled();
+    return request<{
+      blobs: {
+        id: string;
+        kind: string;
+        senderDeviceId: string;
+        recipientDeviceId: string | null;
+        payload: string;
+        bindingSignature: string | null;
+        createdAt: string;
+      }[];
+    }>(
+      `/conversations/${encodeURIComponent(conversationId)}/mls?${new URLSearchParams({
+        deviceId,
+        ...(after ? { after } : {}),
+      })}`,
+    );
+  },
 
   messages: (
     conversationId: string,

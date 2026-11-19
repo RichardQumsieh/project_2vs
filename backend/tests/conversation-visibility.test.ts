@@ -35,6 +35,18 @@ describe("direct conversation visibility", () => {
     );
   });
 
+  it("shows an MLS group to every current member before any pairwise message exists", () => {
+    assert.equal(
+      canListConversation({
+        type: "GROUP",
+        initiatedByUserId: "alice",
+        hasMessages: false,
+        userId: "bob",
+      }),
+      true,
+    );
+  });
+
   it("keeps historical conversations visible regardless of who initiated them", () => {
     assert.equal(
       canListConversation({

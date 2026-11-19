@@ -44,6 +44,14 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
+  /**
+   * Small-group MLS (RFC 9420). Default OFF. The API stores opaque MLS
+   * messages only; it cannot decrypt them. See docs/group-e2ee.md.
+   */
+  GROUP_E2EE_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   /** Hosted Sophia model. Both key and HTTPS base URL are required before any call. */
   SOPHIA_MODEL_API_KEY: optionalEnvironmentValue,
@@ -294,3 +302,6 @@ export const slackOAuthConfigured = Boolean(
 
 /** Master feature flag for Phase 4.2 provider write routes (default false). */
 export const integrationsWriteEnabled = env.INTEGRATIONS_WRITE_ENABLED;
+
+/** Small-group MLS delivery. Default false. See docs/group-e2ee.md. */
+export const groupE2eeEnabled = env.GROUP_E2EE_ENABLED;

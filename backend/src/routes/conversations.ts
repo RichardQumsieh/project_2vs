@@ -86,6 +86,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       conversations: conversations
         .filter((conversation: any) =>
           canListConversation({
+            type: conversation.type,
             initiatedByUserId: conversation.initiatedByUserId,
             hasMessages: conversation.messages.length > 0,
             userId: session.sub,
@@ -109,6 +110,16 @@ export async function conversationRoutes(app: FastifyInstance) {
       where: { conversationId_userId: { conversationId: id, userId: session.sub } },
     });
     if (!member) return reply.code(404).send({ error: "Conversation not found" });
+
+    const listed = await prisma.conversation.findUnique({
+      where: { id },
+      select: { type: true },
+    });
+    if (listed?.type === "GROUP") {
+      return reply.code(409).send({
+        error: "Group conversations accept MLS blobs, not pairwise envelopes.",
+      });
+    }
 
     if (parsed.data.deviceId) {
       const device = await prisma.device.findFirst({
@@ -521,6 +532,16 @@ export async function conversationRoutes(app: FastifyInstance) {
     });
     if (!member) return reply.code(404).send({ error: "Conversation not found" });
 
+    const target = await prisma.conversation.findUnique({
+      where: { id },
+      select: { type: true },
+    });
+    if (target?.type === "GROUP") {
+      return reply.code(409).send({
+        error: "Group conversations accept MLS blobs, not pairwise envelopes.",
+      });
+    }
+
     const device = await prisma.device.findFirst({
       where: {
         id: parsed.data.senderDeviceId,
@@ -777,10 +798,11 @@ function serializeMessage(message: {
   };
 }
 
-function serializeConversation(
+export function serializeConversation(
   conversation: {
     id: string;
     type: "DIRECT" | "GROUP";
+    title?: string | null;
     updatedAt: Date;
     members: { userId: string; user: { id: string; username: string; displayName: string | null; avatarUrl: string | null } }[];
     messages?: { createdAt: Date }[];
@@ -791,6 +813,8 @@ function serializeConversation(
   return {
     id: conversation.id,
     type: conversation.type,
+    title: conversation.title ?? null,
+    memberUserIds: conversation.members.map((member) => member.userId).sort(),
     updatedAt: conversation.updatedAt.toISOString(),
     peer: peer ? publicUser(peer) : null,
     lastMessageAt: conversation.messages?.[0]?.createdAt.toISOString() ?? null,

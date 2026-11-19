@@ -1,6 +1,6 @@
 # Private messenger
 
-Direct-message E2EE first. Groups can reuse the same conversation type later (Sender Keys / MLS).
+Direct-message E2EE, plus a feature-flagged MLS prototype for small groups (up to 8 members). See `docs/group-e2ee.md`.
 
 ## Architecture
 
@@ -14,7 +14,8 @@ Direct-message E2EE first. Groups can reuse the same conversation type later (Se
 - Existing messages are added to the account archive by an unlocked device that still has their plaintext. History already lost before a device can decrypt and backfill it cannot be recovered. The device-scoped encrypted recovery backups remain separate and are not used to clone a device's identity or ratchet sessions onto another device.
 - This protects archive contents from database-only access, not from a fully compromised API or modified frontend delivery; those remain in the application's trust boundary.
 - Private keys are wrapped with a PBKDF2-derived AES-GCM key and stored in IndexedDB. After a successful password unlock, this browser also remembers the non-exportable Web Crypto key in IndexedDB so a refresh does not require the password again; explicit sign-out removes it.
-- X3DH establishes a shared secret; a Double Ratchet (X25519 + HKDF + AES-GCM) encrypts each message.
+- X3DH establishes a shared secret; a Double Ratchet (X25519 + HKDF + AES-GCM) encrypts each direct message.
+- Small groups use MLS (RFC 9420) via `ts-mls` 1.6.4, behind `GROUP_E2EE_ENABLED` and `NEXT_PUBLIC_GROUP_E2EE_ENABLED` (both default off). The API stores opaque MLS bytes and membership only. Removed members cannot derive later epoch keys. The inbox does not compose group messages yet. Design, threat model, and gaps: `docs/group-e2ee.md`.
 - WebSockets notify clients; Redis pub/sub is the fan-out path for multiple API processes.
 - One-to-one audio and video calls use browser WebRTC. The API authenticates and relays call signaling only; WebRTC encrypts media in transit between the participants.
 
