@@ -169,6 +169,39 @@ export type MessageDeletion = {
   deletedAt: string;
 };
 
+async function approveMailCalendarWrite(input: {
+  idempotencyKey: string;
+  action: "send_email" | "save_draft" | "reschedule_event" | "delete_event";
+  provider: string;
+  payload: unknown;
+}) {
+  const proposed = await request<{
+    ok: true;
+    id: string;
+    status: string;
+  }>("/integrations/writes/proposals", {
+    method: "POST",
+    body: JSON.stringify({
+      idempotencyKey: input.idempotencyKey,
+      action: input.action,
+      provider: input.provider,
+      payload: input.payload,
+    }),
+  });
+  return request<{
+    ok: true;
+    replayed: boolean;
+    externalId: string | null;
+    htmlLink: string | null;
+  }>(
+    `/integrations/writes/proposals/${encodeURIComponent(proposed.id)}/approve`,
+    {
+      method: "POST",
+      body: JSON.stringify({ payload: input.payload }),
+    },
+  );
+}
+
 export const api = {
   register: (body: {
     username: string;
@@ -784,11 +817,17 @@ export const api = {
       truncated: boolean;
     }>(`/integrations/calendar/events/${encodeURIComponent(eventId)}`),
 
-  deleteCalendarEvent: (provider: "google" | "outlook", eventId: string) =>
-    request<{ ok: true }>(
-      `/integrations/calendar/${provider}/events/${encodeURIComponent(eventId)}`,
-      { method: "DELETE" },
-    ),
+  deleteCalendarEvent: (
+    provider: "google" | "outlook",
+    eventId: string,
+    proposalId: string,
+  ) =>
+    approveMailCalendarWrite({
+      idempotencyKey: proposalId,
+      action: "delete_event",
+      provider,
+      payload: { eventId },
+    }).then((result) => ({ ok: true as const, replayed: result.replayed })),
 
   emailIntegrationStatus: () =>
     request<{
@@ -991,18 +1030,19 @@ export const api = {
       allDay?: boolean;
       description?: string;
     },
+    proposalId: string,
   ) =>
-    request<{
-      ok: true;
-      externalEventId: string;
-      htmlLink: string | null;
-    }>(
-      `/integrations/calendar/${provider}/events/${encodeURIComponent(externalEventId)}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      },
-    ),
+    approveMailCalendarWrite({
+      idempotencyKey: proposalId,
+      action: "reschedule_event",
+      provider,
+      payload: { ...body, externalEventId },
+    }).then((result) => ({
+      ok: true as const,
+      externalEventId: result.externalId ?? externalEventId,
+      htmlLink: result.htmlLink,
+      replayed: result.replayed,
+    })),
 
   createEmailDraft: (
     provider: "gmail" | "outlook-mail",
@@ -1015,14 +1055,18 @@ export const api = {
       contentType?: "text/plain" | "text/html";
       attachments?: OutboundEmailAttachment[];
     },
+    proposalId: string,
   ) =>
-    request<{
-      ok: true;
-      externalDraftId: string;
-    }>(`/integrations/email/${provider}/drafts`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    approveMailCalendarWrite({
+      idempotencyKey: proposalId,
+      action: "save_draft",
+      provider,
+      payload: body,
+    }).then((result) => ({
+      ok: true as const,
+      externalDraftId: result.externalId ?? "",
+      replayed: result.replayed,
+    })),
 
   sendEmail: (
     provider: "gmail" | "outlook-mail",
@@ -1035,14 +1079,18 @@ export const api = {
       contentType?: "text/plain" | "text/html";
       attachments?: OutboundEmailAttachment[];
     },
+    proposalId: string,
   ) =>
-    request<{
-      ok: true;
-      externalMessageId: string | null;
-    }>(`/integrations/email/${provider}/send`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    approveMailCalendarWrite({
+      idempotencyKey: proposalId,
+      action: "send_email",
+      provider,
+      payload: body,
+    }).then((result) => ({
+      ok: true as const,
+      externalMessageId: result.externalId,
+      replayed: result.replayed,
+    })),
 
   createGitHubIssue: (body: {
     owner: string;

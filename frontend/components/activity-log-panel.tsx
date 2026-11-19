@@ -9,7 +9,9 @@ const actionLabels: Record<string, string> = {
   CLOUD_CONSENT_WITHDRAWN: "Cloud consent withdrawn",
   SETTING_CHANGED: "Setting changed",
   EMAIL_SENT: "Email sent",
+  EMAIL_DRAFT_SAVED: "Email draft saved",
   CALENDAR_DELETE_APPROVED: "Calendar delete approved",
+  CALENDAR_RESCHEDULE_APPROVED: "Calendar reschedule approved",
   BUTTON_ACTION: "Action",
 };
 

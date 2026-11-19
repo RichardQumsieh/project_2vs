@@ -161,6 +161,10 @@ export type AgentContext = {
   recipientUsername: string | null;
 };
 
+export type AgentApproval = {
+  proposalId: string;
+};
+
 export type AgentToolHandlers = {
   sendMessage: (action: Extract<AgentToolAction, { type: "send_message" }>) => Promise<void>;
   webSearch: (action: Extract<AgentToolAction, { type: "web_search" }>) => void;
@@ -188,12 +192,14 @@ export type AgentToolHandlers = {
   ) => void | Promise<void>;
   draftEmail: (
     action: Extract<AgentToolAction, { type: "draft_email" }>,
+    approval: AgentApproval,
   ) => void | Promise<void>;
   createCalendarEvent: (
     action: Extract<AgentToolAction, { type: "create_calendar_event" }>,
   ) => void | Promise<void>;
   deleteCalendarEvent: (
     action: Extract<AgentToolAction, { type: "delete_calendar_event" }>,
+    approval: AgentApproval,
   ) => void | Promise<void>;
   createGitHubIssue: (
     action: Extract<AgentToolAction, { type: "create_github_issue" }>,
@@ -209,6 +215,7 @@ export type AgentToolHandlers = {
   ) => void | Promise<void>;
   rescheduleCommitment: (
     action: Extract<AgentToolAction, { type: "reschedule_commitment" }>,
+    approval: AgentApproval,
   ) => void | Promise<void>;
 };
 
@@ -327,7 +334,16 @@ export function createAgentRuntime({
   createId?: () => string;
 }): AgentRuntime {
   const proposals = new Map<string, AgentProposal>();
+  const approving = new Set<string>();
   const audit: AgentAuditEntry[] = [];
+
+  function keepsIdempotencyKey(type: AgentToolAction["type"]) {
+    return (
+      type === "draft_email" ||
+      type === "delete_calendar_event" ||
+      type === "reschedule_commitment"
+    );
+  }
 
   function record(tool: AgentToolAction["type"], outcome: AgentAuditEntry["outcome"]) {
     audit.push({ tool, outcome, timestamp: now() });
@@ -343,6 +359,7 @@ export function createAgentRuntime({
   function expireOldProposals() {
     let changed = false;
     for (const [id, proposal] of proposals) {
+      if (approving.has(id)) continue;
       if (proposal.expiresAt <= now()) {
         proposals.delete(id);
         record(proposal.action.type, "expired");
@@ -741,7 +758,7 @@ export function createAgentRuntime({
     }
   }
 
-  async function execute(action: AgentToolAction) {
+  async function execute(action: AgentToolAction, approval: AgentApproval) {
     switch (action.type) {
       case "send_message":
         await handlers.sendMessage(action);
@@ -774,13 +791,13 @@ export function createAgentRuntime({
         await handlers.snoozeReminder(action);
         break;
       case "draft_email":
-        await handlers.draftEmail(action);
+        await handlers.draftEmail(action, approval);
         break;
       case "create_calendar_event":
         await handlers.createCalendarEvent(action);
         break;
       case "delete_calendar_event":
-        await handlers.deleteCalendarEvent(action);
+        await handlers.deleteCalendarEvent(action, approval);
         break;
       case "create_github_issue":
         await handlers.createGitHubIssue(action);
@@ -795,7 +812,7 @@ export function createAgentRuntime({
         await handlers.proposeFollowUp(action);
         break;
       case "reschedule_commitment":
-        await handlers.rescheduleCommitment(action);
+        await handlers.rescheduleCommitment(action, approval);
         break;
     }
   }
@@ -821,6 +838,9 @@ export function createAgentRuntime({
     },
     revise(id, action, options) {
       expireOldProposals();
+      if (approving.has(id)) {
+        throw new Error("This approval is already running.");
+      }
       const existing = proposals.get(id);
       if (!existing) {
         throw new Error("This action is no longer available. Review it again.");
@@ -841,6 +861,9 @@ export function createAgentRuntime({
     },
     async approve(id) {
       expireOldProposals();
+      if (approving.has(id)) {
+        throw new Error("This approval is already running.");
+      }
       const proposal = proposals.get(id);
       if (!proposal) {
         throw new Error("This action is no longer available. Review it again.");
@@ -861,17 +884,28 @@ export function createAgentRuntime({
           throw new Error("The recipient or active conversation changed. Review the message again.");
         }
       }
-      proposals.delete(id);
-      publish();
+      approving.add(id);
+      const retain = keepsIdempotencyKey(proposal.action.type);
+      if (!retain) {
+        proposals.delete(id);
+        publish();
+      }
       record(proposal.action.type, "approved");
       try {
-        await execute(proposal.action);
+        await execute(proposal.action, { proposalId: id });
+        if (retain) {
+          proposals.delete(id);
+          publish();
+        }
       } catch (error) {
         record(proposal.action.type, "failed");
         throw error;
+      } finally {
+        approving.delete(id);
       }
     },
     cancel(id) {
+      if (approving.has(id)) return false;
       const proposal = proposals.get(id);
       if (!proposal) {
         return false;
@@ -882,10 +916,11 @@ export function createAgentRuntime({
       return true;
     },
     cancelAll() {
-      for (const proposal of proposals.values()) {
+      for (const proposal of [...proposals.values()]) {
+        if (approving.has(proposal.id)) continue;
         record(proposal.action.type, "cancelled");
+        proposals.delete(proposal.id);
       }
-      proposals.clear();
       publish();
     },
     getProposals() {

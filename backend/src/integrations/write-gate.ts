@@ -16,9 +16,27 @@ export type WriteGateSuccess = {
   ok: true;
 };
 
+/** Comma-separated user ids, usernames, or emails. Matching is case-insensitive. */
+export function userMatchesWriteAllowlist(input: {
+  allowlist: readonly string[];
+  userId: string;
+  username?: string | null;
+  email?: string | null;
+}) {
+  if (input.allowlist.length === 0) return true;
+  const allowed = new Set(
+    input.allowlist.map((entry) => entry.trim().toLowerCase()).filter(Boolean),
+  );
+  const candidates = [input.userId, input.username, input.email];
+  return candidates.some(
+    (value) => typeof value === "string" && allowed.has(value.trim().toLowerCase()),
+  );
+}
+
 /**
  * Shared authz for owner-scoped write APIs.
- * - Feature flag off → 503 writes_disabled
+ * - Feature flag off → 503 writes_disabled (allowlist does not bypass the flag)
+ * - Allowlist set and this account is absent → 503 writes_not_enabled_for_user
  * - Wrong/missing owner → 404 (no IDOR leak)
  * - Not connected → 409
  * - Missing write scopes → 403 scope_upgrade_required
@@ -30,6 +48,9 @@ export function gateIntegrationWrite(input: {
   grantedScopes: string[];
   requiredWriteScopes: readonly string[];
   writesEnabled: boolean;
+  allowlist?: readonly string[];
+  username?: string | null;
+  userEmail?: string | null;
 }): WriteGateSuccess | WriteGateFailure {
   if (!input.writesEnabled) {
     return {
@@ -37,6 +58,24 @@ export function gateIntegrationWrite(input: {
       status: 503,
       error: "Integration writes are disabled on this server",
       code: "writes_disabled",
+    };
+  }
+
+  const allowlist = input.allowlist ?? [];
+  if (
+    allowlist.length > 0 &&
+    !userMatchesWriteAllowlist({
+      allowlist,
+      userId: input.sessionUserId,
+      username: input.username,
+      email: input.userEmail,
+    })
+  ) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Integration writes are not enabled for this account",
+      code: "writes_not_enabled_for_user",
     };
   }
 
