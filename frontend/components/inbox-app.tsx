@@ -10,6 +10,8 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { GroupThread, GroupUnavailable, NewGroupForm } from "@/components/group-thread";
+import { groupE2eeEnabled } from "@/lib/group-e2ee-flag";
 import { logAccountActivity } from "@/lib/account-activity";
 import { api } from "@/lib/api";
 import {
@@ -686,12 +688,19 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
           </Button>
         </form>
         {startError ? <p className="text-sm text-red-300">{startError}</p> : null}
+        {groupE2eeEnabled() ? <NewGroupForm /> : null}
         </div>
 
         <nav aria-label="Conversations" className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-3">
           {(conversations.data ?? []).map((conversation) => {
-            const label =
-              conversation.peer?.displayName ?? conversation.peer?.username ?? "Unknown";
+            const label = conversation.type === "GROUP"
+              ? conversation.title?.trim() || "Encrypted group"
+              : conversation.peer?.displayName ?? conversation.peer?.username ?? "Unknown";
+            const detail = conversation.type === "GROUP"
+              ? `${conversation.members?.length ?? conversation.memberUserIds?.length ?? 0} members`
+              : conversation.peer?.username
+                ? `@${conversation.peer.username}`
+                : "";
             const selected = conversation.id === activeConversationId;
             return (
             <Link
@@ -712,7 +721,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
               </span>
               <span className="min-w-0">
                 <p className="truncate text-sm font-medium tracking-tight">{label}</p>
-                <p className="mt-0.5 truncate text-xs text-white/40">@{conversation.peer?.username}</p>
+                <p className="mt-0.5 truncate text-xs text-white/40">{detail}</p>
               </span>
             </Link>
             );
@@ -752,6 +761,23 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
 
 export function Thread() {
   const conversationId = useParams<{ id: string }>().id;
+  const userId = currentUserId();
+  const conversations = useQuery({
+    queryKey: ["conversations", userId],
+    queryFn: async () => (await api.conversations()).conversations,
+    enabled: Boolean(userId),
+  });
+  if (userId && !conversations.data) {
+    return <p className="p-6 text-sm text-white/60">Loading conversation…</p>;
+  }
+  const conversation = conversations.data?.find((item) => item.id === conversationId);
+  if (conversation?.type === "GROUP") {
+    return (
+      <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
+        {groupE2eeEnabled() ? <GroupThread conversation={conversation} /> : <GroupUnavailable />}
+      </div>
+    );
+  }
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
       <ThreadConversation conversationId={conversationId} />

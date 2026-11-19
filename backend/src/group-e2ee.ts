@@ -3,12 +3,12 @@ import { verifyEd25519 } from "./ed25519.js";
 export const GROUP_E2EE_MAX_USERS = 8;
 export const GROUP_MLS_BLOB_MAX_BYTES = 256 * 1024;
 
-export const groupMlsBlobKinds = ["key_package", "welcome", "commit", "application"] as const;
+export const groupMlsBlobKinds = ["key_package", "welcome", "commit", "proposal", "application"] as const;
 export type GroupMlsBlobKind = (typeof groupMlsBlobKinds)[number];
 
 export type GroupGateFailure = {
   ok: false;
-  status: 400 | 404 | 409 | 503;
+  status: 400 | 403 | 404 | 409 | 503;
   error: string;
   code?: string;
 };
@@ -27,39 +27,69 @@ export function gateGroupE2ee(enabled: boolean): GroupGateSuccess<Record<never, 
   return { ok: true };
 }
 
+export type GroupMemberRef = {
+  userId: string;
+  role: "ADMIN" | "MEMBER";
+};
+
 export function planGroupMembers(
   creatorUserId: string,
   requestedUserIds: readonly string[],
-): GroupGateSuccess<{ memberUserIds: string[] }> | GroupGateFailure {
+): GroupGateSuccess<{ members: GroupMemberRef[] }> | GroupGateFailure {
   if (new Set(requestedUserIds).size !== requestedUserIds.length) {
     return { ok: false, status: 400, error: "Duplicate group members" };
   }
-  const memberUserIds = requestedUserIds.includes(creatorUserId)
-    ? [...requestedUserIds]
-    : [creatorUserId, ...requestedUserIds];
-  if (memberUserIds.length > GROUP_E2EE_MAX_USERS) {
+  const others = requestedUserIds.filter((userId) => userId !== creatorUserId);
+  const members: GroupMemberRef[] = [
+    { userId: creatorUserId, role: "ADMIN" },
+    ...others.map((userId) => ({ userId, role: "MEMBER" as const })),
+  ];
+  if (members.length > GROUP_E2EE_MAX_USERS) {
     return { ok: false, status: 400, error: "Groups are limited to 8 members" };
   }
-  return { ok: true, memberUserIds };
+  return { ok: true, members };
 }
 
 export function planMembershipChange(
-  members: readonly string[],
-  change: { op: "add"; userId: string } | { op: "remove"; userId: string },
-): GroupGateSuccess<{ memberUserIds: string[] }> | GroupGateFailure {
+  members: readonly GroupMemberRef[],
+  actorUserId: string,
+  change: { op: "add"; userId: string; role?: "ADMIN" | "MEMBER" } | { op: "remove"; userId: string },
+): GroupGateSuccess<{ members: GroupMemberRef[] }> | GroupGateFailure {
+  const actor = members.find((member) => member.userId === actorUserId);
+  if (!actor) {
+    return { ok: false, status: 404, error: "Conversation not found" };
+  }
   if (change.op === "add") {
-    if (members.includes(change.userId)) {
+    if (actor.role !== "ADMIN") {
+      return { ok: false, status: 403, error: "Only a group admin can add members" };
+    }
+    if (members.some((member) => member.userId === change.userId)) {
       return { ok: false, status: 409, error: "User is already a member" };
     }
     if (members.length + 1 > GROUP_E2EE_MAX_USERS) {
       return { ok: false, status: 400, error: "Groups are limited to 8 members" };
     }
-    return { ok: true, memberUserIds: [...members, change.userId] };
+    return {
+      ok: true,
+      members: [...members, { userId: change.userId, role: change.role ?? "MEMBER" }],
+    };
   }
-  if (!members.includes(change.userId)) {
+  if (!members.some((member) => member.userId === change.userId)) {
     return { ok: false, status: 404, error: "Member not found" };
   }
-  return { ok: true, memberUserIds: members.filter((userId) => userId !== change.userId) };
+  if (actorUserId !== change.userId && actor.role !== "ADMIN") {
+    return { ok: false, status: 403, error: "Only a group admin can remove members" };
+  }
+  const admins = members.filter((member) => member.role === "ADMIN");
+  const removingLastAdmin = admins.length === 1 && admins[0]?.userId === change.userId && members.length > 1;
+  if (removingLastAdmin) {
+    return {
+      ok: false,
+      status: 409,
+      error: "The last admin cannot leave while other members remain",
+    };
+  }
+  return { ok: true, members: members.filter((member) => member.userId !== change.userId) };
 }
 
 /** Non-members get the same 404 as a missing conversation. */

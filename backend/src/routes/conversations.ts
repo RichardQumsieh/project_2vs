@@ -804,7 +804,11 @@ export function serializeConversation(
     type: "DIRECT" | "GROUP";
     title?: string | null;
     updatedAt: Date;
-    members: { userId: string; user: { id: string; username: string; displayName: string | null; avatarUrl: string | null } }[];
+    members: {
+      userId: string;
+      role?: "ADMIN" | "MEMBER";
+      user: { id: string; username: string; displayName: string | null; avatarUrl: string | null };
+    }[];
     messages?: { createdAt: Date }[];
   },
   userId: string,
@@ -815,6 +819,14 @@ export function serializeConversation(
     type: conversation.type,
     title: conversation.title ?? null,
     memberUserIds: conversation.members.map((member) => member.userId).sort(),
+    members: conversation.members
+      .map((member) => ({
+        userId: member.userId,
+        username: member.user.username,
+        displayName: member.user.displayName,
+        role: member.role ?? "MEMBER",
+      }))
+      .sort((left, right) => left.username.localeCompare(right.username)),
     updatedAt: conversation.updatedAt.toISOString(),
     peer: peer ? publicUser(peer) : null,
     lastMessageAt: conversation.messages?.[0]?.createdAt.toISOString() ?? null,

@@ -32,7 +32,12 @@ describe("group E2EE server policy", () => {
   it("creates a group of at most 8 members including the creator", () => {
     const created = planGroupMembers(alice, [bob]);
     assert.equal(created.ok, true);
-    if (created.ok) assert.deepEqual(created.memberUserIds, [alice, bob]);
+    if (created.ok) {
+      assert.deepEqual(created.members, [
+        { userId: alice, role: "ADMIN" },
+        { userId: bob, role: "MEMBER" },
+      ]);
+    }
 
     const eightOthers = Array.from({ length: 8 }, (_, index) =>
       `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
@@ -42,11 +47,16 @@ describe("group E2EE server policy", () => {
   });
 
   it("hides subsequent blobs from a removed member", () => {
-    const removed = planMembershipChange([alice, bob, carol], { op: "remove", userId: bob });
+    const members = [
+      { userId: alice, role: "ADMIN" as const },
+      { userId: bob, role: "MEMBER" as const },
+      { userId: carol, role: "MEMBER" as const },
+    ];
+    const removed = planMembershipChange(members, alice, { op: "remove", userId: bob });
     assert.equal(removed.ok, true);
     if (!removed.ok) return;
-    assert.deepEqual(removed.memberUserIds, [alice, carol]);
-    const access = groupAccess(removed.memberUserIds, bob);
+    assert.deepEqual(removed.members.map((member) => member.userId), [alice, carol]);
+    const access = groupAccess(removed.members.map((member) => member.userId), bob);
     assert.equal(access.ok, false);
     if (!access.ok) assert.equal(access.status, 404);
 
@@ -59,6 +69,32 @@ describe("group E2EE server policy", () => {
     };
     assert.equal(canReadGroupBlob(later), false);
     assert.equal(canReadGroupBlob({ ...later, viewerDeviceId: alicePhone, viewerIsMember: true }), true);
+  });
+
+  it("lets only an admin change other members, and lets a member leave", () => {
+    const members = [
+      { userId: alice, role: "ADMIN" as const },
+      { userId: bob, role: "MEMBER" as const },
+      { userId: carol, role: "MEMBER" as const },
+    ];
+    const memberAdds = planMembershipChange(members, bob, { op: "add", userId: "44444444-4444-4444-8444-444444444444" });
+    assert.equal(memberAdds.ok, false);
+    if (!memberAdds.ok) assert.equal(memberAdds.status, 403);
+
+    const memberRemoves = planMembershipChange(members, bob, { op: "remove", userId: carol });
+    assert.equal(memberRemoves.ok, false);
+    if (!memberRemoves.ok) assert.equal(memberRemoves.status, 403);
+
+    const selfLeave = planMembershipChange(members, bob, { op: "remove", userId: bob });
+    assert.equal(selfLeave.ok, true);
+
+    const lastAdmin = planMembershipChange(
+      [{ userId: alice, role: "ADMIN" }, { userId: bob, role: "MEMBER" }],
+      alice,
+      { op: "remove", userId: alice },
+    );
+    assert.equal(lastAdmin.ok, false);
+    if (!lastAdmin.ok) assert.equal(lastAdmin.status, 409);
   });
 
   it("stores opaque ciphertext and rejects a plaintext field", () => {

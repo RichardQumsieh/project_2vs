@@ -3,15 +3,20 @@ import { generateEd25519 } from "./keys";
 import {
   addDevice,
   applyCommit,
+  applyProposal,
   assertMembershipCapacity,
+  commitPending,
   createGroupDevice,
   createGroupSession,
   GROUP_E2EE_MAX_USERS,
   GroupCryptoError,
   groupEpoch,
+  hasPendingProposals,
   joinFromWelcome,
   listMembers,
+  listRoster,
   openMessage,
+  proposeSelfRemoval,
   publishedKeyPackage,
   removeDevice,
   sealMessage,
@@ -19,6 +24,7 @@ import {
   wireContainsPlaintext,
   type DeviceRef,
   type GroupDevice,
+  type GroupRole,
 } from "./group-mls";
 
 const aliceUser = "11111111-1111-4111-8111-111111111111";
@@ -33,11 +39,16 @@ const groupId = "44444444-4444-4444-8444-444444444444";
 const SECRET = "leadership-only: acquire northwind 9f3c1a7e";
 const AFTER_REMOVAL = "after removal bob must not read 0c77ee91";
 
-async function makeDevice(userId: string, deviceId: string): Promise<GroupDevice> {
+async function makeDevice(
+  userId: string,
+  deviceId: string,
+  role: GroupRole = "member",
+): Promise<GroupDevice> {
   const signing = await generateEd25519();
   return createGroupDevice({
     userId,
     deviceId,
+    role,
     sophiaSigningPrivateJwk: signing.privateJwk,
     sophiaSigningPublicKey: signing.publicKey,
   });
@@ -48,7 +59,7 @@ function refs(...devices: GroupDevice[]): DeviceRef[] {
 }
 
 async function startPair(group: string) {
-  const alice = await makeDevice(aliceUser, alicePhone);
+  const alice = await makeDevice(aliceUser, alicePhone, "admin");
   const bob = await makeDevice(bobUser, bobPhone);
   let aliceSession = await createGroupSession(alice, group);
   const added = await addDevice(aliceSession, publishedKeyPackage(bob), bob.sophiaSigningPublicKey);
@@ -153,8 +164,8 @@ describe("MLS small groups", { timeout: 30_000 }, () => {
   });
 
   it("decrypts one group ciphertext on every device of a member, and drops a removed device", async () => {
-    const phone = await makeDevice(aliceUser, alicePhone);
-    const laptop = await makeDevice(aliceUser, aliceLaptop);
+    const phone = await makeDevice(aliceUser, alicePhone, "admin");
+    const laptop = await makeDevice(aliceUser, aliceLaptop, "admin");
     const bob = await makeDevice(bobUser, bobPhone);
     let phoneSession = await createGroupSession(phone, "77777777-7777-4777-8777-777777777777");
 
@@ -199,7 +210,7 @@ describe("MLS small groups", { timeout: 30_000 }, () => {
   });
 
   it("refuses a key package signed by a different device", async () => {
-    const alice = await makeDevice(aliceUser, alicePhone);
+    const alice = await makeDevice(aliceUser, alicePhone, "admin");
     const bob = await makeDevice(bobUser, bobPhone);
     const eve = await makeDevice(carolUser, carolPhone);
     const session = await createGroupSession(alice, "88888888-8888-4888-8888-888888888888");
@@ -217,7 +228,7 @@ describe("MLS small groups", { timeout: 30_000 }, () => {
   });
 
   it("does not put MLS private keys in the published key package", async () => {
-    const device = await makeDevice(aliceUser, alicePhone);
+    const device = await makeDevice(aliceUser, alicePhone, "admin");
     const published = publishedKeyPackage(device);
     expect(Object.keys(published).sort()).toEqual([
       "bindingSignatureB64",
@@ -233,6 +244,44 @@ describe("MLS small groups", { timeout: 30_000 }, () => {
     ]) {
       expect(contains(wire, secret)).toBe(false);
     }
+  });
+
+  it("lets an admin commit a member's self-removal, and a member cannot remove someone else", async () => {
+    const pair = await startPair("99999999-9999-4999-8999-999999999991");
+    const carol = await makeDevice(carolUser, carolPhone);
+    const added = await addDevice(pair.aliceSession, publishedKeyPackage(carol), carol.sophiaSigningPublicKey);
+    const bobSession = await trustKeyPackage(
+      pair.bobSession,
+      publishedKeyPackage(carol),
+      carol.sophiaSigningPublicKey,
+    ).then((session) => applyCommit(session, added.commit));
+    const carolSession = await joinFromWelcome(carol, added.welcome, refs(pair.alice, pair.bob, carol));
+
+    await expect(removeDevice(bobSession.session, carolPhone)).rejects.toMatchObject({
+      code: "rejected",
+    });
+    const forged = await removeDevice(bobSession.session, carolPhone, { enforceAdmin: false });
+    const epochBeforeForgery = groupEpoch(added.session);
+    await expect(applyCommit(added.session, forged.commit)).rejects.toMatchObject({ code: "rejected" });
+    expect(groupEpoch(added.session)).toBe(epochBeforeForgery);
+
+    const proposed = await proposeSelfRemoval(bobSession.session);
+    expect(hasPendingProposals(proposed.session)).toBe(true);
+    expect(listMembers(proposed.session).some((member) => member.deviceId === bobPhone)).toBe(true);
+    const aliceSaw = await applyProposal(added.session, proposed.proposal);
+    const carolSaw = await applyProposal(carolSession, proposed.proposal);
+    const committed = await commitPending(aliceSaw);
+    expect(groupEpoch(committed.session)).toBeGreaterThan(groupEpoch(aliceSaw));
+    expect(listRoster(committed.session).some((leaf) => leaf.deviceId === bobPhone)).toBe(false);
+    expect(listRoster(committed.session).every((leaf) => leaf.role === "admin" || leaf.deviceId === carolPhone)).toBe(true);
+
+    const carolAfter = await applyCommit(carolSaw, committed.commit);
+    const bobAfter = await applyCommit(proposed.session, committed.commit);
+    expect(bobAfter.selfRemoved).toBe(true);
+    const later = await sealMessage(committed.session, AFTER_REMOVAL);
+    expect((await openMessage(carolAfter.session, later.message)).plaintext).toBe(AFTER_REMOVAL);
+    await expect(openMessage(bobAfter.session, later.message)).rejects.toMatchObject({ code: "not_member" });
+    await expect(openMessage(proposed.session, later.message)).rejects.toMatchObject({ code: "cannot_decrypt" });
   });
 
   it("caps the prototype at 8 users and 2 devices each", () => {

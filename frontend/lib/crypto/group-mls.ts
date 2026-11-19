@@ -11,8 +11,8 @@ import type {
   Proposal,
 } from "ts-mls";
 import { createCommit } from "ts-mls/createCommit.js";
-import { createApplicationMessage } from "ts-mls/createMessage.js";
-import { createGroup, joinGroup } from "ts-mls/clientState.js";
+import { createApplicationMessage, createProposal } from "ts-mls/createMessage.js";
+import { createGroup, decodeGroupState, encodeGroupState, joinGroup } from "ts-mls/clientState.js";
 import { getCiphersuiteFromName } from "ts-mls/crypto/ciphersuite.js";
 import { getCiphersuiteImpl } from "ts-mls/crypto/getCiphersuiteImpl.js";
 import { defaultCapabilities } from "ts-mls/defaultCapabilities.js";
@@ -71,8 +71,13 @@ export type DeviceRef = {
   deviceId: string;
 };
 
+export type GroupRole = "admin" | "member";
+
+export type RosterLeaf = DeviceRef & { role: GroupRole };
+
 export type GroupDevice = {
   ref: DeviceRef;
+  role: GroupRole;
   sophiaSigningPublicKey: Uint8Array;
   /** Public MLS key package. Safe to upload. */
   keyPackageWire: Uint8Array;
@@ -131,11 +136,11 @@ function normalizeRef(ref: DeviceRef): DeviceRef {
   return { userId, deviceId };
 }
 
-function formatIdentity(ref: DeviceRef): string {
-  return `${IDENTITY_PREFIX}:${ref.userId}:${ref.deviceId}`;
+function formatIdentity(ref: DeviceRef, role: GroupRole): string {
+  return `${IDENTITY_PREFIX}:${ref.userId}:${ref.deviceId}:${role}`;
 }
 
-export function deviceRefFromIdentity(identity: Uint8Array): DeviceRef | null {
+export function deviceRefFromIdentity(identity: Uint8Array): RosterLeaf | null {
   let text: string;
   try {
     text = bytesToUtf8(identity);
@@ -143,19 +148,21 @@ export function deviceRefFromIdentity(identity: Uint8Array): DeviceRef | null {
     return null;
   }
   const parts = text.split(":");
-  if (parts.length !== 3 || parts[0] !== IDENTITY_PREFIX) return null;
+  if (parts.length !== 4 || parts[0] !== IDENTITY_PREFIX) return null;
   const userId = parts[1]?.toLowerCase() ?? "";
   const deviceId = parts[2]?.toLowerCase() ?? "";
+  const role = parts[3];
   if (!UUID_RE.test(userId) || !UUID_RE.test(deviceId)) return null;
-  return { userId, deviceId };
+  if (role !== "admin" && role !== "member") return null;
+  return { userId, deviceId, role };
 }
 
-function deviceRefFromCredential(credential: Credential): DeviceRef | null {
+function deviceRefFromCredential(credential: Credential): RosterLeaf | null {
   if (credential.credentialType !== "basic") return null;
   return deviceRefFromIdentity(credential.identity);
 }
 
-function requireCredential(credential: Credential): DeviceRef {
+function requireCredential(credential: Credential): RosterLeaf {
   const ref = deviceRefFromCredential(credential);
   if (!ref) {
     throw new GroupCryptoError("MLS credential is not a Sophia device identity", "invalid");
@@ -170,7 +177,7 @@ function sameRef(left: DeviceRef, right: DeviceRef): boolean {
 function fingerprintKeyPackage(keyPackage: KeyPackage): string {
   const ref = requireCredential(keyPackage.leafNode.credential);
   return [
-    formatIdentity(ref),
+    formatIdentity(ref, ref.role),
     bytesToB64(keyPackage.initKey),
     bytesToB64(keyPackage.leafNode.signaturePublicKey),
     bytesToB64(keyPackage.leafNode.hpkePublicKey),
@@ -226,13 +233,38 @@ export function assertMembershipCapacity(members: readonly DeviceRef[], adding: 
   }
 }
 
+export function listRoster(session: GroupSession): RosterLeaf[] {
+  return rosterFromState(session.state);
+}
+
 export function listMembers(session: GroupSession): DeviceRef[] {
-  const members: DeviceRef[] = [];
-  session.state.ratchetTree.forEach((node, nodeIndex) => {
+  return listRoster(session).map(({ userId, deviceId }) => ({ userId, deviceId }));
+}
+
+export function hasPendingProposals(session: GroupSession): boolean {
+  return Object.keys(session.state.unappliedProposals).length > 0;
+}
+
+function rosterFromState(state: ClientState): RosterLeaf[] {
+  const members: RosterLeaf[] = [];
+  state.ratchetTree.forEach((node, nodeIndex) => {
     if (!node || node.nodeType !== "leaf" || nodeIndex % 2 !== 0) return;
     members.push(requireCredential(node.leaf.credential));
   });
   return members;
+}
+
+function leafAt(state: ClientState, leafIndex: number): RosterLeaf | null {
+  const node = state.ratchetTree[leafIndex * 2];
+  if (!node || node.nodeType !== "leaf") return null;
+  return deviceRefFromCredential(node.leaf.credential);
+}
+
+function assertAdmin(session: GroupSession): void {
+  const self = listRoster(session).find((leaf) => leaf.deviceId === session.device.ref.deviceId);
+  if (!self || self.role !== "admin") {
+    throw new GroupCryptoError("Only a group admin can change membership", "rejected");
+  }
 }
 
 export function groupEpoch(session: GroupSession): number {
@@ -261,27 +293,47 @@ function leafIndexFor(state: ClientState, deviceId: string): number {
 function acceptIncoming(state: ClientState, trusted: ReadonlySet<string>): IncomingMessageCallback {
   return (incoming) => {
     const proposals = incoming.kind === "commit" ? incoming.proposals : [incoming.proposal];
+    const committer = incoming.kind === "commit" && incoming.senderLeafIndex !== undefined
+      ? leafAt(state, incoming.senderLeafIndex)
+      : null;
+    const membershipChanges = proposals.filter((item) =>
+      item.proposal.proposalType === "add" || item.proposal.proposalType === "remove",
+    );
+    if (incoming.kind === "commit" && membershipChanges.length > 0 && committer?.role !== "admin") {
+      return "reject";
+    }
     for (const item of proposals) {
       const proposal = item.proposal;
-      if (proposal.proposalType === "remove") continue;
+      const sender = item.senderLeafIndex !== undefined
+        ? leafAt(state, item.senderLeafIndex)
+        : committer;
+      if (proposal.proposalType === "remove") {
+        const target = leafAt(state, proposal.remove.removed);
+        const selfRemove = Boolean(sender && target && sender.deviceId === target.deviceId);
+        if (!selfRemove && sender?.role !== "admin") return "reject";
+        continue;
+      }
       if (proposal.proposalType === "add") {
+        if (sender?.role !== "admin") return "reject";
         let fingerprint: string;
+        let added: RosterLeaf;
         try {
           fingerprint = fingerprintKeyPackage(proposal.add.keyPackage);
+          added = requireCredential(proposal.add.keyPackage.leafNode.credential);
         } catch {
           return "reject";
         }
         if (!trusted.has(fingerprint)) return "reject";
+        const existing = rosterFromState(state).find((leaf) => leaf.userId === added.userId);
+        if (existing && existing.role !== added.role) return "reject";
         continue;
       }
       if (proposal.proposalType === "update") {
-        const sender = item.senderLeafIndex;
-        if (sender === undefined) return "reject";
-        const node = state.ratchetTree[sender * 2];
-        if (!node || node.nodeType !== "leaf") return "reject";
-        const current = deviceRefFromCredential(node.leaf.credential);
+        const senderIndex = item.senderLeafIndex;
+        if (senderIndex === undefined) return "reject";
+        const current = leafAt(state, senderIndex);
         const next = deviceRefFromCredential(proposal.update.leafNode.credential);
-        if (!current || !next || !sameRef(current, next)) return "reject";
+        if (!current || !next || !sameRef(current, next) || current.role !== next.role) return "reject";
         continue;
       }
       return "reject";
@@ -293,7 +345,7 @@ function acceptIncoming(state: ClientState, trusted: ReadonlySet<string>): Incom
 async function verifiedKeyPackage(
   published: PublishedKeyPackage,
   sophiaSigningPublicKey: Uint8Array,
-): Promise<{ keyPackage: KeyPackage; fingerprint: string; ref: DeviceRef }> {
+): Promise<{ keyPackage: KeyPackage; fingerprint: string; ref: RosterLeaf }> {
   const ref = normalizeRef({ userId: published.userId, deviceId: published.deviceId });
   if (sophiaSigningPublicKey.byteLength !== 32) {
     throw new GroupCryptoError("Device signing key is not an Ed25519 public key", "invalid");
@@ -324,24 +376,26 @@ async function verifiedKeyPackage(
   return {
     keyPackage: message.keyPackage,
     fingerprint: fingerprintKeyPackage(message.keyPackage),
-    ref,
+    ref: claimed,
   };
 }
 
 export async function createGroupDevice(input: {
   userId: string;
   deviceId: string;
+  role?: GroupRole;
   sophiaSigningPrivateJwk: JsonWebKey;
   sophiaSigningPublicKey: Uint8Array;
 }): Promise<GroupDevice> {
   const ref = normalizeRef({ userId: input.userId, deviceId: input.deviceId });
+  const role = input.role ?? "member";
   if (input.sophiaSigningPublicKey.byteLength !== 32) {
     throw new GroupCryptoError("Device signing key is not an Ed25519 public key", "invalid");
   }
   const suite = await cipherSuite();
   const credential: Credential = {
     credentialType: "basic",
-    identity: utf8ToBytes(formatIdentity(ref)),
+    identity: utf8ToBytes(formatIdentity(ref, role)),
   };
   const generated = await generateKeyPackage(
     credential,
@@ -366,6 +420,7 @@ export async function createGroupDevice(input: {
   }
   return {
     ref,
+    role,
     sophiaSigningPublicKey: input.sophiaSigningPublicKey,
     keyPackageWire,
     bindingSignature,
@@ -387,6 +442,9 @@ export async function createGroupSession(
   device: GroupDevice,
   groupId: string,
 ): Promise<GroupSession> {
+  if (device.role !== "admin") {
+    throw new GroupCryptoError("The group creator's device must be an admin leaf", "invalid");
+  }
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(groupId)) {
     throw new GroupCryptoError("Group id must be 1-64 URL-safe characters", "invalid");
   }
@@ -422,11 +480,17 @@ export async function addDevice(
   session: GroupSession,
   published: PublishedKeyPackage,
   sophiaSigningPublicKey: Uint8Array,
+  options?: { enforceAdmin?: boolean },
 ): Promise<{ session: GroupSession; commit: Uint8Array; welcome: Uint8Array }> {
   if (session.state.groupActiveState.kind !== "active") {
     throw new GroupCryptoError("This device is not an active group member", "not_member");
   }
+  if (options?.enforceAdmin !== false) assertAdmin(session);
   const verified = await verifiedKeyPackage(published, sophiaSigningPublicKey);
+  const existingUser = listRoster(session).find((leaf) => leaf.userId === verified.ref.userId);
+  if (existingUser && existingUser.role !== verified.ref.role) {
+    throw new GroupCryptoError("A member's devices must share one group role", "invalid");
+  }
   assertMembershipCapacity(listMembers(session), verified.ref);
   const proposal: Proposal = {
     proposalType: "add",
@@ -462,7 +526,7 @@ export async function addDevice(
 export async function joinFromWelcome(
   device: GroupDevice,
   welcomeWire: Uint8Array,
-  expectedMembers: readonly DeviceRef[],
+  expectedMembers?: readonly DeviceRef[],
 ): Promise<GroupSession> {
   const message = decodeWire(welcomeWire);
   if (message.wireformat !== "mls_welcome") {
@@ -485,12 +549,17 @@ export async function joinFromWelcome(
     trustedKeyPackages: new Set<string>(),
   };
   const actual = listMembers(session);
-  const expected = expectedMembers.map((ref) => normalizeRef(ref));
-  if (!membersEqual(actual, expected) || !actual.some((member) => sameRef(member, device.ref))) {
-    throw new GroupCryptoError(
-      "Welcome group members did not match the expected device list",
-      "invalid",
-    );
+  if (!actual.some((member) => sameRef(member, device.ref))) {
+    throw new GroupCryptoError("Welcome did not include this device", "invalid");
+  }
+  if (expectedMembers) {
+    const expected = expectedMembers.map((ref) => normalizeRef(ref));
+    if (!membersEqual(actual, expected)) {
+      throw new GroupCryptoError(
+        "Welcome group members did not match the expected device list",
+        "invalid",
+      );
+    }
   }
   return session;
 }
@@ -498,10 +567,12 @@ export async function joinFromWelcome(
 export async function removeDevice(
   session: GroupSession,
   deviceId: string,
+  options?: { enforceAdmin?: boolean },
 ): Promise<{ session: GroupSession; commit: Uint8Array }> {
   if (session.state.groupActiveState.kind !== "active") {
     throw new GroupCryptoError("This device is not an active group member", "not_member");
   }
+  if (options?.enforceAdmin !== false) assertAdmin(session);
   const targetId = deviceId.toLowerCase();
   if (targetId === session.device.ref.deviceId) {
     throw new GroupCryptoError("Another member has to remove this device", "invalid");
@@ -635,6 +706,136 @@ export async function openMessage(
   return {
     session: withTrust(session, new Set(session.trustedKeyPackages), opened.newState),
     plaintext: bytesToUtf8(opened.message),
+  };
+}
+
+export async function proposeSelfRemoval(
+  session: GroupSession,
+): Promise<{ session: GroupSession; proposal: Uint8Array }> {
+  if (session.state.groupActiveState.kind !== "active") {
+    throw new GroupCryptoError("This device is not an active group member", "not_member");
+  }
+  const proposal: Proposal = {
+    proposalType: "remove",
+    remove: { removed: leafIndexFor(session.state, session.device.ref.deviceId) },
+  };
+  const suite = await cipherSuite();
+  const created = await createProposal(isolateState(session.state), false, proposal, suite);
+  wipe(created.consumed);
+  return {
+    session: withTrust(session, new Set(session.trustedKeyPackages), created.newState),
+    proposal: encodeMlsMessage(created.message),
+  };
+}
+
+/**
+ * Commit proposals already accepted into this epoch, including a member's
+ * self-removal. ts-mls rejects a commit that removes the committer, so the
+ * leaving member cannot rotate the epoch alone.
+ */
+export async function commitPending(
+  session: GroupSession,
+): Promise<{ session: GroupSession; commit: Uint8Array; welcome?: Uint8Array }> {
+  if (session.state.groupActiveState.kind !== "active") {
+    throw new GroupCryptoError("This device is not an active group member", "not_member");
+  }
+  assertAdmin(session);
+  if (!hasPendingProposals(session)) {
+    throw new GroupCryptoError("There is no pending group proposal to commit", "invalid");
+  }
+  const suite = await cipherSuite();
+  let committed;
+  try {
+    committed = await createCommit(
+      { state: isolateState(session.state), cipherSuite: suite, pskIndex: emptyPskIndex },
+      { ratchetTreeExtension: true },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("removing committer")) {
+      throw new GroupCryptoError("An admin cannot commit their own removal", "invalid", {
+        cause: error,
+      });
+    }
+    throw new GroupCryptoError("Could not commit the pending proposal", "invalid", { cause: error });
+  }
+  wipe(committed.consumed);
+  const next = withTrust(session, new Set(session.trustedKeyPackages), committed.newState);
+  return {
+    session: next,
+    commit: encodeMlsMessage(committed.commit),
+    ...(committed.welcome
+      ? {
+          welcome: encodeMlsMessage({
+            version: "mls10",
+            wireformat: "mls_welcome",
+            welcome: committed.welcome,
+          }),
+        }
+      : {}),
+  };
+}
+
+export async function applyProposal(
+  session: GroupSession,
+  proposalWire: Uint8Array,
+): Promise<GroupSession> {
+  if (session.state.groupActiveState.kind !== "active") {
+    throw new GroupCryptoError("This device is not an active group member", "not_member");
+  }
+  const before = groupEpoch(session);
+  const message = decodeWire(proposalWire);
+  if (message.wireformat !== "mls_private_message" && message.wireformat !== "mls_public_message") {
+    throw new GroupCryptoError("Expected an MLS proposal", "invalid");
+  }
+  const suite = await cipherSuite();
+  let processed;
+  try {
+    processed = await processMessage(
+      message,
+      isolateState(session.state),
+      emptyPskIndex,
+      acceptIncoming(session.state, session.trustedKeyPackages),
+      suite,
+    );
+  } catch (error) {
+    throw new GroupCryptoError("Could not apply the group proposal", "cannot_decrypt", {
+      cause: error,
+    });
+  }
+  wipe(processed.consumed);
+  if (processed.kind !== "newState") {
+    throw new GroupCryptoError("Expected a proposal, received an application message", "invalid");
+  }
+  if (processed.actionTaken === "reject") {
+    throw new GroupCryptoError("The proposal was rejected by group policy", "rejected");
+  }
+  const next = withTrust(session, new Set(session.trustedKeyPackages), processed.newState);
+  if (groupEpoch(next) !== before) {
+    throw new GroupCryptoError("Expected a proposal, received a commit", "invalid");
+  }
+  return next;
+}
+
+export function encodeSessionState(session: GroupSession): Uint8Array {
+  const { clientConfig, ...rest } = session.state;
+  void clientConfig;
+  return encodeGroupState(rest);
+}
+
+export function sessionFromEncodedState(
+  device: GroupDevice,
+  encoded: Uint8Array,
+  trusted: readonly string[],
+): GroupSession {
+  const decoded = decodeGroupState(encoded, 0);
+  if (!decoded || decoded[1] !== encoded.length) {
+    throw new GroupCryptoError("Stored group state is malformed", "invalid");
+  }
+  return {
+    device,
+    state: { ...decoded[0], clientConfig },
+    trustedKeyPackages: new Set(trusted),
   };
 }
 

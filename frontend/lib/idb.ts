@@ -10,6 +10,10 @@ interface MessengerDB extends DBSchema {
     key: string;
     value: SessionRecord;
   };
+  groupSessions: {
+    key: string;
+    value: { nonce: string; ciphertext: string };
+  };
   messages: {
     key: string;
     value: LocalMessage;
@@ -32,7 +36,7 @@ export function sessionKey(
 }
 
 export async function getDb() {
-  return openDB<MessengerDB>(DB_NAME, 9, {
+  return openDB<MessengerDB>(DB_NAME, 10, {
     upgrade(db, _oldVersion, _newVersion, transaction) {
       if (!db.objectStoreNames.contains("meta")) {
         db.createObjectStore("meta");
@@ -60,6 +64,10 @@ export async function getDb() {
           ["conversationId", "createdAt"],
         );
       }
+      if (!db.objectStoreNames.contains("groupSessions")) {
+        db.createObjectStore("groupSessions");
+      }
+
       if (!messages.indexNames.contains("by-conversation-createdAt-id")) {
         messages.createIndex(
           "by-conversation-createdAt-id",
@@ -72,6 +80,20 @@ export async function getDb() {
 
 function metaKey(userId: string, key: string) {
   return `${userId}:${key}`;
+}
+
+export async function saveSealedGroup(
+  userId: string,
+  conversationId: string,
+  value: { nonce: string; ciphertext: string },
+) {
+  const db = await getDb();
+  await db.put("groupSessions", value, `${userId}:${conversationId}`);
+}
+
+export async function loadSealedGroup(userId: string, conversationId: string) {
+  const db = await getDb();
+  return db.get("groupSessions", `${userId}:${conversationId}`);
 }
 
 export async function saveVault(record: VaultRecord, userId?: string) {

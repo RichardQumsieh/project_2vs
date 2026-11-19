@@ -978,6 +978,21 @@ export function currentUserId(): string | null {
   return identityUserId;
 }
 
+export function currentVaultKey(): CryptoKey | null {
+  return vaultKey;
+}
+
+export function currentSigningMaterial(): {
+  privateJwk: JsonWebKey;
+  publicKey: Uint8Array;
+} | null {
+  if (!identity) return null;
+  return {
+    privateJwk: identity.identity.signing.privateJwk,
+    publicKey: b64ToBytes(identity.identity.signing.publicKey),
+  };
+}
+
 export async function bootstrapDevice(
   password: string,
   recoveryCode?: string,

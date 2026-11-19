@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db.js";
 import { requireUser } from "../auth.js";
 import { groupE2eeEnabled } from "../env.js";
@@ -36,14 +37,25 @@ export async function groupRoutes(app: FastifyInstance) {
 
     const parsed = createGroupSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "Invalid input" });
-    const planned = planGroupMembers(session.sub, parsed.data.memberUserIds);
+    const requestedIds = [...(parsed.data.memberUserIds ?? [])];
+    if (parsed.data.memberUsernames && parsed.data.memberUsernames.length > 0) {
+      const named = await prisma.user.findMany({
+        where: { username: { in: parsed.data.memberUsernames } },
+        select: { id: true, username: true },
+      });
+      if (named.length !== new Set(parsed.data.memberUsernames).size) {
+        return reply.code(404).send({ error: "User not found" });
+      }
+      requestedIds.push(...named.map((user) => user.id));
+    }
+    const planned = planGroupMembers(session.sub, requestedIds);
     if (!planned.ok) return deny(reply, planned);
 
     const users = await prisma.user.findMany({
-      where: { id: { in: planned.memberUserIds } },
+      where: { id: { in: planned.members.map((member) => member.userId) } },
       select: { id: true },
     });
-    if (users.length !== planned.memberUserIds.length) {
+    if (users.length !== planned.members.length) {
       return reply.code(404).send({ error: "User not found" });
     }
 
@@ -52,7 +64,9 @@ export async function groupRoutes(app: FastifyInstance) {
         type: "GROUP",
         title: parsed.data.title,
         initiatedByUserId: session.sub,
-        members: { create: planned.memberUserIds.map((userId) => ({ userId })) },
+        members: {
+          create: planned.members.map((member) => ({ userId: member.userId, role: member.role })),
+        },
       },
       include: { members: { include: { user: true } } },
     });
@@ -72,22 +86,29 @@ export async function groupRoutes(app: FastifyInstance) {
     if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
     const access = groupAccess(conversation.members.map((member) => member.userId), session.sub);
     if (!access.ok) return deny(reply, access);
-    const user = await prisma.user.findUnique({
-      where: { id: parsed.data.userId },
-      select: { id: true },
-    });
+    const user = parsed.data.userId
+      ? await prisma.user.findUnique({ where: { id: parsed.data.userId }, select: { id: true } })
+      : await prisma.user.findUnique({
+          where: { username: parsed.data.username },
+          select: { id: true },
+        });
     if (!user) return reply.code(404).send({ error: "User not found" });
     const planned = planMembershipChange(
-      conversation.members.map((member) => member.userId),
-      { op: "add", userId: user.id },
+      conversation.members,
+      session.sub,
+      { op: "add", userId: user.id, role: parsed.data.role },
     );
     if (!planned.ok) return deny(reply, planned);
 
     await prisma.conversationMember.create({
-      data: { conversationId: id, userId: user.id },
+      data: {
+        conversationId: id,
+        userId: user.id,
+        role: planned.members.find((member) => member.userId === user.id)?.role ?? "MEMBER",
+      },
     });
-    await notifyMembers(planned.memberUserIds, id);
-    return { ok: true, memberUserIds: [...planned.memberUserIds].sort() };
+    await notifyMembers(planned.members.map((member) => member.userId), id);
+    return { ok: true, members: serializeMembers(planned.members) };
   });
 
   app.delete("/conversations/:id/members/:userId", async (request, reply) => {
@@ -101,7 +122,8 @@ export async function groupRoutes(app: FastifyInstance) {
     const access = groupAccess(conversation.members.map((member) => member.userId), session.sub);
     if (!access.ok) return deny(reply, access);
     const planned = planMembershipChange(
-      conversation.members.map((member) => member.userId),
+      conversation.members,
+      session.sub,
       { op: "remove", userId },
     );
     if (!planned.ok) return deny(reply, planned);
@@ -109,8 +131,8 @@ export async function groupRoutes(app: FastifyInstance) {
     await prisma.conversationMember.delete({
       where: { conversationId_userId: { conversationId: id, userId } },
     });
-    await notifyMembers([...planned.memberUserIds, userId], id);
-    return { ok: true, memberUserIds: [...planned.memberUserIds].sort() };
+    await notifyMembers([...planned.members.map((member) => member.userId), userId], id);
+    return { ok: true, members: serializeMembers(planned.members) };
   });
 
   app.post("/conversations/:id/mls", async (request, reply) => {
@@ -161,16 +183,49 @@ export async function groupRoutes(app: FastifyInstance) {
       }
     }
 
-    const created = await prisma.groupMlsBlob.create({
-      data: {
-        conversationId: id,
-        senderDeviceId: device.id,
-        kind: parsed.data.kind,
-        recipientDeviceId,
-        payload: Buffer.from(blob.payload),
-        bindingSignature: blob.bindingSignature ? Buffer.from(blob.bindingSignature) : null,
-      },
-    });
+    if (parsed.data.clientId) {
+      const existing = await prisma.groupMlsBlob.findUnique({
+        where: {
+          conversationId_clientId: { conversationId: id, clientId: parsed.data.clientId },
+        },
+      });
+      if (existing) {
+        const samePayload = Buffer.from(existing.payload).equals(Buffer.from(blob.payload));
+        if (existing.senderDeviceId !== device.id || !samePayload || existing.kind !== parsed.data.kind) {
+          return reply.code(409).send({ error: "MLS client id was already used" });
+        }
+        return serializeBlob(existing);
+      }
+    }
+
+    let created;
+    try {
+      created = await prisma.groupMlsBlob.create({
+        data: {
+          conversationId: id,
+          senderDeviceId: device.id,
+          clientId: parsed.data.clientId,
+          kind: parsed.data.kind,
+          recipientDeviceId,
+          payload: Buffer.from(blob.payload),
+          bindingSignature: blob.bindingSignature ? Buffer.from(blob.bindingSignature) : null,
+        },
+      });
+    } catch (error) {
+      if (
+        parsed.data.clientId &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        const existing = await prisma.groupMlsBlob.findUnique({
+          where: {
+            conversationId_clientId: { conversationId: id, clientId: parsed.data.clientId },
+          },
+        });
+        if (existing) return serializeBlob(existing);
+      }
+      throw error;
+    }
     await prisma.conversation.update({
       where: { id },
       data: { updatedAt: created.createdAt },
@@ -244,6 +299,49 @@ export async function groupRoutes(app: FastifyInstance) {
         .map(serializeBlob),
     };
   });
+
+  app.get("/conversations/:id/group-devices", async (request, reply) => {
+    const enabled = gateGroupE2ee(groupE2eeEnabled);
+    if (!enabled.ok) return deny(reply, enabled);
+    const session = await requireUser(request, reply);
+    if (!session) return;
+    const { id } = request.params as { id: string };
+    const conversation = await loadGroup(id);
+    if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+    const access = groupAccess(conversation.members.map((member) => member.userId), session.sub);
+    if (!access.ok) return deny(reply, access);
+    const roleByUser = new Map(conversation.members.map((member) => [member.userId, member.role]));
+    const devices = await prisma.device.findMany({
+      where: {
+        userId: { in: conversation.members.map((member) => member.userId) },
+        revokedAt: null,
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        userId: true,
+        signingPublicKey: true,
+        user: { select: { username: true, displayName: true } },
+      },
+    });
+    const perUser = new Map<string, number>();
+    const visible = devices.filter((device) => {
+      const count = perUser.get(device.userId) ?? 0;
+      if (count >= 2) return false;
+      perUser.set(device.userId, count + 1);
+      return true;
+    });
+    return {
+      devices: visible.map((device) => ({
+        userId: device.userId,
+        deviceId: device.id,
+        signingPublicKey: bytesToB64(device.signingPublicKey),
+        role: roleByUser.get(device.userId) === "ADMIN" ? "admin" : "member",
+        username: device.user.username,
+        displayName: device.user.displayName,
+      })),
+    };
+  });
 }
 
 async function loadGroup(id: string) {
@@ -252,7 +350,7 @@ async function loadGroup(id: string) {
     select: {
       id: true,
       type: true,
-      members: { select: { userId: true } },
+      members: { select: { userId: true, role: true } },
     },
   });
   if (!conversation || conversation.type !== "GROUP") return null;
@@ -266,10 +364,12 @@ function serializeBlob(blob: {
   recipientDeviceId: string | null;
   payload: Uint8Array;
   bindingSignature: Uint8Array | null;
+  clientId?: string | null;
   createdAt: Date;
 }) {
   return {
     id: blob.id,
+    clientId: blob.clientId ?? null,
     kind: blob.kind,
     senderDeviceId: blob.senderDeviceId,
     recipientDeviceId: blob.recipientDeviceId,
@@ -277,6 +377,12 @@ function serializeBlob(blob: {
     bindingSignature: blob.bindingSignature ? bytesToB64(blob.bindingSignature) : null,
     createdAt: blob.createdAt.toISOString(),
   };
+}
+
+function serializeMembers(members: readonly { userId: string; role: "ADMIN" | "MEMBER" }[]) {
+  return [...members]
+    .map((member) => ({ userId: member.userId, role: member.role }))
+    .sort((left, right) => left.userId.localeCompare(right.userId));
 }
 
 function deny(reply: FastifyReply, failure: GroupGateFailure) {

@@ -142,6 +142,12 @@ export type Conversation = {
   type: "DIRECT" | "GROUP";
   title?: string | null;
   memberUserIds?: string[];
+  members?: {
+    userId: string;
+    username: string;
+    displayName: string | null;
+    role: "ADMIN" | "MEMBER";
+  }[];
   updatedAt: string;
   peer: PublicUser | null;
   lastMessageAt: string | null;
@@ -460,7 +466,7 @@ export const api = {
       },
     ),
 
-  createGroup: (body: { memberUserIds: string[]; title?: string }) => {
+  createGroup: (body: { memberUserIds?: string[]; memberUsernames?: string[]; title?: string }) => {
     assertGroupE2eeEnabled();
     return request<Conversation>("/conversations/group", {
       method: "POST",
@@ -468,27 +474,45 @@ export const api = {
     });
   },
 
-  addGroupMember: (conversationId: string, userId: string) => {
+  addGroupMember: (
+    conversationId: string,
+    body: { userId?: string; username?: string; role?: "ADMIN" | "MEMBER" },
+  ) => {
     assertGroupE2eeEnabled();
-    return request<{ ok: true; memberUserIds: string[] }>(
+    return request<{ ok: true; members: { userId: string; role: "ADMIN" | "MEMBER" }[] }>(
       `/conversations/${encodeURIComponent(conversationId)}/members`,
-      { method: "POST", body: JSON.stringify({ userId }) },
+      { method: "POST", body: JSON.stringify(body) },
     );
   },
 
   removeGroupMember: (conversationId: string, userId: string) => {
     assertGroupE2eeEnabled();
-    return request<{ ok: true; memberUserIds: string[] }>(
+    return request<{ ok: true; members: { userId: string; role: "ADMIN" | "MEMBER" }[] }>(
       `/conversations/${encodeURIComponent(conversationId)}/members/${encodeURIComponent(userId)}`,
       { method: "DELETE" },
     );
+  },
+
+  groupDevices: (conversationId: string) => {
+    assertGroupE2eeEnabled();
+    return request<{
+      devices: {
+        userId: string;
+        deviceId: string;
+        signingPublicKey: string;
+        role: "admin" | "member";
+        username: string;
+        displayName: string | null;
+      }[];
+    }>(`/conversations/${encodeURIComponent(conversationId)}/group-devices`);
   },
 
   postGroupMls: (
     conversationId: string,
     body: {
       senderDeviceId: string;
-      kind: "key_package" | "welcome" | "commit" | "application";
+      clientId?: string;
+      kind: "key_package" | "welcome" | "commit" | "proposal" | "application";
       payload: string;
       recipientDeviceId?: string;
       bindingSignature?: string;
@@ -506,7 +530,8 @@ export const api = {
     return request<{
       blobs: {
         id: string;
-        kind: string;
+        clientId: string | null;
+        kind: "key_package" | "welcome" | "commit" | "proposal" | "application";
         senderDeviceId: string;
         recipientDeviceId: string | null;
         payload: string;
@@ -516,6 +541,7 @@ export const api = {
     }>(
       `/conversations/${encodeURIComponent(conversationId)}/mls?${new URLSearchParams({
         deviceId,
+        limit: "100",
         ...(after ? { after } : {}),
       })}`,
     );
