@@ -25,6 +25,19 @@ dist/
 **/.env.*
 !**/.env.example
 !**/.env.production.example
+*.pem
+*.p12
+*.pfx
+*.key
+*.keystore
+*.kdbx
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+credentials.json
+service-account*.json
+**/secrets/
 
 # Logs and caches
 *.log

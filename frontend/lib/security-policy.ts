@@ -46,3 +46,20 @@ export function createContentSecurityPolicy(
     "manifest-src 'self'",
   ].join("; ");
 }
+
+export const frontendHstsHeaderValue = "max-age=15552000";
+
+/** Document headers for the Next.js app. CSP is attached separately because it carries a nonce. */
+export function frontendDocumentSecurityHeaders(protocol: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+    "Permissions-Policy": "camera=(self), microphone=(self), geolocation=(self)",
+  };
+  if (protocol === "https" || protocol === "https:") {
+    headers["Strict-Transport-Security"] = frontendHstsHeaderValue;
+  }
+  return headers;
+}

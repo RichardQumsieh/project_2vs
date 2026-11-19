@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createContentSecurityPolicy } from "./security-policy";
+import { createContentSecurityPolicy, frontendDocumentSecurityHeaders, frontendHstsHeaderValue } from "./security-policy";
 
 describe("createContentSecurityPolicy", () => {
   it("uses a nonce and does not allow inline scripts", () => {
@@ -29,6 +29,17 @@ describe("createContentSecurityPolicy", () => {
     expect(policy).toContain(
       "frame-src https://accounts.google.com https://www.youtube-nocookie.com",
     );
+  });
+
+  it("sends HSTS only when the document is served over HTTPS", () => {
+    const httpsHeaders = frontendDocumentSecurityHeaders("https:");
+    expect(httpsHeaders["Strict-Transport-Security"]).toBe(frontendHstsHeaderValue);
+    expect(httpsHeaders["X-Content-Type-Options"]).toBe("nosniff");
+    expect(httpsHeaders["X-Frame-Options"]).toBe("DENY");
+    expect(httpsHeaders["Permissions-Policy"]).toContain("camera=(self)");
+
+    const httpHeaders = frontendDocumentSecurityHeaders("http:");
+    expect(httpHeaders["Strict-Transport-Security"]).toBeUndefined();
   });
 
   it("rejects malformed API origins rather than widening the policy", () => {
