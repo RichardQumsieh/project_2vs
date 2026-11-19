@@ -10,7 +10,6 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { logAccountActivity } from "@/lib/account-activity";
 import { api } from "@/lib/api";
 import {
   acknowledgeArchiveRecoveryCode,
@@ -2107,19 +2106,16 @@ function ThreadConversation({
             throw new Error("Could not snooze this Radar reminder in this browser.");
           }
         },
-        draftEmail: async (action) => {
+        draftEmail: async (action, approval) => {
+          if (!approval?.proposalId) {
+            throw new Error("Email changes run only after explicit approval.");
+          }
           const payload = emailApiPayload(action);
           if (action.delivery === "send") {
-            await api.sendEmail(action.provider, payload);
-            logAccountActivity({
-              action: "BUTTON_ACTION",
-              summary: "Approved email send",
-              subjectKind: "email",
-              subjectId: action.provider,
-            });
+            await api.sendEmail(action.provider, payload, approval.proposalId);
             return;
           }
-          await api.createEmailDraft(action.provider, payload);
+          await api.createEmailDraft(action.provider, payload, approval.proposalId);
         },
         createCalendarEvent: async (action) => {
           await api.createCalendarEvent(action.provider, {
@@ -2130,14 +2126,15 @@ function ThreadConversation({
             description: action.description,
           });
         },
-        deleteCalendarEvent: async (action) => {
-          await api.deleteCalendarEvent(action.provider, action.eventId);
-          logAccountActivity({
-            action: "BUTTON_ACTION",
-            summary: "Approved calendar delete",
-            subjectKind: "calendar",
-            subjectId: action.provider,
-          });
+        deleteCalendarEvent: async (action, approval) => {
+          if (!approval?.proposalId) {
+            throw new Error("Calendar deletes run only after explicit approval.");
+          }
+          await api.deleteCalendarEvent(
+            action.provider,
+            action.eventId,
+            approval.proposalId,
+          );
         },
         createGitHubIssue: async (action) => {
           await api.createGitHubIssue({
@@ -2194,7 +2191,7 @@ function ThreadConversation({
             }
           }
         },
-        rescheduleCommitment: async (action) => {
+        rescheduleCommitment: async (action, approval) => {
           if (!activeUserId) {
             throw new Error("Sign in before rescheduling commitments.");
           }
@@ -2213,6 +2210,9 @@ function ThreadConversation({
             action.startsAt &&
             action.endsAt
           ) {
+            if (!approval?.proposalId) {
+              throw new Error("Calendar reschedules run only after explicit approval.");
+            }
             await api.updateCalendarEvent(
               action.calendarProvider,
               action.externalEventId,
@@ -2221,6 +2221,7 @@ function ThreadConversation({
                 startsAt: action.startsAt,
                 endsAt: action.endsAt,
               },
+              approval.proposalId,
             );
           }
         },

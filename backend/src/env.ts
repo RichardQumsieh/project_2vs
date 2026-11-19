@@ -44,6 +44,12 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
+  /**
+   * Optional dogfood allowlist. When non-empty, writes stay limited to these
+   * user ids, usernames, or emails even if the master flag is on.
+   * The flag still has to be true; this list never turns writes on by itself.
+   */
+  INTEGRATIONS_WRITE_ALLOWLIST: z.string().optional().default(""),
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   /** Hosted Sophia model. Both key and HTTPS base URL are required before any call. */
   SOPHIA_MODEL_API_KEY: optionalEnvironmentValue,
@@ -294,3 +300,9 @@ export const slackOAuthConfigured = Boolean(
 
 /** Master feature flag for Phase 4.2 provider write routes (default false). */
 export const integrationsWriteEnabled = env.INTEGRATIONS_WRITE_ENABLED;
+
+/** Lowercased user ids, usernames, or emails. Empty means every account, once the flag is on. */
+export const integrationsWriteAllowlist = env.INTEGRATIONS_WRITE_ALLOWLIST
+  .split(",")
+  .map((entry) => entry.trim().toLowerCase())
+  .filter((entry) => entry.length > 0);

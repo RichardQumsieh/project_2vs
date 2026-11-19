@@ -153,7 +153,7 @@ Set these in the **repo-root** `.env` that production Compose interpolates. For 
 
 The adapter does not send a training opt-in, and it does not write prompt bodies to application logs. Connected mail, calendar, GitHub, and Linear metadata the person already linked can be included only while consent is on. Decrypted private messages are not sent. This product has no per-thread or per-send authorization that would allow that, and this slice does not decrypt chat for the model.
 
-Settings → Activity records sign-in, this consent, settings changes from these controls, approved email sends, and approved calendar deletes. It does not record every button, message bodies, or tokens. The account owner can export JSON or delete the whole log. Individual rows are not editable.
+Settings → Activity records sign-in, this consent, settings changes from these controls, approved email sends, approved email drafts, approved calendar reschedules, and approved calendar deletes. It does not record every button, message bodies, recipients, or tokens. The account owner can export JSON or delete the whole log. Individual rows are not editable.
 
 ### URL reputation checks
 
@@ -236,4 +236,24 @@ Redirect URIs: `{API_PUBLIC_ORIGIN}/integrations/work/github|linear/callback`. S
 
 ### Provider write APIs (Phase 4.2)
 
-Owner-scoped Fastify write routes accept **already-approved structured payloads** (calendar event, email draft, GitHub issue/comment, Linear issue, Slack message). Master flag `INTEGRATIONS_WRITE_ENABLED` defaults to `false` until consoles are updated. Settings → Integrations shows **Upgrade permissions** when a connection is missing write scopes. Details: `docs/phase4-write-oauth.md`.
+Owner-scoped Fastify write routes accept **already-approved structured payloads** for GitHub, Linear, and Slack, and for creating a calendar event. Master flag `INTEGRATIONS_WRITE_ENABLED` defaults to `false` in production config. Settings → Integrations shows **Upgrade permissions** when a connection is missing write scopes. Details: `docs/phase4-write-oauth.md`.
+
+Sending mail, saving a draft, rescheduling an event, and deleting an event do not run on those direct routes. Sophia stages the action locally. Approving it proposes the exact payload on the server (a hash only; the body is not stored) and then calls `POST /integrations/writes/proposals/:id/approve`. That approve call is the only path that talks to Gmail, Outlook, Google Calendar, or Microsoft Graph for those four actions. Approving the same proposal again returns the first result and does not send or delete a second time. Each successful execution appends one activity-log row. Nothing in this path runs without that explicit approve call.
+
+#### Enable writes for one dogfood account
+
+Leave the flag off for everyone else. Production Compose sets `INTEGRATIONS_WRITE_ENABLED` to `false` unless the repo-root `.env` overrides it.
+
+1. Find the account. From the API database: `select id, email, username from "User" where email = 'dogfood@example.com';`
+2. In the repo-root `.env` used by production Compose, set both of these. The allowlist does nothing while the flag is false. Use the user id, username, or email. One entry is enough:
+
+```bash
+INTEGRATIONS_WRITE_ENABLED=true
+INTEGRATIONS_WRITE_ALLOWLIST=dogfood@example.com
+```
+
+3. Recreate the API container so it picks up the variables. Startup runs `prisma db push`, which creates the approval table. Other accounts still receive `writes_not_enabled_for_user`.
+4. That person reconnects Gmail or Outlook (and Google or Microsoft calendar) from Settings → Integrations so the write scopes are on the connection.
+5. In Sophia, stage a send and click the explicit Approve control once. Confirm the message arrives, Settings → Activity shows one "Email sent" row, and repeating the approve request returns the original result without a second message.
+
+To turn it back off, set `INTEGRATIONS_WRITE_ENABLED=false` and recreate the API container. Pending proposals then fail closed and do not send.

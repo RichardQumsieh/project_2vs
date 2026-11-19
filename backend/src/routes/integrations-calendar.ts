@@ -5,9 +5,9 @@ import { prisma } from "../db.js";
 import {
   env,
   googleCalendarOAuthConfigured,
-  integrationsWriteEnabled,
   microsoftCalendarOAuthConfigured,
 } from "../env.js";
+import { sessionWritesEnabled } from "../integrations/write-audience.js";
 import {
   providerRead,
   resolveCalendarAccessToken,
@@ -260,7 +260,7 @@ export async function integrationCalendarRoutes(app: FastifyInstance) {
           requiredWriteScopes: [...writeRequiredScopes.outlookCalendar],
         },
       },
-      writesEnabled: integrationsWriteEnabled,
+      writesEnabled: await sessionWritesEnabled(session),
       privacy: {
         storesChatPlaintext: false,
         aiUsesCalendarBodiesByDefault: false,

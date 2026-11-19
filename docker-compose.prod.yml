@@ -20,6 +20,11 @@ services:
       # `cp backend/.env .` copies COOKIE_SECURE=false and would keep Lax cookies,
       # which browsers refuse to send on cross-site SPA→API fetch.
       COOKIE_SECURE: "true"
+      # Mail/calendar sends stay off unless the operator opts in. An allowlist
+      # (user id, username, or email) further limits that opt-in to one account.
+      # The allowlist does nothing while the flag is false.
+      INTEGRATIONS_WRITE_ENABLED: ${INTEGRATIONS_WRITE_ENABLED:-false}
+      INTEGRATIONS_WRITE_ALLOWLIST: ${INTEGRATIONS_WRITE_ALLOWLIST:-}
       GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID-}
       GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET-}
       GMAIL_REFRESH_TOKEN: ${GMAIL_REFRESH_TOKEN-}

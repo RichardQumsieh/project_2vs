@@ -5,9 +5,9 @@ import { prisma } from "../db.js";
 import {
   env,
   gmailOAuthConfigured,
-  integrationsWriteEnabled,
   microsoftMailOAuthConfigured,
 } from "../env.js";
+import { sessionWritesEnabled } from "../integrations/write-audience.js";
 import { providerRead, resolveEmailAccessToken } from "../integrations/access-token.js";
 import {
   emailProviders,
@@ -250,7 +250,7 @@ export async function integrationEmailRoutes(app: FastifyInstance) {
           requiredWriteScopes: [...writeRequiredScopes.outlookMail],
         },
       },
-      writesEnabled: integrationsWriteEnabled,
+      writesEnabled: await sessionWritesEnabled(session),
       privacy: {
         storesChatPlaintext: false,
         storesFullBodies: false,

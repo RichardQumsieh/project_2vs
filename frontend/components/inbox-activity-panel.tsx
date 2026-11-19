@@ -20,7 +20,6 @@ import {
   SophiaApproveSuccess,
   SophiaProposalCard,
 } from "@/components/sophia-proposal-card";
-import { logAccountActivity } from "@/lib/account-activity";
 import { api } from "@/lib/api";
 import {
   agentActionSummary,
@@ -1304,18 +1303,15 @@ export function InboxHomeActivity() {
         acceptFinding: unsupportedAction,
         dismissFinding: unsupportedAction,
         snoozeReminder: unsupportedAction,
-        draftEmail: async (action) => {
+        draftEmail: async (action, approval) => {
+          if (!approval?.proposalId) {
+            throw new Error("Email changes run only after explicit approval.");
+          }
           const payload = emailApiPayload(action);
           if (action.delivery === "send") {
-            await api.sendEmail(action.provider, payload);
-            logAccountActivity({
-              action: "BUTTON_ACTION",
-              summary: "Approved email send",
-              subjectKind: "email",
-              subjectId: action.provider,
-            });
+            await api.sendEmail(action.provider, payload, approval.proposalId);
           } else {
-            await api.createEmailDraft(action.provider, payload);
+            await api.createEmailDraft(action.provider, payload, approval.proposalId);
           }
           await queryClient.invalidateQueries({ queryKey: ["inbox-mail"] });
         },
@@ -1329,14 +1325,15 @@ export function InboxHomeActivity() {
           });
           await queryClient.invalidateQueries({ queryKey: ["inbox-events"] });
         },
-        deleteCalendarEvent: async (action) => {
-          await api.deleteCalendarEvent(action.provider, action.eventId);
-          logAccountActivity({
-            action: "BUTTON_ACTION",
-            summary: "Approved calendar delete",
-            subjectKind: "calendar",
-            subjectId: action.provider,
-          });
+        deleteCalendarEvent: async (action, approval) => {
+          if (!approval?.proposalId) {
+            throw new Error("Calendar deletes run only after explicit approval.");
+          }
+          await api.deleteCalendarEvent(
+            action.provider,
+            action.eventId,
+            approval.proposalId,
+          );
           await queryClient.invalidateQueries({ queryKey: ["inbox-events"] });
         },
         createGitHubIssue: unsupportedAction,
