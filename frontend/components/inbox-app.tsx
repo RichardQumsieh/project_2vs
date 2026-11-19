@@ -8,10 +8,14 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { ExperimentalBadge } from "@/components/experimental-badge";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { logAccountActivity } from "@/lib/account-activity";
 import { api } from "@/lib/api";
+import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
+import { useI18n } from "@/lib/i18n/locale";
 import {
   acknowledgeArchiveRecoveryCode,
   bootstrapDevice,
@@ -210,6 +214,7 @@ const emptyLocalMessages: LocalMessage[] = [];
 
 export function InboxShell({ children }: { children?: React.ReactNode }) {
   const router = useRouter();
+  const { t } = useI18n();
   const activeConversationId = useParams<{ id?: string }>().id;
   const [homeView, setHomeView] = useState<InboxActivityView>("agenda");
   const [homeActivityOpen, setHomeActivityOpen] = useState(false);
@@ -454,7 +459,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
   if (me.isLoading) {
     return (
       <main className="flex min-h-screen items-center justify-center text-white/50">
-        Loading session…
+        {t("inbox.loading")}
       </main>
     );
   }
@@ -463,7 +468,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
     if (restoringRememberedDevice) {
       return (
         <main className="flex min-h-screen items-center justify-center text-white/50">
-          Restoring this device…
+          {t("inbox.restoring")}
         </main>
       );
     }
@@ -483,7 +488,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
   if (!me.data || !unlocked) {
     return (
       <main className="flex min-h-screen items-center justify-center text-white/50">
-        Unlocking secure session…
+        {t("inbox.unlocking")}
       </main>
     );
   }
@@ -513,11 +518,10 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
         >
           <section className="w-full max-w-lg space-y-4 rounded-3xl border border-white/10 bg-[#15171d] p-6 shadow-2xl">
             <h2 id="history-recovery-code-title" className="text-lg font-semibold">
-              Save your message history recovery code
+              {t("inbox.saveCodeTitle")}
             </h2>
             <p id="history-recovery-code-description" className="text-sm text-white/55">
-              This code unlocks archived messages after a password reset. Save it somewhere private
-              before confirming and continuing.
+              {t("inbox.saveCodeBody")}
             </p>
             <code className="block break-all rounded-2xl border border-amber-300/20 bg-amber-300/[0.06] p-4 font-mono text-sm text-white">
               {pendingHistoryRecoveryCode}
@@ -537,13 +541,13 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
                 );
               }}
             >
-              Copy history recovery code
+              {t("inbox.copyCode")}
             </Button>
             {historyRecoveryCodeCopyError ? (
-              <p className="text-sm text-red-300">Clipboard access failed; copy the code manually.</p>
+              <p className="text-sm text-red-300">{t("inbox.copyFailed")}</p>
             ) : null}
             {historyRecoveryCodeAckError ? (
-              <p className="text-sm text-red-300">Could not save your confirmation. Keep this page open and retry.</p>
+              <p className="text-sm text-red-300">{t("inbox.ackFailed")}</p>
             ) : null}
             <label className="flex items-start gap-3 text-sm text-white/65">
               <input
@@ -552,7 +556,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
                 onChange={(event) => setHistoryRecoveryCodeSaved(event.target.checked)}
                 className="mt-1 accent-(--accent)"
               />
-              I saved this history recovery code somewhere private.
+              {t("inbox.savedCode")}
             </label>
             <Button
               type="button"
@@ -565,7 +569,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
                 }).catch(() => setHistoryRecoveryCodeAckError(true));
               }}
             >
-              Continue
+              {t("auth.continue")}
             </Button>
           </section>
         </div>
@@ -581,7 +585,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
           <button
             type="button"
             className="shrink-0 text-amber-100/70 hover:text-white"
-            aria-label="Dismiss recovery notice"
+            aria-label={t("inbox.dismissRecovery")}
             onClick={() => setHistoryRecoveryNotice(false)}
           >
             ×
@@ -601,7 +605,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
             className="shrink-0 underline underline-offset-2"
             onClick={retryRecoverySync}
           >
-            Retry
+            {t("inbox.retry")}
           </button>
         </div>
       ) : recoverySyncProgress ? (
@@ -622,13 +626,16 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
           <div className="flex min-w-0 items-center gap-2.5">
             <SophiaMark />
             <div className="min-w-0">
-              <h1 className="text-base font-semibold tracking-tight text-white">Inbox</h1>
-              <p className="truncate text-xs text-white/50">@{me.data.user.username}</p>
+              <h1 className="flex items-center gap-2 text-base font-semibold tracking-tight text-white">
+                {t("inbox.title")}
+                <ExperimentalBadge />
+              </h1>
+              <p className="truncate text-xs text-white/50"><LtrIsolate>@{me.data.user.username}</LtrIsolate></p>
             </div>
           </div>
           <Link
             href="/settings"
-            aria-label="Settings"
+            aria-label={t("inbox.settings")}
             className="inline-flex size-9 items-center justify-center rounded-full border border-white/10 text-white/75 hover:bg-white/[0.07] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
           >
             <Settings aria-hidden="true" className="size-4" />
@@ -644,7 +651,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
             onClick={() => setHomeActivityView("email")}
           >
             <Mail aria-hidden="true" className="size-3.5" />
-            Compose
+            {t("inbox.compose")}
           </Button>
           <Button
             type="button"
@@ -654,15 +661,15 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
             onClick={() => setHomeActivityView("event")}
           >
             <Calendar aria-hidden="true" className="size-3.5" />
-            Schedule
+            {t("inbox.schedule")}
           </Button>
         </div>
         <button
           type="button"
-          className="text-left text-xs text-white/55 underline underline-offset-2 hover:text-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
+          className="text-start text-xs text-white/55 underline underline-offset-2 hover:text-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
           onClick={() => setHomeActivityView("agenda")}
         >
-          Recent mail and upcoming events
+          {t("inbox.recent")}
         </button>
 
         <form
@@ -679,16 +686,16 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
             }
           })}
         >
-          <Input placeholder="Username" {...start.register("username")} />
+          <Input dir="ltr" placeholder={t("inbox.username")} {...start.register("username")} />
           <Button type="submit" size="sm" className="gap-1.5">
             <UserRound aria-hidden="true" className="size-3.5" />
-            Chat
+            {t("inbox.chat")}
           </Button>
         </form>
         {startError ? <p className="text-sm text-red-300">{startError}</p> : null}
         </div>
 
-        <nav aria-label="Conversations" className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-3">
+        <nav aria-label={t("inbox.conversations")} className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-3">
           {(conversations.data ?? []).map((conversation) => {
             const label =
               conversation.peer?.displayName ?? conversation.peer?.username ?? "Unknown";
@@ -711,8 +718,8 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
                 {label.slice(0, 1).toUpperCase()}
               </span>
               <span className="min-w-0">
-                <p className="truncate text-sm font-medium tracking-tight">{label}</p>
-                <p className="mt-0.5 truncate text-xs text-white/40">@{conversation.peer?.username}</p>
+                <p className="truncate text-sm font-medium tracking-tight"><BidiText>{label}</BidiText></p>
+                <p className="mt-0.5 truncate text-xs text-white/40"><LtrIsolate>@{conversation.peer?.username}</LtrIsolate></p>
               </span>
             </Link>
             );
@@ -723,20 +730,24 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
             interests={me.data.user.interests}
           />
         </nav>
-        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-white/10 px-3 py-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-white/10 px-3 py-2">
           <Link
             href="/sophia"
             className="rounded-full px-2 py-1 text-xs text-cyan-100/80 hover:bg-cyan-300/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
           >
-            Sophia
+            <span className="inline-flex items-center gap-2">
+              Sophia
+              <ExperimentalBadge />
+            </span>
           </Link>
+          <LanguageSwitcher />
           <Button
             variant="ghost"
             size="sm"
             disabled={loggingOut}
             onClick={() => void logOut()}
           >
-            {loggingOut ? "Logging out…" : "Log out"}
+            {loggingOut ? t("inbox.loggingOut") : t("inbox.logout")}
           </Button>
         </div>
         </div>
@@ -765,6 +776,7 @@ function ThreadConversation({
   conversationId: string;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const reduceMotion = useReducedMotion();
   const calls = useCallControls();
@@ -3407,36 +3419,40 @@ function ThreadConversation({
   }
 
   if (!conversation) {
-    return <div className="flex h-full items-center justify-center text-white/40">Select a conversation.</div>;
+    return <div className="flex h-full items-center justify-center text-white/40">{t("chat.select")}</div>;
   }
 
   return (
     <div className="thread-stage relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
-      <header className="relative z-30 flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-white/10 bg-[#070b12] px-3 py-2.5 sm:px-6 sm:py-4">
+      <header className="thread-header relative z-30 flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-white/10 bg-[#070b12] px-3 py-2.5 sm:px-6 sm:py-4">
         <div className="flex min-w-0 items-center gap-2">
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className="size-9 shrink-0"
-            aria-label="Back to conversations"
-            title="Back to conversations"
+            aria-label={t("chat.back")}
+            title={t("chat.back")}
             onClick={() => router.push("/inbox")}
           >
-            <ArrowLeft aria-hidden="true" className="size-4" />
+            <ArrowLeft aria-hidden="true" className="size-4 rtl-flip" />
           </Button>
           <div className="min-w-0">
-          <p className="text-sm font-medium">{conversation.peer?.displayName}</p>
-            <p className="truncate text-xs text-white/40">End-to-end encrypted · @{conversation.peer?.username}</p>
+          <p className="truncate text-sm font-medium"><BidiText>{conversation.peer?.displayName}</BidiText></p>
+            <p className="truncate text-xs text-white/40">
+              {t("chat.encrypted")}
+              {" · "}
+              <LtrIsolate>@{conversation.peer?.username}</LtrIsolate>
+            </p>
           </div>
         </div>
-        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
+        <div className="thread-header-actions ms-auto min-w-0 items-center justify-end sm:flex-nowrap">
         <Button
           type="button"
           size="icon"
           variant="outline"
-          aria-label={`Start voice call with @${conversation.peer?.username ?? "user"}`}
-          title="Start voice call"
+          aria-label={t("chat.voice", { username: conversation.peer?.username ?? "user" })}
+          title={t("chat.voiceTitle")}
           disabled={!conversation.peer || Boolean(calls.call)}
           onClick={() => {
             if (conversation.peer) {
@@ -3450,8 +3466,8 @@ function ThreadConversation({
           type="button"
           size="icon"
           variant="outline"
-          aria-label={`Start video call with @${conversation.peer?.username ?? "user"}`}
-          title="Start video call"
+          aria-label={t("chat.video", { username: conversation.peer?.username ?? "user" })}
+          title={t("chat.videoTitle")}
           disabled={!conversation.peer || Boolean(calls.call)}
           onClick={() => {
             if (conversation.peer) {
@@ -3464,10 +3480,10 @@ function ThreadConversation({
         <Link
           href="/settings"
           className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-2 text-xs text-white/75 transition-colors hover:bg-white/5"
-          aria-label="Open settings"
+          aria-label={t("chat.openSettings")}
         >
           <Settings aria-hidden="true" className="size-3.5" />
-          Settings
+          {t("chat.settings")}
         </Link>
         <Button
           type="button"
@@ -3481,7 +3497,7 @@ function ThreadConversation({
           }}
         >
           <CheckSquare aria-hidden="true" className="size-3.5" />
-          {replySelectMode ? "Cancel reply" : "Reply"}
+          {replySelectMode ? t("chat.cancelReply") : t("chat.reply")}
         </Button>
         <Button
           type="button"
@@ -3494,7 +3510,7 @@ function ThreadConversation({
           }
         >
           <Mail aria-hidden="true" className="size-3.5" />
-          Compose
+          {t("chat.compose")}
         </Button>
         <Button
           type="button"
@@ -3507,7 +3523,7 @@ function ThreadConversation({
           }
         >
           <Calendar aria-hidden="true" className="size-3.5" />
-          Calendar
+          {t("chat.calendar")}
         </Button>
         <Button
           type="button"
@@ -3520,8 +3536,8 @@ function ThreadConversation({
             assistantSettings?.enabled
               ? `Sophia ${aiIsThinking ? aiWorkLabel : companionPresence.replace("-", " ")}`
               : companionOpen
-                ? "Close Sophia"
-                : "Talk to Sophia"
+                ? t("chat.closeSophia")
+                : t("chat.talkSophia")
           }
           onClick={() => {
             if (companionOpen) {
@@ -3549,10 +3565,10 @@ function ThreadConversation({
             />
           ) : null}
           {companionOpen
-            ? "Close Sophia"
+            ? t("chat.closeSophia")
             : assistantSettings?.enabled
               ? `Sophia · ${aiIsThinking ? aiWorkLabel : companionPresence.replace("-", " ")}`
-              : "Talk to Sophia"}
+              : t("chat.talkSophia")}
         </Button>
         <div className="relative">
           <button
@@ -3562,7 +3578,7 @@ function ThreadConversation({
             onClick={() => setSettingsOpen((open) => !open)}
             className="cursor-pointer list-none rounded-full border border-cyan-300/20 px-4 py-2 text-xs text-cyan-100/80 transition-colors hover:bg-cyan-300/10"
           >
-            Sophia controls
+            {t("chat.controls")}
           </button>
           <AnimatePresence>
             {settingsOpen ? (
@@ -5112,11 +5128,11 @@ function ThreadConversation({
             return (
               <section
                 key={proposal.id}
-                aria-label="Review Sophia draft"
+                aria-label={t("chat.reviewDraft")}
                 className="mx-4 mb-2 space-y-2 rounded-xl border border-amber-200/20 bg-amber-200/[0.04] p-3"
               >
                 <p className="text-xs font-semibold text-amber-100/80">
-                  Fill composer with Sophia draft
+                  {t("chat.fillDraft")}
                 </p>
                 <p className="text-xs text-white/60">
                   To: @{proposal.action.recipientUsername}
@@ -5130,7 +5146,7 @@ function ThreadConversation({
                     size="sm"
                     onClick={() => void approveAgentProposal(proposal)}
                   >
-                    Insert draft
+                    {t("chat.insertDraft")}
                   </Button>
                   <Button
                     type="button"
@@ -5138,7 +5154,7 @@ function ThreadConversation({
                     variant="ghost"
                     onClick={() => cancelAgentProposal(proposal)}
                   >
-                    Cancel
+                    {t("chat.cancel")}
                   </Button>
                 </div>
               </section>
@@ -5151,11 +5167,11 @@ function ThreadConversation({
           return (
             <section
               key={proposal.id}
-              aria-label="Review exact outgoing message"
+              aria-label={t("chat.reviewSend")}
               className="mx-4 mb-2 space-y-2 rounded-xl border border-amber-200/20 bg-amber-200/[0.04] p-3"
             >
               <p className="text-xs font-semibold text-amber-100/80">
-                Confirm exact message before sending
+                {t("chat.confirmSend")}
               </p>
               <p className="text-xs text-white/60">
                 To: @{proposal.action.recipientUsername}
@@ -5401,7 +5417,7 @@ function ThreadConversation({
           </div>
         ) : null}
         <form
-          className="flex min-w-0 items-center gap-1 sm:gap-2"
+          className="composer-bar flex min-w-0 items-center gap-1 sm:gap-2"
           onSubmit={handleMessageSubmit}
         >
           <input
@@ -5497,15 +5513,16 @@ function ThreadConversation({
             <Smile aria-hidden="true" className="size-5" />
           </Button>
           <Input
+            dir="auto"
             placeholder={
               selectedPhotos.length || selectedVideo || selectedVoiceNote || selectedFile || selectedLocation
-                ? "Add a caption (optional)"
+                ? t("chat.caption")
                 : selectedReplyIds.length
-                  ? `Reply to ${selectedReplyIds.length} selected…`
-                  : "Write a message"
+                  ? t("chat.replyTo", { count: selectedReplyIds.length })
+                  : t("chat.write")
             }
             autoComplete="off"
-            className="h-10 min-w-0 flex-1 rounded-2xl border-white/10 bg-white/[0.035] px-2.5 text-xs transition-colors duration-200 focus:border-(--accent)/50 sm:h-11 sm:px-4 sm:text-sm"
+            className="h-11 min-w-0 flex-1 rounded-2xl border-white/10 bg-white/[0.035] px-3 text-base transition-colors duration-200 focus:border-(--accent)/50 sm:px-4"
             {...composerBodyRegistration}
             ref={(element) => {
               composerBodyRegistration.ref(element);
@@ -5528,8 +5545,8 @@ function ThreadConversation({
                 : selectedPhoto || selectedVideo
                   ? `Send ${selectedVideo ? "video" : "photo"}`
                   : selectedReplyIds.length
-                    ? "Send reply"
-                  : "Send message"
+                    ? t("chat.sendReply")
+                  : t("chat.send")
             }
             disabled={
               send.isPending ||
@@ -5617,6 +5634,7 @@ function UnlockPanel({
   onLogout: () => Promise<void>;
   onUnlock: () => void;
 }) {
+  const { t } = useI18n();
   const [error, setError] = useState<string | null>(null);
   const form = useForm({
     resolver: zodResolver(unlockSchema),
@@ -5633,22 +5651,18 @@ function UnlockPanel({
             await bootstrapDevice(password);
             onUnlock();
           } catch {
-            setError("Could not open the local key vault with that password.");
+            setError(t("inbox.unlockFailed"));
           }
         })}
       >
-        <p className="text-xs tracking-[0.18em] text-(--accent) uppercase">This device</p>
-        <h1 className="text-3xl font-semibold">Unlock your keys</h1>
-        <p className="text-sm text-white/45">
-          Your session is still signed in. Enter the password to unlock your local encryption keys.
-          This browser will remember the unlock until you sign out. Anyone who can use this browser
-          profile while your account session is active may also use these keys.
-        </p>
+        <p className="text-xs text-(--accent)">{t("inbox.unlockEyebrow")}</p>
+        <h1 className="text-3xl font-semibold">{t("inbox.unlockTitle")}</h1>
+        <p className="text-sm text-white/45">{t("inbox.unlockBody")}</p>
         {logoutError ? <p className="text-sm text-red-300">{logoutError}</p> : null}
-        <Input type="password" placeholder="Password" {...form.register("password")} />
+        <Input type="password" dir="ltr" placeholder={t("auth.password")} {...form.register("password")} />
         {error ? <p className="text-sm text-red-300">{error}</p> : null}
         <Button type="submit" className="w-full">
-          Unlock
+          {t("inbox.unlock")}
         </Button>
         <Button
           type="button"
@@ -5657,7 +5671,7 @@ function UnlockPanel({
           disabled={loggingOut}
           onClick={() => void onLogout()}
         >
-          {loggingOut ? "Logging out…" : "Sign out"}
+          {loggingOut ? t("inbox.loggingOut") : t("auth.signOut")}
         </Button>
       </form>
     </main>

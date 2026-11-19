@@ -12,6 +12,7 @@ import { LinkSafetyText } from "@/components/link-safety-text";
 import { ReplyQuoteBlock } from "@/components/reply-quote";
 import { parseChatPayload } from "@/lib/chat-payload";
 import type { LocalMessage } from "@/lib/crypto/types";
+import { useI18n } from "@/lib/i18n/locale";
 
 type ThreadMessageListProps = {
   messages: readonly LocalMessage[];
@@ -89,11 +90,12 @@ const MessageRow = memo(function MessageRow({
   onCancelDelete: () => void;
 }) {
   const payload = parseChatPayload(message.plaintext);
+  const { t } = useI18n();
   return (
     <div
       className={`thread-message group relative max-w-[88%] rounded-[1.35rem] px-3.5 py-2.5 text-sm sm:max-w-[72%] sm:px-4 sm:py-3 ${
         message.fromMe
-          ? "ml-auto bg-gradient-to-br from-white to-[#e8eef8] text-black"
+          ? "ms-auto bg-gradient-to-br from-white to-[#e8eef8] text-black"
           : "border border-white/10 bg-[#141b27] text-white/90"
       } ${selected ? "ring-2 ring-cyan-300/50" : ""}`}
     >
@@ -130,7 +132,7 @@ const MessageRow = memo(function MessageRow({
               checked={selected}
               onChange={() => onToggleReply(message.id)}
             />
-            Include in reply
+            {t("chat.includeReply")}
           </label>
         ) : (
           <span />
@@ -139,7 +141,7 @@ const MessageRow = memo(function MessageRow({
           <div className="flex justify-end">
             {confirming ? (
               <div className="flex items-center gap-2 rounded-full bg-black/10 px-2 py-1 text-[11px]">
-                <span>Delete for everyone?</span>
+                <span>{t("chat.deletePrompt")}</span>
                 {deleteMessageError ? (
                   <span role="alert" className="text-red-700">
                     {deleteMessageError}
@@ -151,7 +153,7 @@ const MessageRow = memo(function MessageRow({
                   className="rounded-full bg-red-600 px-2.5 py-1 font-medium text-white hover:bg-red-700 disabled:opacity-50"
                   onClick={() => onConfirmDelete(message)}
                 >
-                  {deletePending ? "Deleting…" : "Delete"}
+                  {deletePending ? t("chat.deleting") : t("chat.delete")}
                 </button>
                 <button
                   type="button"
@@ -159,14 +161,14 @@ const MessageRow = memo(function MessageRow({
                   className="rounded-full px-2 py-1 text-black/60 hover:bg-black/10 disabled:opacity-50"
                   onClick={onCancelDelete}
                 >
-                  Cancel
+                  {t("chat.cancel")}
                 </button>
               </div>
             ) : (
               <button
                 type="button"
-                aria-label="Delete your message for everyone"
-                title="Delete for everyone"
+                aria-label={t("chat.deleteAria")}
+                title={t("chat.deleteTitle")}
                 disabled={deletePending}
                 className="rounded-full p-1.5 text-black/45 opacity-70 transition-opacity hover:bg-black/10 hover:text-black focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-black/50 sm:opacity-0 sm:group-hover:opacity-100 disabled:opacity-40"
                 onClick={() => onAskDelete(message.id)}

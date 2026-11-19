@@ -1,15 +1,19 @@
+"use client";
+
+import Link from "next/link";
 import { AuthForm } from "@/components/auth-form";
 import { AuthPageShell } from "@/components/auth-page-shell";
-import Link from "next/link";
+import { useI18n } from "@/lib/i18n/locale";
 
 export default function LoginPage() {
+  const { t } = useI18n();
   return (
     <AuthPageShell
       footer={
         <>
-          New here?{" "}
+          {t("auth.newHere")}{" "}
           <Link href="/signup" className="font-medium text-(--foreground)">
-            Create an account
+            {t("auth.createAccountLink")}
           </Link>
         </>
       }

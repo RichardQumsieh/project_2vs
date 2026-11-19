@@ -1,26 +1,25 @@
+"use client";
+
 import Link from "next/link";
 import { ForgotPasswordForm } from "@/components/auth-form";
 import { AuthPageShell } from "@/components/auth-page-shell";
+import { useI18n } from "@/lib/i18n/locale";
 
 export default function ForgotPasswordPage() {
+  const { t } = useI18n();
   return (
     <AuthPageShell
-      eyebrow="Account recovery"
-      title="Reset your password."
-      description={
-        <>
-          We will email a one-time reset link. Your authenticator or a recovery code is also
-          required to complete the reset.
-        </>
-      }
+      eyebrow={t("auth.forgotEyebrow")}
+      title={t("auth.forgotTitle")}
+      description={t("auth.forgotBody")}
       footer={
         <>
-          Remembered it?{" "}
-          <Link href="/login" className="font-medium text-(--foreground)">Log in</Link>
+          {t("auth.remembered")}{" "}
+          <Link href="/login" className="font-medium text-(--foreground)">{t("auth.loginLink")}</Link>
         </>
       }
     >
-        <ForgotPasswordForm />
+      <ForgotPasswordForm />
     </AuthPageShell>
   );
 }

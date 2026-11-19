@@ -186,6 +186,10 @@ WebGPU is used when available; otherwise the runtime uses WebAssembly on the CPU
 
 The repeatable companion evaluation set in `frontend/lib/ai/companion-evaluation.ts` covers English dialogue and follow-ups, Arabic, Jordanian/Levantine Arabic, code-switching, humor, serious support, ambiguity, drafting, and hallucination resistance. Automated tests verify that each fixture produces a correctly bounded prompt; they do not measure answer quality. The fixtures have not been run as a live model-quality benchmark: model weights were not downloaded and no response quality or latency measurements are available. Review generated content for accuracy and tone before using it.
 
+`npm run eval:assistant -- --mode=mock` (from `frontend/`) wires those fixtures together with English and Levantine manager cases for email triage, drafting, and scheduling, and writes `frontend/reports/assistant-eval.md`. Mock mode needs no API key and only checks the harness. `--mode=live` calls `SOPHIA_MODEL_BASE_URL` when `SOPHIA_MODEL_API_KEY` is set and fails if the average score is under 0.8. Without those variables, `--mode=live` or `--mode=skip` exits successfully and says the live eval was skipped. Because no live run has cleared that bar, the product shows an **Experimental** label on Sophia.
+
+The web app UI is available in English and Arabic. Arabic sets `dir="rtl"` on the document, keeps emails, usernames, and URLs in isolated left-to-right runs, and stores the choice in this browser. A web app manifest and service worker make the site installable. Mobile layout is covered by Playwright at iPhone and Pixel widths in both languages.
+
 Conversation summaries remain available as a secondary, collapsible on-device tool. Very short exchanges (up to three messages and 280 characters) use a deterministic summary rather than loading the language model; longer summaries use the same local model. Automatic summary language selection is a basic dominant-script heuristic, not full language detection.
 
 ### Voice companion

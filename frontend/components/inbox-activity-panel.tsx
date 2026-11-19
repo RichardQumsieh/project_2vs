@@ -54,6 +54,7 @@ import {
   type MailReplySeed,
 } from "@/lib/inbox-activity";
 import { currentUserId } from "@/lib/session";
+import { useI18n } from "@/lib/i18n/locale";
 
 type MailRow = {
   id: string;
@@ -237,6 +238,7 @@ export function InboxComposeLetter({
   emailProvider: "gmail" | "outlook-mail";
   initial?: MailReplySeed | null;
 }) {
+  const { t } = useI18n();
   const [emailProvider, setEmailProvider] = useState(
     initial?.provider ?? emailProviderDefault,
   );
@@ -401,13 +403,13 @@ export function InboxComposeLetter({
               Sophia
             </p>
             <h2 id="inbox-letter-title" className="mt-1 text-xl font-semibold tracking-tight">
-              {initial ? "Reply" : "New message"}
+              {initial ? t("mail.reply") : t("mail.new")}
             </h2>
           </div>
           <button
             type="button"
             className="inbox-letter-icon"
-            aria-label="Close compose"
+            aria-label={t("mail.closeCompose")}
             onClick={onClose}
           >
             <X aria-hidden="true" className="size-4" />
@@ -415,7 +417,7 @@ export function InboxComposeLetter({
         </header>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
           <label className="block space-y-1 text-xs font-medium">
-            Mailbox
+            {t("mail.mailbox")}
             <select
               className="inbox-letter-field"
               value={emailProvider}
@@ -428,8 +430,8 @@ export function InboxComposeLetter({
             </select>
           </label>
           <label className="block space-y-1 text-xs font-medium">
-            To
-            <input
+            {t("mail.to")}
+            <input dir="ltr"
               ref={toRef}
               className="inbox-letter-field"
               value={to}
@@ -438,7 +440,7 @@ export function InboxComposeLetter({
                 setTypoOverride(false);
                 setAddressWarnings([]);
               }}
-              placeholder="name@example.com"
+              placeholder={t("mail.toPlaceholder")}
               autoComplete="email"
               inputMode="email"
             />
@@ -453,7 +455,7 @@ export function InboxComposeLetter({
                 setTypoOverride(false);
                 setAddressWarnings([]);
               }}
-              placeholder="Optional"
+              placeholder={t("mail.optional")}
             />
           </label>
           <label className="block space-y-1 text-xs font-medium">
@@ -485,7 +487,8 @@ export function InboxComposeLetter({
               value={body}
               onChange={(event) => setBody(event.target.value)}
               className="inbox-letter-field inbox-letter-body"
-              placeholder="Write the message. Approval sends it."
+              dir="auto"
+              placeholder={t("mail.bodyPlaceholder")}
             />
           </div>
           <div className="space-y-2">
@@ -543,7 +546,7 @@ export function InboxComposeLetter({
         </div>
         <footer className="space-y-2 border-t border-black/10 px-5 py-4">
           <p id="inbox-letter-note" className="text-[11px] leading-relaxed text-black/55">
-            Approval sends this message and these files. Nothing leaves until you approve. Stage a draft only if it should stay in the mailbox.
+            {t("mail.approvalNote")}
           </p>
           {addressWarnings.length > 0 ? (
             <p role="status" className="text-xs text-amber-800">
@@ -555,14 +558,14 @@ export function InboxComposeLetter({
           ) : null}
           <div className="flex flex-wrap gap-2">
             <button type="submit" className="inbox-letter-primary">
-              {typoOverride ? "Stage send anyway" : "Stage send for approval"}
+              {typoOverride ? t("mail.stageSendAnyway") : t("mail.stageSend")}
             </button>
             <button
               type="button"
               className="inbox-letter-secondary"
               onClick={() => stageEmail("draft")}
             >
-              {typoOverride ? "Stage draft anyway" : "Stage draft instead"}
+              {typoOverride ? t("mail.stageDraftAnyway") : t("mail.stageDraft")}
             </button>
           </div>
         </footer>
@@ -591,6 +594,7 @@ export function InboxActivityPanel({
   showBack?: boolean;
   onBack?: () => void;
 }) {
+  const { t } = useI18n();
   const { mail, events, recentMail, upcoming } = useMirroredActivity();
   const [calendarProvider, setCalendarProvider] = useState(calendarProviderDefault);
   const [title, setTitle] = useState("");
@@ -695,13 +699,13 @@ export function InboxActivityPanel({
             className="inbox-pane-back rounded-full px-2 py-1 text-xs text-white/70"
             onClick={onBack}
           >
-            Back
+            {t("mail.back")}
           </button>
         ) : null}
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">Mail & calendar</p>
+          <p className="text-sm font-medium">{t("mail.title")}</p>
           <p className="truncate text-[11px] text-white/40">
-            Newest mail, soonest events. Mail and events wait for approval.
+            {t("mail.subtitle")}
           </p>
         </div>
         {onClose ? (
@@ -710,20 +714,20 @@ export function InboxActivityPanel({
             className="rounded-full px-2 py-1 text-xs text-white/55 hover:text-white"
             onClick={onClose}
           >
-            Close
+            {t("mail.close")}
           </button>
         ) : null}
       </div>
       <div
         role="tablist"
-        aria-label="Mail and calendar"
+        aria-label={t("mail.aria")}
         className="grid grid-cols-3 gap-1 px-3 py-2 sm:px-4"
       >
         {(
           [
-            ["agenda", "Agenda", List],
-            ["email", "Compose", Mail],
-            ["event", "Schedule", CalendarDays],
+            ["agenda", t("mail.agenda"), List],
+            ["email", t("mail.compose"), Mail],
+            ["event", t("mail.schedule"), CalendarDays],
           ] as const
         ).map(([id, label, Icon]) => (
           <button
@@ -754,18 +758,18 @@ export function InboxActivityPanel({
         {view === "agenda" || view === "email" ? (
           <div className="inbox-agenda-frame">
             {loading ? (
-              <p className="text-xs text-white/45">Loading mirrored mail and events…</p>
+              <p className="text-xs text-white/45">{t("mail.loading")}</p>
             ) : null}
             {loadError ? (
               <p role="alert" className="text-xs text-red-300">
-                Could not load mail or calendar. Connect an account in Integrations, then sync.
+                {t("mail.loadError")}
               </p>
             ) : null}
             <div className="inbox-agenda-grid">
               <section className="inbox-agenda-card">
                 <h3 className="flex items-center gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-white/45">
                   <CalendarDays aria-hidden="true" className="size-3.5" />
-                  Upcoming
+                  {t("mail.upcoming")}
                 </h3>
                 <div className="min-h-0 flex-1">
                   {upcoming.length === 0 ? (
@@ -789,7 +793,7 @@ export function InboxActivityPanel({
               <section className="inbox-agenda-card">
                 <h3 className="flex items-center gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-white/45">
                   <Mail aria-hidden="true" className="size-3.5" />
-                  Recent mail
+                  {t("mail.recent")}
                 </h3>
                 <div className="min-h-0 flex-1">
                   {recentMail.length === 0 ? (
@@ -841,7 +845,7 @@ export function InboxActivityPanel({
             }}
           >
             <label className="block space-y-1 text-xs text-white/55">
-              Calendar
+              {t("mail.calendar")}
               <select
                 className="h-11 w-full rounded-2xl border border-white/10 bg-[#10151e] px-3 text-sm text-white"
                 value={calendarProvider}
@@ -854,12 +858,12 @@ export function InboxActivityPanel({
               </select>
             </label>
             <label className="block space-y-1 text-xs text-white/55">
-              Title
-              <Input
+              {t("mail.eventTitle")}
+              <Input dir="auto"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 maxLength={200}
-                placeholder="30m with Dana"
+                placeholder={t("mail.eventPlaceholder")}
               />
             </label>
             <label className="flex items-center gap-2 text-xs text-white/70">
@@ -868,7 +872,7 @@ export function InboxActivityPanel({
                 checked={allDay}
                 onChange={(event) => setAllDay(event.target.checked)}
               />
-              All day
+              {t("mail.allDay")}
             </label>
             {allDay ? (
               <div className="grid grid-cols-2 gap-2">
@@ -896,7 +900,7 @@ export function InboxActivityPanel({
             ) : (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <label className="space-y-1 text-xs text-white/55">
-                  Starts
+                  {t("mail.starts")}
                   <Input
                     type="datetime-local"
                     value={slot.start}
@@ -906,7 +910,7 @@ export function InboxActivityPanel({
                   />
                 </label>
                 <label className="space-y-1 text-xs text-white/55">
-                  Ends
+                  {t("mail.ends")}
                   <Input
                     type="datetime-local"
                     value={slot.end}
@@ -918,23 +922,23 @@ export function InboxActivityPanel({
               </div>
             )}
             <label className="block space-y-1 text-xs text-white/55">
-              Notes
+              {t("mail.notes")}
               <textarea
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 rows={3}
                 className="w-full resize-none rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white outline-none focus:border-(--accent)/50"
-                placeholder="Optional"
+                placeholder={t("mail.optional")}
               />
             </label>
             <p className="text-[11px] leading-relaxed text-white/40">
-              Nothing is written to the calendar until you approve the exact event.
+              {t("mail.calendarNote")}
             </p>
             {formError ? (
               <p role="alert" className="text-xs text-red-300">{formError}</p>
             ) : null}
             <Button type="submit" size="sm">
-              Stage event for approval
+              {t("mail.stageEvent")}
             </Button>
           </form>
         ) : null}
@@ -1178,6 +1182,7 @@ function EventDetailLetter({
   onClose: () => void;
   onRemove: (title: string) => string | null;
 }) {
+  const { t } = useI18n();
   const [actionError, setActionError] = useState<string | null>(null);
   const detailQuery = useQuery({
     queryKey: ["inbox-event-detail", event.id],
@@ -1197,7 +1202,7 @@ function EventDetailLetter({
       titleId="inbox-event-title"
       kicker="Sophia"
       title={title}
-      closeLabel="Close event"
+      closeLabel={t("mail.close")}
       onClose={onClose}
       footer={
         <>
@@ -1218,7 +1223,7 @@ function EventDetailLetter({
         <time dateTime={startsAt}>{formatWhen(startsAt, allDay)}</time>
         <span aria-hidden="true"> – </span>
         <time dateTime={endsAt}>{formatWhen(endsAt, allDay)}</time>
-        {allDay ? <span className="ml-2 text-xs text-black/55">All day</span> : null}
+        {allDay ? <span className="ms-2 text-xs text-black/55">{t("mail.allDay")}</span> : null}
       </p>
       {detailQuery.isLoading ? (
         <p className="text-sm text-black/55">Opening this event…</p>

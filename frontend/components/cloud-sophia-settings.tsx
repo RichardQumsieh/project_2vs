@@ -8,6 +8,7 @@ import {
   CLOUD_SOPHIA_PURPOSE,
   decideCloudSophiaPath,
 } from "@/lib/cloud-sophia";
+import { useI18n } from "@/lib/i18n/locale";
 
 type ConsentStatus = {
   active: boolean;
@@ -29,6 +30,7 @@ function messageFrom(error: unknown) {
 }
 
 export function CloudSophiaSettings() {
+  const { t } = useI18n();
   const [status, setStatus] = useState<ConsentStatus | null>(null);
   const [checked, setChecked] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -136,11 +138,11 @@ export function CloudSophiaSettings() {
   if (!status) {
     return (
       <section className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-        <h2 className="text-base font-medium text-white">Cloud Sophia</h2>
+        <h2 className="text-base font-medium text-white">{t("cloud.title")}</h2>
         {error ? (
           <p role="alert" className="mt-3 text-sm text-red-300">{error}</p>
         ) : (
-          <p className="mt-3 text-sm text-white/55">Checking cloud Sophia consent…</p>
+          <p className="mt-3 text-sm text-white/55">{t("cloud.checking")}</p>
         )}
       </section>
     );
@@ -148,17 +150,15 @@ export function CloudSophiaSettings() {
 
   return (
     <section className="space-y-4 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-      <h2 className="text-base font-medium text-white">Cloud Sophia</h2>
+      <h2 className="text-base font-medium text-white">{t("cloud.title")}</h2>
       <p className="text-sm leading-relaxed text-white/65">
-        This is off until you check it. The hosted model is a separate choice from your
-        password. Private messages stay on this device: there is no per-thread or per-send
-        authorization to upload them, and this screen does not decrypt chat.
+        {t("cloud.off")}
       </p>
       <blockquote className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-relaxed text-white/80">
         {CLOUD_SOPHIA_PURPOSE}
       </blockquote>
       <p className="text-xs text-white/45">
-        Version {CLOUD_SOPHIA_CONSENT_VERSION}
+        {t("cloud.version", { version: CLOUD_SOPHIA_CONSENT_VERSION })}
         {status?.active && grantedLabel ? ` · granted ${grantedLabel}` : ""}
         {status?.consent?.withdrawnAt
           ? ` · withdrawn ${new Date(status.consent.withdrawnAt).toLocaleString()}`
@@ -167,8 +167,7 @@ export function CloudSophiaSettings() {
       {status?.active ? (
         <div className="space-y-4">
           <p className="text-sm text-white/65">
-            Connected mail, calendar, GitHub, and Linear metadata you already linked can be
-            included with a question you type here. Full mail bodies and private messages are not.
+            {t("cloud.connectedMeta")}
           </p>
           <button
             type="button"
@@ -176,11 +175,11 @@ export function CloudSophiaSettings() {
             disabled={busy}
             onClick={() => void withdraw()}
           >
-            Withdraw cloud Sophia consent
+            {t("cloud.withdraw")}
           </button>
           <form className="space-y-3" onSubmit={(event) => void ask(event)}>
             <label className="block text-sm text-white/70" htmlFor="cloud-sophia-prompt">
-              Ask cloud Sophia
+              {t("cloud.ask")}
             </label>
             <textarea
               id="cloud-sophia-prompt"
@@ -189,14 +188,15 @@ export function CloudSophiaSettings() {
               maxLength={2000}
               rows={4}
               className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none"
-              placeholder="A question for the hosted model. Chat messages are not attached."
+              dir="auto"
+              placeholder={t("cloud.placeholder")}
             />
             <button
               type="submit"
               className="rounded-full bg-white px-4 py-2 text-sm text-black disabled:opacity-40"
               disabled={busy || prompt.trim().length === 0}
             >
-              {busy ? "Sending…" : "Send question"}
+              {busy ? t("cloud.sending") : t("cloud.send")}
             </button>
           </form>
           {reply ? (
@@ -206,8 +206,7 @@ export function CloudSophiaSettings() {
       ) : (
         <div className="space-y-3">
           <p className="text-sm text-white/55">
-            Leave this unchecked and Sophia stays on this device. Nothing from your account is
-            sent to a hosted model.
+            {t("cloud.unchecked")}
           </p>
           <label className="flex items-start gap-3 text-sm text-white/75">
             <input
@@ -216,7 +215,7 @@ export function CloudSophiaSettings() {
               onChange={(event) => setChecked(event.target.checked)}
               className="mt-1 accent-white"
             />
-            I agree to this purpose for cloud Sophia. You can withdraw it here later.
+            {t("cloud.agree")}
           </label>
           <button
             type="button"
@@ -224,7 +223,7 @@ export function CloudSophiaSettings() {
             disabled={!checked || busy}
             onClick={() => void grant()}
           >
-            Save cloud Sophia consent
+            {t("cloud.save")}
           </button>
         </div>
       )}

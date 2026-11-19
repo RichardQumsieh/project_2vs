@@ -1,7 +1,10 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { ProductShell } from "@/components/product-shell";
 import { SophiaRobotPreview } from "@/components/sophia-robot-preview";
+import { useI18n } from "@/lib/i18n/locale";
 
 const prompts = [
   {
@@ -27,10 +30,11 @@ const prompts = [
 ];
 
 export default function SophiaStudioPage() {
+  const { t } = useI18n();
   return (
     <ProductShell
-      title="Sophia studio"
-      subtitle="Robot presence, presentation workflow, and image prompts for future skins and marketing."
+      title={t("studio.title")}
+      subtitle={t("studio.subtitle")}
     >
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_18rem]">
         <section className="space-y-5">
