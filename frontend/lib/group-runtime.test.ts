@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { b64ToBytes } from "./crypto/bytes";
 import { generateEd25519 } from "./crypto/keys";
 import { openGroupRecord, sealGroupRecord, type GroupRecord } from "./crypto/group-store";
 import { deriveVaultKey } from "./crypto/kdf";
 import {
   queueGroupMessage,
+  queueMemberRemoval,
   queueSelfRemoval,
   syncGroup,
   type DirectoryDevice,
   type GroupWireBlob,
 } from "./group-runtime";
+import type { GroupRole } from "./crypto/group-mls";
 
 const aliceUser = "11111111-1111-4111-8111-111111111111";
 const alicePhone = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
@@ -112,4 +115,229 @@ describe("group runtime", { timeout: 30_000 }, () => {
     expect(denied.messages.map((message) => message.plaintext)).not.toContain(AFTER);
     expect(denied.error).toBeNull();
   });
+
+  it("finishes a leave when a non-admin commits and the admin stays offline", async () => {
+    const carolUser = "33333333-3333-4333-8333-333333333333";
+    const carolPhone = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
+    const keys = {
+      alice: await generateEd25519(),
+      bob: await generateEd25519(),
+      carol: await generateEd25519(),
+    };
+    const ids = {
+      alice: { userId: aliceUser, deviceId: alicePhone },
+      bob: { userId: bobUser, deviceId: bobPhone },
+      carol: { userId: carolUser, deviceId: carolPhone },
+    };
+    const log: GroupWireBlob[] = [];
+    let stamp = 0;
+    const post = (senderDeviceId: string) => async (body: {
+      clientId: string;
+      kind: GroupWireBlob["kind"];
+      payload: string;
+      recipientDeviceId?: string;
+      bindingSignature?: string;
+    }) => {
+      stamp += 1;
+      const id = `00000000-0000-4000-8000-${String(stamp).padStart(12, "0")}`;
+      log.push({
+        id,
+        kind: body.kind,
+        senderDeviceId,
+        recipientDeviceId: body.recipientDeviceId ?? null,
+        payload: body.payload,
+        bindingSignature: body.bindingSignature ?? null,
+        createdAt: new Date(Date.UTC(2026, 0, 2, 0, 0, stamp)).toISOString(),
+      });
+      return { id };
+    };
+    let alice: GroupRecord | null = null;
+    let bob: GroupRecord | null = null;
+    let carol: GroupRecord | null = null;
+    const roles: Record<string, GroupRole> = {
+      [alicePhone]: "admin",
+      [bobPhone]: "member",
+      [carolPhone]: "member",
+    };
+    const run = async (who: "alice" | "bob" | "carol", record: GroupRecord | null) => {
+      const current = { alice, bob, carol, [who]: record };
+      const directory: DirectoryDevice[] = (["alice", "bob", "carol"] as const).flatMap((name) => {
+        const stored = current[name];
+        if (!stored) return [];
+        return [{
+          userId: ids[name].userId,
+          deviceId: ids[name].deviceId,
+          signingPublicKey: stored.device.sophiaSigningPublicKey,
+          role: roles[ids[name].deviceId] ?? "member",
+        }];
+      });
+      return syncGroup({
+        record,
+        userId: ids[who].userId,
+        deviceId: ids[who].deviceId,
+        role: roles[ids[who].deviceId] ?? "member",
+        conversationId: "44444444-4444-4444-8444-444444444450",
+        signingPrivateJwk: keys[who].privateJwk,
+        signingPublicKey: keys[who].publicKey,
+        memberUserIds: [aliceUser, bobUser, carolUser],
+        directory,
+        blobs: log,
+        post: post(ids[who].deviceId),
+      });
+    };
+
+    alice = (await run("alice", alice)).record;
+    bob = (await run("bob", bob)).record;
+    carol = (await run("carol", carol)).record;
+    alice = (await run("alice", alice)).record;
+    bob = (await run("bob", bob)).record;
+    alice = (await run("alice", alice)).record;
+    carol = (await run("carol", carol)).record;
+    expect(carol?.session).not.toBeNull();
+
+    bob = await queueSelfRemoval(bob!);
+    bob = (await run("bob", bob)).record;
+    carol = (await run("carol", carol)).record;
+    const removed = await run("bob", bob);
+    expect(removed.error).toBeNull();
+    expect(removed.selfRemoved).toBe(true);
+
+    carol = await queueGroupMessage(carol!, "after bob left without an admin");
+    carol = (await run("carol", carol)).record;
+    const denied = await run("bob", removed.record);
+    expect(denied.messages.map((message) => message.plaintext)).not.toContain("after bob left without an admin");
+    expect(denied.selfRemoved).toBe(true);
+  });
+
+  it("recovers when two admins commit the same epoch", async () => {
+    const carolUser = "33333333-3333-4333-8333-333333333333";
+    const carolPhone = "cccccccc-cccc-4ccc-8ccc-ccccccccccc2";
+    const daveUser = "55555555-5555-4555-8555-555555555556";
+    const davePhone = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1";
+    const keys = {
+      alice: await generateEd25519(),
+      carol: await generateEd25519(),
+      dave: await generateEd25519(),
+    };
+    const conversationId = "44444444-4444-4444-8444-444444444451";
+    const log: GroupWireBlob[] = [];
+    let stamp = 0;
+    let fence = false;
+    const committedEpochs = new Set<number>();
+    const post = (senderDeviceId: string) => async (body: {
+      clientId: string;
+      kind: GroupWireBlob["kind"];
+      payload: string;
+      recipientDeviceId?: string;
+      bindingSignature?: string;
+    }) => {
+      if (fence && body.kind === "commit") {
+        const epoch = privateMessageEpoch(body.payload);
+        if (epoch === null || committedEpochs.has(epoch)) {
+          throw Object.assign(new Error("Another member already committed this epoch"), {
+            code: "mls_epoch_conflict",
+          });
+        }
+        committedEpochs.add(epoch);
+      }
+      stamp += 1;
+      const id = `00000000-0000-4000-8000-${String(1000 + stamp).padStart(12, "0")}`;
+      log.push({
+        id,
+        kind: body.kind,
+        senderDeviceId,
+        recipientDeviceId: body.recipientDeviceId ?? null,
+        payload: body.payload,
+        bindingSignature: body.bindingSignature ?? null,
+        createdAt: new Date(Date.UTC(2026, 0, 3, 0, 0, stamp)).toISOString(),
+      });
+      return { id };
+    };
+    const roles: Record<string, GroupRole> = {
+      [alicePhone]: "admin",
+      [carolPhone]: "member",
+      [davePhone]: "member",
+    };
+    let alice: GroupRecord | null = null;
+    let carol: GroupRecord | null = null;
+    let dave: GroupRecord | null = null;
+    const people = {
+      alice: { userId: aliceUser, deviceId: alicePhone, keys: keys.alice },
+      carol: { userId: carolUser, deviceId: carolPhone, keys: keys.carol },
+      dave: { userId: daveUser, deviceId: davePhone, keys: keys.dave },
+    };
+    const run = async (who: keyof typeof people, record: GroupRecord | null) => {
+      const current = { alice, carol, dave, [who]: record };
+      const directory: DirectoryDevice[] = (Object.keys(people) as Array<keyof typeof people>).flatMap((name) => {
+        const stored = current[name];
+        if (!stored) return [];
+        return [{
+          userId: people[name].userId,
+          deviceId: people[name].deviceId,
+          signingPublicKey: stored.device.sophiaSigningPublicKey,
+          role: roles[people[name].deviceId] ?? "member",
+        }];
+      });
+      return syncGroup({
+        record,
+        userId: people[who].userId,
+        deviceId: people[who].deviceId,
+        role: record === null && who === "alice" ? "admin" : "member",
+        conversationId,
+        signingPrivateJwk: people[who].keys.privateJwk,
+        signingPublicKey: people[who].keys.publicKey,
+        memberUserIds: [aliceUser, carolUser, daveUser],
+        directory,
+        blobs: log,
+        post: post(people[who].deviceId),
+      });
+    };
+
+    alice = (await run("alice", null)).record;
+    carol = (await run("carol", null)).record;
+    dave = (await run("dave", null)).record;
+    alice = (await run("alice", alice)).record;
+    carol = (await run("carol", carol)).record;
+    alice = (await run("alice", alice)).record;
+    dave = (await run("dave", dave)).record;
+    expect(dave?.session).not.toBeNull();
+    expect(carol?.session).not.toBeNull();
+
+    roles[carolPhone] = "admin";
+    carol = (await run("carol", carol)).record;
+    alice = (await run("alice", alice)).record;
+    carol = (await run("carol", carol)).record;
+    expect(carol?.device.role).toBe("admin");
+
+    fence = true;
+    alice = await queueMemberRemoval(alice!, davePhone);
+    carol = await queueMemberRemoval(carol!, davePhone);
+    alice = (await run("alice", alice)).record;
+    const recovered = await run("carol", carol);
+    expect(recovered.error).toBeNull();
+    carol = recovered.record;
+    alice = await queueGroupMessage(alice!, "the fork resolved on one epoch");
+    alice = (await run("alice", alice)).record;
+    const read = await run("carol", carol);
+    expect(read.error).toBeNull();
+    expect(read.messages.map((message) => message.plaintext)).toContain("the fork resolved on one epoch");
+  });
 });
+
+function privateMessageEpoch(payloadB64: string): number | null {
+  const bytes = b64ToBytes(payloadB64);
+  if (bytes.length < 12) return null;
+  const version = (bytes[0]! << 8) | bytes[1]!;
+  const wire = (bytes[2]! << 8) | bytes[3]!;
+  if (version !== 1 || wire !== 2) return null;
+  const first = bytes[4]!;
+  if ((first >> 6) !== 0) return null;
+  const groupLength = first & 0x3f;
+  const epochAt = 5 + groupLength;
+  if (epochAt + 8 > bytes.length) return null;
+  let epoch = 0;
+  for (let index = 0; index < 8; index += 1) {
+    epoch = epoch * 256 + bytes[epochAt + index]!;
+  }
+  return epoch;
+}

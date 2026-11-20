@@ -1,8 +1,11 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
-import { wsUrl } from "./api";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
+import { wsUrl, type Conversation } from "./api";
+import { groupAlertDecision } from "./group-alerts";
+import { useI18n } from "./i18n/locale";
 import {
   applyRemoteMessageDeletion,
   decryptIncoming,
@@ -11,6 +14,11 @@ import type { WireMessage } from "./crypto/types";
 
 export function useRealtime(unlocked: boolean, userId: string | null) {
   const queryClient = useQueryClient();
+  const pathname = usePathname();
+  const { t } = useI18n();
+  const activeConversationId = pathname.match(/^\/inbox\/([^/]+)/)?.[1] ?? null;
+  const alertRef = useRef({ activeConversationId, t });
+  alertRef.current = { activeConversationId, t };
 
   useEffect(() => {
     if (!unlocked) return;
@@ -31,7 +39,7 @@ export function useRealtime(unlocked: boolean, userId: string | null) {
               logicalMessageId: string;
               messageRecordIds: string[];
             }
-          | { type: "group_mls"; conversationId: string };
+          | { type: "group_mls"; conversationId: string; kind?: string };
         if (payload.type === "message_deleted") {
           await applyRemoteMessageDeletion(
             payload.conversationId,
@@ -52,9 +60,32 @@ export function useRealtime(unlocked: boolean, userId: string | null) {
           return;
         }
         if (payload.type === "group_mls") {
-          await queryClient.invalidateQueries({
-            queryKey: ["group-sync", payload.conversationId],
-          });
+          await Promise.all([
+            queryClient.invalidateQueries({
+              queryKey: ["group-sync", payload.conversationId],
+            }),
+            queryClient.invalidateQueries({
+              queryKey: ["conversations", userId],
+            }),
+          ]);
+          const conversations = queryClient.getQueryData<Conversation[]>(["conversations", userId]);
+          const title = conversations?.find((item) => item.id === payload.conversationId)?.title?.trim()
+            || alertRef.current.t("group.fallbackTitle");
+          if (
+            groupAlertDecision({
+              kind: payload.kind,
+              conversationId: payload.conversationId,
+              activeConversationId: alertRef.current.activeConversationId,
+              pageVisible: document.visibilityState === "visible",
+            }) &&
+            typeof Notification !== "undefined" &&
+            Notification.permission === "granted"
+          ) {
+            new Notification(alertRef.current.t("group.notifyTitle"), {
+              body: alertRef.current.t("group.notifyBody", { title }),
+              tag: payload.conversationId,
+            });
+          }
           return;
         }
         if (payload.type !== "message") return;

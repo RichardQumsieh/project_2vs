@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { encodeFilePayload, parseChatPayload } from "../chat-payload";
+import { decryptFileAttachment, inspectAndEncryptFileAttachment } from "./file-attachment";
 import { generateEd25519 } from "./keys";
 import {
   addDevice,
@@ -16,12 +18,14 @@ import {
   listMembers,
   listRoster,
   openMessage,
+  proposeRoleUpdate,
   proposeSelfRemoval,
   publishedKeyPackage,
   removeDevice,
   sealMessage,
   trustKeyPackage,
   wireContainsPlaintext,
+  withLeafPrivateKey,
   type DeviceRef,
   type GroupDevice,
   type GroupRole,
@@ -282,6 +286,97 @@ describe("MLS small groups", { timeout: 30_000 }, () => {
     expect((await openMessage(carolAfter.session, later.message)).plaintext).toBe(AFTER_REMOVAL);
     await expect(openMessage(bobAfter.session, later.message)).rejects.toMatchObject({ code: "not_member" });
     await expect(openMessage(proposed.session, later.message)).rejects.toMatchObject({ code: "cannot_decrypt" });
+  });
+
+  it("promotes a second admin and lets that admin demote them again", async () => {
+    const pair = await startPair("99999999-9999-4999-8999-999999999992");
+    const proposed = await proposeRoleUpdate(pair.bobSession, "admin");
+    expect(listRoster(proposed.session).find((leaf) => leaf.deviceId === bobPhone)?.role).toBe("member");
+    await expect(commitPending(proposed.session)).rejects.toMatchObject({ code: "rejected" });
+
+    const aliceSaw = await applyProposal(pair.aliceSession, proposed.proposal);
+    await expect(commitPending(aliceSaw, {
+      directoryRoles: new Map([[bobPhone, "member"]]),
+    })).rejects.toThrow(/no pending/);
+    expect(groupEpoch(aliceSaw)).toBe(groupEpoch(pair.aliceSession));
+
+    const committed = await commitPending(aliceSaw, {
+      directoryRoles: new Map([[bobPhone, "admin"]]),
+    });
+    expect(listRoster(committed.session).find((leaf) => leaf.deviceId === bobPhone)?.role).toBe("admin");
+    const bobApplied = await applyCommit(
+      withLeafPrivateKey(proposed.session, proposed.leafPrivateKey),
+      committed.commit,
+    );
+    expect(bobApplied.selfRemoved).toBe(false);
+    expect(listRoster(bobApplied.session).find((leaf) => leaf.deviceId === bobPhone)?.role).toBe("admin");
+    const note = await sealMessage(committed.session, "both admins can read this");
+    expect((await openMessage(bobApplied.session, note.message)).plaintext).toBe("both admins can read this");
+
+    const demotion = await proposeRoleUpdate(bobApplied.session, "member");
+    const aliceDemotes = await applyProposal(committed.session, demotion.proposal);
+    const demoted = await commitPending(aliceDemotes, {
+      directoryRoles: new Map([[bobPhone, "member"]]),
+    });
+    expect(listRoster(demoted.session).find((leaf) => leaf.deviceId === bobPhone)?.role).toBe("member");
+    const bobMember = await applyCommit(
+      withLeafPrivateKey(demotion.session, demotion.leafPrivateKey),
+      demoted.commit,
+    );
+    expect(listRoster(bobMember.session).find((leaf) => leaf.deviceId === bobPhone)?.role).toBe("member");
+    await expect(removeDevice(bobMember.session, alicePhone)).rejects.toMatchObject({ code: "rejected" });
+  });
+
+  it("lets any remaining member commit a self-removal while the admin is offline", async () => {
+    const pair = await startPair("99999999-9999-4999-8999-999999999993");
+    const carol = await makeDevice(carolUser, carolPhone);
+    const added = await addDevice(pair.aliceSession, publishedKeyPackage(carol), carol.sophiaSigningPublicKey);
+    const bobTrusted = await trustKeyPackage(
+      pair.bobSession,
+      publishedKeyPackage(carol),
+      carol.sophiaSigningPublicKey,
+    );
+    const bobSession = await applyCommit(bobTrusted, added.commit);
+    const carolSession = await joinFromWelcome(carol, added.welcome, refs(pair.alice, pair.bob, carol));
+    const proposed = await proposeSelfRemoval(bobSession.session);
+    const carolSaw = await applyProposal(carolSession, proposed.proposal);
+    await expect(commitPending(carolSaw)).rejects.toMatchObject({ code: "rejected" });
+    const committed = await commitPending(carolSaw, { selfRemovalsOnly: true });
+    expect(listMembers(committed.session).some((member) => member.deviceId === bobPhone)).toBe(false);
+    const bobAfter = await applyCommit(proposed.session, committed.commit);
+    expect(bobAfter.selfRemoved).toBe(true);
+    const aliceSaw = await applyProposal(added.session, proposed.proposal);
+    const aliceAfter = await applyCommit(aliceSaw, committed.commit);
+    const later = await sealMessage(committed.session, AFTER_REMOVAL);
+    expect((await openMessage(aliceAfter.session, later.message)).plaintext).toBe(AFTER_REMOVAL);
+    await expect(openMessage(bobAfter.session, later.message)).rejects.toMatchObject({ code: "not_member" });
+  });
+
+  it("reuses 1:1 file encryption inside an MLS group message", async () => {
+    const { aliceSession, bobSession } = await startPair("99999999-9999-4999-8999-999999999994");
+    const prepared = await inspectAndEncryptFileAttachment(
+      new File(["leadership budget q3"], "budget.txt", { type: "text/plain" }),
+    );
+    const body = encodeFilePayload({
+      id: "55555555-5555-4555-8555-555555555555",
+      k: prepared.key,
+      n: prepared.nonce,
+      name: prepared.name,
+      mime: prepared.mime,
+      bytes: prepared.ciphertext.byteLength,
+      containsExternalLinks: prepared.containsExternalLinks,
+    });
+    const sealed = await sealMessage(aliceSession, body);
+    expect(wireContainsPlaintext(sealed.message, "leadership budget q3")).toBe(false);
+    expect(wireContainsPlaintext(sealed.message, prepared.key)).toBe(false);
+    const opened = await openMessage(bobSession, sealed.message);
+    const parsed = parseChatPayload(opened.plaintext);
+    expect(parsed.type).toBe("file");
+    if (parsed.type !== "file") return;
+    const copy = new ArrayBuffer(prepared.ciphertext.byteLength);
+    new Uint8Array(copy).set(prepared.ciphertext);
+    const blob = await decryptFileAttachment(copy, parsed.k, parsed.n);
+    expect(await blob.text()).toBe("leadership budget q3");
   });
 
   it("caps the prototype at 8 users and 2 devices each", () => {

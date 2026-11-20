@@ -4,12 +4,14 @@ import { prisma } from "../db.js";
 import { requireUser } from "../auth.js";
 import { groupE2eeEnabled } from "../env.js";
 import {
+  admitGroupBlob,
   canReadGroupBlob,
   gateGroupE2ee,
   groupAccess,
   keyPackageBoundToDevice,
   planGroupMembers,
   planMembershipChange,
+  planRoleChange,
   validateGroupBlob,
   type GroupGateFailure,
   type GroupMlsBlobKind,
@@ -18,7 +20,9 @@ import {
   addGroupMemberSchema,
   createGroupSchema,
   listGroupMlsQuery,
+  markGroupReadSchema,
   postGroupMlsBlobSchema,
+  setGroupRoleSchema,
 } from "../schemas.js";
 import { redis } from "../redis.js";
 import { bytesToB64 } from "../util.js";
@@ -107,8 +111,62 @@ export async function groupRoutes(app: FastifyInstance) {
         role: planned.members.find((member) => member.userId === user.id)?.role ?? "MEMBER",
       },
     });
-    await notifyMembers(planned.members.map((member) => member.userId), id);
+    await notifyMembers(planned.members.map((member) => member.userId), id, "welcome");
     return { ok: true, members: serializeMembers(planned.members) };
+  });
+
+  app.patch("/conversations/:id/members/:userId", async (request, reply) => {
+    const enabled = gateGroupE2ee(groupE2eeEnabled);
+    if (!enabled.ok) return deny(reply, enabled);
+    const session = await requireUser(request, reply);
+    if (!session) return;
+    const { id, userId } = request.params as { id: string; userId: string };
+    const parsed = setGroupRoleSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "Invalid input" });
+    const conversation = await loadGroup(id);
+    if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+    const access = groupAccess(conversation.members.map((member) => member.userId), session.sub);
+    if (!access.ok) return deny(reply, access);
+    const planned = planRoleChange(conversation.members, session.sub, userId, parsed.data.role);
+    if (!planned.ok) return deny(reply, planned);
+    await prisma.conversationMember.update({
+      where: { conversationId_userId: { conversationId: id, userId } },
+      data: { role: parsed.data.role },
+    });
+    await notifyMembers(planned.members.map((member) => member.userId), id, "proposal");
+    return { ok: true, members: serializeMembers(planned.members) };
+  });
+
+  app.post("/conversations/:id/read", async (request, reply) => {
+    const enabled = gateGroupE2ee(groupE2eeEnabled);
+    if (!enabled.ok) return deny(reply, enabled);
+    const session = await requireUser(request, reply);
+    if (!session) return;
+    const { id } = request.params as { id: string };
+    const parsed = markGroupReadSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: "Invalid input" });
+    const conversation = await loadGroup(id);
+    if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+    const access = groupAccess(conversation.members.map((member) => member.userId), session.sub);
+    if (!access.ok) return deny(reply, access);
+    const blob = parsed.data.blobId
+      ? await prisma.groupMlsBlob.findFirst({
+          where: { id: parsed.data.blobId, conversationId: id },
+          select: { id: true },
+        })
+      : await prisma.groupMlsBlob.findFirst({
+          where: { conversationId: id },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: { id: true },
+        });
+    if (parsed.data.blobId && !blob) return reply.code(400).send({ error: "Invalid read cursor" });
+    if (blob) {
+      await prisma.conversationMember.update({
+        where: { conversationId_userId: { conversationId: id, userId: session.sub } },
+        data: { groupReadBlobId: blob.id },
+      });
+    }
+    return { ok: true, blobId: blob?.id ?? null };
   });
 
   app.delete("/conversations/:id/members/:userId", async (request, reply) => {
@@ -131,7 +189,7 @@ export async function groupRoutes(app: FastifyInstance) {
     await prisma.conversationMember.delete({
       where: { conversationId_userId: { conversationId: id, userId } },
     });
-    await notifyMembers([...planned.members.map((member) => member.userId), userId], id);
+    await notifyMembers([...planned.members.map((member) => member.userId), userId], id, "commit");
     return { ok: true, members: serializeMembers(planned.members) };
   });
 
@@ -200,37 +258,72 @@ export async function groupRoutes(app: FastifyInstance) {
 
     let created;
     try {
-      created = await prisma.groupMlsBlob.create({
-        data: {
-          conversationId: id,
+      created = await prisma.$transaction(async (tx) => {
+        const locked = await tx.$queryRaw<Array<{ mlsEpoch: number; type: string }>>`
+          SELECT "mlsEpoch", "type"::text AS "type" FROM "Conversation" WHERE "id" = ${id} FOR UPDATE
+        `;
+        const current = locked[0];
+        if (!current || current.type !== "GROUP") {
+          throw new DeliveryReject({ ok: false, status: 404, error: "Conversation not found" });
+        }
+        const recorded = await tx.groupMlsCommit.findUnique({
+          where: { conversationId_epoch: { conversationId: id, epoch: current.mlsEpoch } },
+          select: { epoch: true },
+        });
+        const admitted = admitGroupBlob({
+          ...parsed.data,
           senderDeviceId: device.id,
-          clientId: parsed.data.clientId,
-          kind: parsed.data.kind,
-          recipientDeviceId,
-          payload: Buffer.from(blob.payload),
-          bindingSignature: blob.bindingSignature ? Buffer.from(blob.bindingSignature) : null,
-        },
-      });
-    } catch (error) {
-      if (
-        parsed.data.clientId &&
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002"
-      ) {
-        const existing = await prisma.groupMlsBlob.findUnique({
-          where: {
-            conversationId_clientId: { conversationId: id, clientId: parsed.data.clientId },
+          conversationId: id,
+          currentEpoch: current.mlsEpoch,
+          commitRecordedForCurrentEpoch: recorded !== null,
+        });
+        if (!admitted.ok) throw new DeliveryReject(admitted);
+        const row = await tx.groupMlsBlob.create({
+          data: {
+            conversationId: id,
+            senderDeviceId: device.id,
+            clientId: parsed.data.clientId,
+            kind: parsed.data.kind,
+            recipientDeviceId,
+            payload: Buffer.from(admitted.payload),
+            bindingSignature: admitted.bindingSignature ? Buffer.from(admitted.bindingSignature) : null,
+            epoch: admitted.epoch,
           },
         });
-        if (existing) return serializeBlob(existing);
+        if (admitted.recordCommit && admitted.epoch !== null) {
+          await tx.groupMlsCommit.create({
+            data: { conversationId: id, epoch: admitted.epoch, blobId: row.id },
+          });
+        }
+        await tx.conversation.update({
+          where: { id },
+          data: {
+            ...(admitted.recordCommit ? { mlsEpoch: admitted.nextEpoch } : {}),
+            updatedAt: row.createdAt,
+          },
+        });
+        return row;
+      });
+    } catch (error) {
+      if (error instanceof DeliveryReject) return deny(reply, error.failure);
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const target = uniqueTarget(error);
+        if (parsed.data.clientId && target.includes("clientId")) {
+          const existing = await prisma.groupMlsBlob.findUnique({
+            where: {
+              conversationId_clientId: { conversationId: id, clientId: parsed.data.clientId },
+            },
+          });
+          if (existing) return serializeBlob(existing);
+        }
+        return reply.code(409).send({
+          error: "Another member already committed this epoch",
+          code: "mls_epoch_conflict",
+        });
       }
       throw error;
     }
-    await prisma.conversation.update({
-      where: { id },
-      data: { updatedAt: created.createdAt },
-    });
-    await notifyMembers(conversation.members.map((member) => member.userId), id);
+    await notifyMembers(conversation.members.map((member) => member.userId), id, parsed.data.kind);
     return serializeBlob(created);
   });
 
@@ -350,11 +443,25 @@ async function loadGroup(id: string) {
     select: {
       id: true,
       type: true,
+      mlsEpoch: true,
       members: { select: { userId: true, role: true } },
     },
   });
   if (!conversation || conversation.type !== "GROUP") return null;
   return conversation;
+}
+
+class DeliveryReject extends Error {
+  constructor(readonly failure: GroupGateFailure) {
+    super(failure.error);
+    this.name = "DeliveryReject";
+  }
+}
+
+function uniqueTarget(error: Prisma.PrismaClientKnownRequestError): string {
+  const target = error.meta?.target;
+  if (Array.isArray(target)) return target.join(",");
+  return typeof target === "string" ? target : "";
 }
 
 function serializeBlob(blob: {
@@ -392,7 +499,11 @@ function deny(reply: FastifyReply, failure: GroupGateFailure) {
   });
 }
 
-async function notifyMembers(userIds: string[], conversationId: string) {
-  const payload = JSON.stringify({ type: "group_mls", conversationId });
+async function notifyMembers(userIds: string[], conversationId: string, kind?: GroupMlsBlobKind) {
+  const payload = JSON.stringify({
+    type: "group_mls",
+    conversationId,
+    ...(kind ? { kind } : {}),
+  });
   await Promise.all(userIds.map((userId) => redis.publish(`user:${userId}`, payload)));
 }

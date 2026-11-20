@@ -15,6 +15,7 @@ import {
 import { b64ToBytes, bytesToB64, directKeyFor, publicUser } from "../util.js";
 import { redis } from "../redis.js";
 import { canListConversation } from "../conversation-visibility.js";
+import { unreadCountsFor } from "../group-read.js";
 import {
   canDeleteMessages,
   messageDeletionRecordIds,
@@ -82,19 +83,22 @@ export async function conversationRoutes(app: FastifyInstance) {
       orderBy: { updatedAt: "desc" },
     });
 
+    const visible = conversations.filter((conversation: any) =>
+      canListConversation({
+        type: conversation.type,
+        initiatedByUserId: conversation.initiatedByUserId,
+        hasMessages: conversation.messages.length > 0,
+        userId: session.sub,
+      }),
+    );
+    const groupIds = visible
+      .filter((conversation: { type: string }) => conversation.type === "GROUP")
+      .map((conversation: { id: string }) => conversation.id);
+    const unread = await unreadCountsFor(session.sub, groupIds);
     return {
-      conversations: conversations
-        .filter((conversation: any) =>
-          canListConversation({
-            type: conversation.type,
-            initiatedByUserId: conversation.initiatedByUserId,
-            hasMessages: conversation.messages.length > 0,
-            userId: session.sub,
-          }),
-        )
-        .map((conversation: any) =>
-          serializeConversation(conversation, session.sub),
-        ),
+      conversations: visible.map((conversation: any) =>
+        serializeConversation(conversation, session.sub, unread.get(conversation.id) ?? 0),
+      ),
     };
   });
 
@@ -812,6 +816,7 @@ export function serializeConversation(
     messages?: { createdAt: Date }[];
   },
   userId: string,
+  unreadCount = 0,
 ) {
   const peer = conversation.members.find((member) => member.userId !== userId)?.user;
   return {
@@ -830,5 +835,6 @@ export function serializeConversation(
     updatedAt: conversation.updatedAt.toISOString(),
     peer: peer ? publicUser(peer) : null,
     lastMessageAt: conversation.messages?.[0]?.createdAt.toISOString() ?? null,
+    unreadCount: conversation.type === "GROUP" ? unreadCount : 0,
   };
 }

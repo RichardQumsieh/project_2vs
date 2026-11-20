@@ -221,6 +221,14 @@ export const addGroupMemberSchema = z.object({
   message: "Provide a user id or a username",
 });
 
+export const setGroupRoleSchema = z.object({
+  role: z.enum(["ADMIN", "MEMBER"]),
+}).strict();
+
+export const markGroupReadSchema = z.object({
+  blobId: z.string().uuid().optional(),
+}).strict();
+
 export const postGroupMlsBlobSchema = z.object({
   senderDeviceId: z.string().uuid(),
   clientId: z.string().uuid().optional(),

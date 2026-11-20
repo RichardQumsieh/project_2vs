@@ -722,7 +722,7 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
               >
                 {label.slice(0, 1).toUpperCase()}
               </span>
-              <span className="min-w-0">
+              <span className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium tracking-tight"><BidiText>{label}</BidiText></p>
                 <p className="mt-0.5 truncate text-xs text-white/40">
                   {conversation.type === "GROUP" ? (
@@ -732,6 +732,14 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
                   ) : null}
                 </p>
               </span>
+              {conversation.type === "GROUP" && (conversation.unreadCount ?? 0) > 0 ? (
+                <span
+                  className="ms-auto shrink-0 rounded-full bg-cyan-300/20 px-2 py-0.5 text-[11px] font-medium text-cyan-50"
+                  aria-label={t("group.unread", { count: conversation.unreadCount ?? 0 })}
+                >
+                  {conversation.unreadCount}
+                </span>
+              ) : null}
             </Link>
             );
           })}
