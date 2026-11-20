@@ -4,6 +4,13 @@ import { useEffect, useState } from "react";
 import { ApiError, api, type AccountActivityEvent } from "@/lib/api";
 import { useI18n, type MessageKey } from "@/lib/i18n/locale";
 
+export type ActivityLogSnapshot = {
+  events: AccountActivityEvent[];
+  recorded: string[];
+  notRecorded: string[];
+  truncated: boolean;
+};
+
 const actionKeys: Record<string, MessageKey> = {
   LOGIN: "activity.login",
   CLOUD_CONSENT_GRANTED: "activity.consentOn",
@@ -16,13 +23,28 @@ const actionKeys: Record<string, MessageKey> = {
   BUTTON_ACTION: "activity.action",
 };
 
-export function ActivityLogPanel() {
+export function ActivityLogPanel({
+  initialPage,
+}: {
+  initialPage?: ActivityLogSnapshot;
+} = {}) {
   const { t } = useI18n();
-  const [events, setEvents] = useState<AccountActivityEvent[]>([]);
-  const [recorded, setRecorded] = useState<string[]>([]);
-  const [notRecorded, setNotRecorded] = useState<string[]>([]);
-  const [truncated, setTruncated] = useState(false);
+  const [events, setEvents] = useState<AccountActivityEvent[]>(initialPage?.events ?? []);
+  const [recorded, setRecorded] = useState<string[]>(initialPage?.recorded ?? []);
+  const [notRecorded, setNotRecorded] = useState<string[]>(initialPage?.notRecorded ?? []);
+  const [truncated, setTruncated] = useState(initialPage?.truncated ?? false);
   const [error, setError] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState(initialPage);
+  if (initialPage !== snapshot) {
+    setSnapshot(initialPage);
+    if (initialPage) {
+      setEvents(initialPage.events);
+      setRecorded(initialPage.recorded);
+      setNotRecorded(initialPage.notRecorded);
+      setTruncated(initialPage.truncated);
+      setError(null);
+    }
+  }
   const [notice, setNotice] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -36,6 +58,7 @@ export function ActivityLogPanel() {
   }
 
   useEffect(() => {
+    if (initialPage) return;
     let active = true;
     void api.listActivity().then(
       (page) => {
@@ -53,7 +76,7 @@ export function ActivityLogPanel() {
     return () => {
       active = false;
     };
-  }, [t]);
+  }, [initialPage, t]);
 
   async function exportLog() {
     setBusy(true);
@@ -104,7 +127,7 @@ export function ActivityLogPanel() {
         </p>
         <p className="mt-3">{t("activity.recorded")}: {recorded.join("; ") || t("activity.loading")}</p>
         <p className="mt-2">{t("activity.notRecorded")}: {notRecorded.join("; ") || t("activity.loading")}</p>
-        <p className="mt-2 text-white/45">
+        <p className="mt-2 text-white/75">
           {t("activity.deleteNote")}
         </p>
       </section>
@@ -119,7 +142,7 @@ export function ActivityLogPanel() {
         </button>
         <button
           type="button"
-          className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80 disabled:opacity-40"
+          className="rounded-full border border-white/40 px-4 py-2 text-sm text-white disabled:opacity-40"
           disabled={busy}
           onClick={() => void deleteLog()}
         >
@@ -148,15 +171,15 @@ export function ActivityLogPanel() {
             <li key={event.id} className="px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <p className="text-sm text-white">
-                  <span className="text-white/50">{event.actor}</span>
+                  <span className="text-white/75">{event.actor}</span>
                   {" · "}
                   {actionKeys[event.action] ? t(actionKeys[event.action]) : event.action}
                 </p>
-                <time className="text-xs text-white/40" dateTime={event.occurredAt}>
+                <time className="text-xs text-white/70" dateTime={event.occurredAt}>
                   {new Date(event.occurredAt).toLocaleString()}
                 </time>
               </div>
-              <p className="mt-1 text-sm text-white/65">{event.summary}</p>
+              <p className="mt-1 text-sm text-white/90">{event.summary}</p>
             </li>
           ))}
         </ul>

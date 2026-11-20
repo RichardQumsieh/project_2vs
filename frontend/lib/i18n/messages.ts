@@ -189,7 +189,7 @@ export const en = {
 
   "settings.title": "Settings",
   "settings.subtitle":
-    "Appearance, language, encrypted backup, privacy, activity, Sophia, devices, and future subscription tiers.",
+    "Appearance, language, encrypted backup, privacy, Sophia, devices, and future subscription tiers.",
   "settings.appearance": "Appearance",
   "settings.appearanceBody":
     "Theme and language are saved in this browser. Arabic uses a right-to-left layout. The inbox keeps a single look and does not carry a light/dark toggle.",
@@ -211,7 +211,7 @@ export const en = {
   "settings.privacy.body": "Cloud Sophia consent, what stays on-device, and how to withdraw.",
   "settings.activity.title": "Activity",
   "settings.activity.body":
-    "Sign-ins, consent, settings changes, and approved mail or calendar actions you can export or delete.",
+    "Sign-ins, consent, settings changes, and approved mail or calendar actions. Open the log from the inbox Activity section.",
   "settings.security.title": "Security",
   "settings.security.body": "Trusted browsers, recovery codes, sessions, and vault unlock behavior.",
   "settings.devices.title": "Devices",
@@ -229,7 +229,7 @@ export const en = {
     "Companion dialogue and personal notes stay in this browser. Optional automatic research still sends only a standalone question through the app backend to Brave Search after you opt in. Document downloads are generated locally.",
   "privacy.p3":
     "Connecting mail, calendar, GitHub, or Linear does not by itself let Sophia read that data for a model. Cloud consent is a separate checkbox. While it is on, a cloud question can include metadata from those connections you already linked: calendar title and time, mail subject, sender, and a short preview, and GitHub or Linear title and state. Full mail bodies are not fetched for the model. Tokens are not sent. Withdraw clears the grant and stops those calls.",
-  "privacy.p4": "Settings → Activity lists the events this slice actually records. It is not a log of every button.",
+  "privacy.p4": "Inbox → Activity lists the events this slice actually records. It is not a log of every button.",
 
   "security.title": "Security",
   "security.subtitle": "Account factors, trusted browsers, and vault unlock behavior.",
@@ -303,7 +303,7 @@ export const en = {
   "sophiaSettings.p1":
     "Live toggles for Fast Sophia commands, personal memory, voice output, and automatic research still live in the conversation header so they stay tied to the active thread. Use this page for product orientation and studio assets.",
   "sophiaSettings.p2":
-    "Cloud Sophia is a separate consent under Privacy. It stays off until you check it. The hosted model does not receive decrypted private messages. Withdraw there to stop cloud calls. Your account activity log is under Settings → Activity.",
+    "Cloud Sophia is a separate consent under Privacy. It stays off until you check it. The hosted model does not receive decrypted private messages. Withdraw there to stop cloud calls. Your account activity log is in the inbox, under Activity.",
   "sophiaSettings.experimental":
     "Assistant quality is experimental. English and Levantine Arabic replies can miss intent. Nothing is sent, booked, or filed until you approve the exact payload.",
   "sophiaSettings.li1": "Presentations download as real .pptx decks.",
@@ -354,6 +354,15 @@ export const en = {
   "inbox.restoring": "Restoring this device…",
   "inbox.unlocking": "Unlocking secure session…",
   "inbox.title": "Inbox",
+  "inbox.hub.nav": "Inbox sections",
+  "inbox.hub.chats": "Chats",
+  "inbox.hub.chatsGroups": "Chats and groups",
+  "inbox.hub.activity": "Activity",
+  "inbox.hub.mail": "Mail and calendar",
+  "inbox.hub.pickChat": "Mail, calendar, and your activity log are in the inbox sections.",
+  "inbox.hub.sampleActor": "you",
+  "inbox.hub.sampleLogin": "Signed in on this browser.",
+  "inbox.hub.sampleEmail": "Approved sending an email.",
   "inbox.settings": "Settings",
   "inbox.compose": "Compose",
   "inbox.schedule": "Schedule",
@@ -914,7 +923,7 @@ export const ar: Record<MessageKey, string> = {
   "password.unmet": "غير متحقق",
 
   "settings.title": "الإعدادات",
-  "settings.subtitle": "المظهر واللغة والنسخ المشفّر والخصوصية والنشاط وصوفيا والأجهزة وخطط الاشتراك لاحقًا.",
+  "settings.subtitle": "المظهر واللغة والنسخ المشفّر والخصوصية وصوفيا والأجهزة وخطط الاشتراك لاحقًا.",
   "settings.appearance": "المظهر",
   "settings.appearanceBody":
     "يُحفظ المظهر واللغة في هذا المتصفح. العربية تستخدم تخطيطًا من اليمين إلى اليسار. الوارد يبقي مظهرًا واحدًا بلا مبدّل فاتح/داكن.",
@@ -932,7 +941,7 @@ export const ar: Record<MessageKey, string> = {
   "settings.privacy.title": "الخصوصية",
   "settings.privacy.body": "موافقة صوفيا السحابية، وما يبقى على الجهاز، وكيف تسحب الموافقة.",
   "settings.activity.title": "النشاط",
-  "settings.activity.body": "تسجيلات الدخول والموافقات وتغييرات الإعدادات وإجراءات البريد أو التقويم التي يمكنك تصديرها أو حذفها.",
+  "settings.activity.body": "تسجيلات الدخول والموافقات وتغييرات الإعدادات وإجراءات البريد أو التقويم. افتح السجل من قسم النشاط في الوارد.",
   "settings.security.title": "الأمان",
   "settings.security.body": "المتصفحات الموثوقة ورموز الاستعادة والجلسات وسلوك فتح الخزنة.",
   "settings.devices.title": "الأجهزة",
@@ -950,7 +959,7 @@ export const ar: Record<MessageKey, string> = {
     "حوار الرفيق والملاحظات الشخصية يبقيان في هذا المتصفح. البحث التلقائي الاختياري يرسل سؤالًا مستقلًا فقط عبر الخادم إلى Brave Search بعد موافقتك. تنزيلات المستندات تُنشأ محليًا.",
   "privacy.p3":
     "ربط البريد أو التقويم أو GitHub أو Linear لا يسمح وحده لصوفيا بقراءة تلك البيانات لنموذج. موافقة السحابة مربع منفصل. أثناء تفعيلها يمكن أن يتضمن سؤال سحابي بيانات وصفية من الاتصالات التي ربطتها: عنوان التقويم ووقته، وموضوع البريد والمرسل ومعاينة قصيرة، وعنوان GitHub أو Linear وحالته. لا تُجلب نصوص البريد الكاملة للنموذج. لا تُرسل الرموز. سحب الموافقة يمسح المنحة ويوقف تلك الاستدعاءات.",
-  "privacy.p4": "الإعدادات ← النشاط تعرض الأحداث التي يسجّلها هذا الجزء فعلًا. ليست سجلًا لكل زر.",
+  "privacy.p4": "الوارد ← النشاط يعرض الأحداث التي يسجّلها هذا الجزء فعلًا. ليست سجلًا لكل زر.",
 
   "security.title": "الأمان",
   "security.subtitle": "عوامل الحساب والمتصفحات الموثوقة وسلوك فتح الخزنة.",
@@ -1015,7 +1024,7 @@ export const ar: Record<MessageKey, string> = {
   "sophiaSettings.p1":
     "مفاتيح الأوامر السريعة والذاكرة الشخصية والصوت والبحث التلقائي ما زالت في ترويسة المحادثة لتبقى مربوطة بالمحادثة النشطة. استخدم هذه الصفحة للتوجيه وأصول الاستوديو.",
   "sophiaSettings.p2":
-    "صوفيا السحابية موافقة منفصلة تحت الخصوصية. تبقى متوقفة حتى تحددها. النموذج المستضاف لا يستلم الرسائل الخاصة بعد فك التشفير. اسحب الموافقة هناك لإيقاف الاستدعاءات. سجل نشاط الحساب تحت الإعدادات ← النشاط.",
+    "صوفيا السحابية موافقة منفصلة تحت الخصوصية. تبقى متوقفة حتى تحددها. النموذج المستضاف لا يستلم الرسائل الخاصة بعد فك التشفير. اسحب الموافقة هناك لإيقاف الاستدعاءات. سجل نشاط الحساب في الوارد ضمن النشاط.",
   "sophiaSettings.experimental":
     "جودة المساعدة تجريبية. الردود بالإنجليزية والعربية الشامية قد تخطئ القصد. لا يُرسل شيء ولا يُحجز ولا يُنشأ ملف حتى توافق على الحمولة نفسها.",
   "sophiaSettings.li1": "العروض تُنزَّل كملفات ‎.pptx حقيقية.",
@@ -1065,6 +1074,15 @@ export const ar: Record<MessageKey, string> = {
   "inbox.restoring": "جارٍ استعادة هذا الجهاز…",
   "inbox.unlocking": "جارٍ فتح الجلسة الآمنة…",
   "inbox.title": "الوارد",
+  "inbox.hub.nav": "أقسام الوارد",
+  "inbox.hub.chats": "المحادثات",
+  "inbox.hub.chatsGroups": "المحادثات والمجموعات",
+  "inbox.hub.activity": "النشاط",
+  "inbox.hub.mail": "البريد والتقويم",
+  "inbox.hub.pickChat": "البريد والتقويم وسجل النشاط في أقسام الوارد.",
+  "inbox.hub.sampleActor": "أنت",
+  "inbox.hub.sampleLogin": "تسجيل الدخول من هذا المتصفح.",
+  "inbox.hub.sampleEmail": "وُوفق على إرسال بريد.",
   "inbox.settings": "الإعدادات",
   "inbox.compose": "رسالة",
   "inbox.schedule": "جدولة",
