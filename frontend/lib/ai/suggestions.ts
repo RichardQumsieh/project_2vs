@@ -1,3 +1,4 @@
+import { draftVoiceInstruction, type VoicePreferences } from "../appearance/voice";
 import type { LocalMessage } from "../crypto/types";
 import type {
   ChatTurn,
@@ -12,6 +13,7 @@ export type SuggestionRequest = {
   messages: LocalMessage[];
   language: SummaryLanguage;
   tone: SummaryTone;
+  draftVoice?: VoicePreferences;
 };
 
 const maxRecentMessages = 16;
@@ -98,6 +100,7 @@ export function prepareSuggestionPrompt(
         "Vary the options naturally: a direct conversational reply, a useful follow-up or question when appropriate, and a warmer or witty alternative only if it fits. Do not force humor, advice, or questions.",
         languageInstruction(request.language),
         toneInstruction(request.tone),
+        ...(request.draftVoice ? [draftVoiceInstruction(request.draftVoice)] : []),
         "If the topic appears serious or sensitive, keep every option respectful and supportive. Never send a reply; the user will review and edit suggestions.",
       ].join(" "),
     },

@@ -4,6 +4,7 @@ import {
   buildResearchBriefDocument,
   type SophiaDocument,
 } from "./sophia-documents";
+import { composeMeetingDraft, type VoicePreferences } from "../appearance/voice";
 import type { MemoryFact } from "./personal-memory";
 import { answerRadarQuestion } from "./radar-briefing";
 import type { RadarStoreState } from "./radar-store";
@@ -206,6 +207,7 @@ export function parseSophiaCommand(
     radarStore?: RadarStoreState | null;
     conversationId?: string | null;
     jobDefaults?: JobManagerDefaults;
+    voice?: VoicePreferences;
   } = {},
 ): SophiaPlan {
   const raw = input.replace(/\u0000/g, "").trim();
@@ -512,11 +514,7 @@ export function parseSophiaCommand(
       attendees: "the team",
       purpose,
     });
-    const draft = [
-      `Hi — can we meet to ${purpose}?`,
-      `Proposed timing: ${when}.`,
-      "I'll share an agenda and we can confirm owners in the room.",
-    ].join(" ");
+    const draft = composeMeetingDraft({ purpose, when, voice: options.voice });
     intents.push({ type: "create_document", document: agenda });
     intents.push({ type: "draft_message", body: draft.slice(0, 4_000) });
     summaries.push(`draft a meeting note for ${recipient}`);

@@ -79,6 +79,8 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:3001
       NEXT_PUBLIC_GROUP_E2EE_ENABLED: ${NEXT_PUBLIC_GROUP_E2EE_ENABLED:-false}
+      # Adaptive appearance stays off unless this is exactly true.
+      NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED: ${NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED:-false}
       WATCHPACK_POLLING: "true"
     ports:
       - "127.0.0.1:3000:3000"

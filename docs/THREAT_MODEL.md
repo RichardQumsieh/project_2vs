@@ -73,6 +73,7 @@ Two paths exist. They are not the same, and cloud is not a silent fallback for t
 - Voice notes are transcribed in the browser by a Whisper model. Audio is not uploaded for transcription. The encrypted audio file may be uploaded as ciphertext.
 - Browser speech recognition is used only when the browser reports a local engine (`processLocally`). A separate, labeled opt-in can use the browser's own speech service. That service may send audio to the browser vendor. It is off until the user turns it on. Text-to-speech uses voices the browser marks `localService: true`. That flag is the browser's claim, not an audit of the operating system.
 - Personal notes stay in this browser. They are not uploaded for inference.
+- Adaptive appearance, when `NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED` is exactly `true`, reads only this device's locale, clock hour, a role the person picks (manager or family), and counters of which panels were opened. It does not read chat plaintext. Suggestions are stored in this browser and are not applied until the person previews and approves them. Uploaded backgrounds are image bytes in IndexedDB. Curated backgrounds are bundled SVG and CSS gradients, not remote URLs. The flag is unset in production, so the feature stays off. See [Adaptive appearance](appearance.md).
 - The in-app assistant cannot read the source tree, run a shell, or deploy.
 
 Local inference can fail. There is no automatic cloud fallback when it does.

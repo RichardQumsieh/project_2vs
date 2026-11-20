@@ -1112,3 +1112,221 @@ html[dir="rtl"] .inbox-letter {
   from { opacity: 0; transform: translateX(-12%); }
   to { opacity: 1; transform: none; }
 }
+
+html[data-appearance="on"] {
+  --appearance-scrim: color-mix(in srgb, var(--background) 88%, transparent);
+  font-size: calc(100% * var(--font-scale, 1));
+}
+
+html[data-appearance="on"] body {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(var(--appearance-scrim), var(--appearance-scrim)),
+    var(--appearance-image, none);
+  background-size: cover, cover;
+  background-attachment: fixed, fixed;
+  color: var(--foreground);
+}
+
+.appearance-studio {
+  display: grid;
+  gap: calc(1rem * var(--density-scale, 1));
+  min-width: 0;
+  color: var(--foreground);
+}
+
+.appearance-card,
+.appearance-note,
+.appearance-status {
+  min-width: 0;
+}
+
+.appearance-card {
+  display: grid;
+  gap: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  padding: calc(1.1rem * var(--density-scale, 1));
+}
+
+.appearance-card h2,
+.appearance-note,
+.appearance-hint,
+.appearance-status,
+.appearance-proposal-copy {
+  margin: 0;
+}
+
+.appearance-note,
+.appearance-hint {
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.appearance-proposal {
+  border-color: var(--accent);
+}
+
+.appearance-proposal-copy {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.appearance-actions,
+.appearance-swatches,
+.appearance-backgrounds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.appearance-field {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.appearance-choice,
+.appearance-upload,
+.appearance-background,
+.appearance-hex input,
+.appearance-field input[type="range"] {
+  min-height: 2.75rem;
+}
+
+.appearance-choice,
+.appearance-upload {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--control-bg);
+  color: var(--foreground);
+  padding-inline: 0.95rem;
+  font: inherit;
+}
+
+.appearance-choice[aria-pressed="true"],
+.appearance-background[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+
+.appearance-choice:disabled {
+  opacity: 0.45;
+}
+
+.appearance-choice:focus-visible,
+.appearance-swatch:focus-visible,
+.appearance-background:focus-visible,
+.appearance-upload:focus-visible,
+.appearance-hex input:focus-visible,
+.appearance-field input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.appearance-choice-primary {
+  font-weight: 650;
+}
+
+.appearance-swatch {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 999px;
+  border: 2px solid var(--line);
+}
+
+.appearance-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
+
+.appearance-hex input {
+  width: min(100%, 9rem);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--control-bg);
+  color: var(--foreground);
+  padding-inline: 0.9rem;
+  font: inherit;
+}
+
+.appearance-background {
+  display: grid;
+  justify-items: start;
+  gap: 0.35rem;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  text-align: start;
+}
+
+.appearance-thumb {
+  width: 4.75rem;
+  height: 3.1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--control-bg);
+  background-size: cover;
+}
+
+.appearance-upload {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+.appearance-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.appearance-draft {
+  margin: 0;
+  border-radius: 1rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: 0.9rem 1rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.appearance-history {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding-inline-start: 1.1rem;
+}
+
+.appearance-history li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+}
+
+.appearance-history time {
+  color: var(--muted);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

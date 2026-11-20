@@ -20,6 +20,7 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       NEXT_PUBLIC_API_URL: "http://127.0.0.1:3001",
+      NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED: "true",
     },
   },
   projects: [
