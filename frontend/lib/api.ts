@@ -1,5 +1,7 @@
 import { resolveApiUrl } from "./api-url";
 import { assertGroupE2eeEnabled } from "./group-e2ee-flag";
+import { assertSafetyNumbersEnabled } from "./safety-numbers-flag";
+import type { IdentityDirectory } from "./crypto/safety-view";
 import type { OutboundEmailAttachment } from "./email-attachments";
 
 const API_URL = resolveApiUrl();
@@ -492,6 +494,13 @@ export const api = {
     request<{
       conversations: Conversation[];
     }>("/conversations"),
+
+  identityKeys: (conversationId: string) => {
+    assertSafetyNumbersEnabled();
+    return request<IdentityDirectory>(
+      `/conversations/${encodeURIComponent(conversationId)}/identity-keys`,
+    );
+  },
 
   createDirect: (
     username: string,

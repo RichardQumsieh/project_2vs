@@ -152,7 +152,7 @@ Promote and demote update the ACL immediately and show a notice that the MLS rol
 
 ## What is not done
 
-- The server does not authenticate that a committer is an admin. A well-formed commit that honest clients reject can occupy the epoch and stall the group. Recovery from that stall is not automatic.
+- The server does not authenticate that a committer is an admin. A well-formed commit that honest clients reject can occupy the epoch and stall the group. Recovery from that stall is not automatic. Safety numbers (`docs/safety-numbers.md`) compare device identity keys. They do not authenticate committers and they do not repair a stalled epoch.
 - Leave finishes when any other member's client syncs. It does not finish while every other member is offline, and the server does not commit on their behalf. The last admin still cannot leave or be demoted while other members remain.
 - A demotion or promotion is not cryptographic until the Update commit. Until then the old leaf role is what honest clients enforce.
 - The inbox welcomes up to two active devices per member, but there is no device picker. A removed device still depends on the same commit path as a removed user.
