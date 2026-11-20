@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { LEGACY_ACTIVITY_PATH, legacyActivityRedirect } from "./lib/inbox-hub";
 
 const nextConfig: NextConfig = {
   devIndicators: false,
@@ -26,6 +27,11 @@ const nextConfig: NextConfig = {
         source: "/settings/jarvis/:path*",
         destination: "/settings/sophia/:path*",
         permanent: true,
+      },
+      {
+        source: LEGACY_ACTIVITY_PATH,
+        destination: legacyActivityRedirect(),
+        permanent: false,
       },
     ];
   },
