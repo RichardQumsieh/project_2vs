@@ -29,6 +29,9 @@ import { integrationWorkRoutes } from "./routes/integrations-work.js";
 import { integrationCollabRoutes } from "./routes/integrations-collab.js";
 import { integrationWriteRoutes } from "./routes/integrations-write.js";
 import { dailyBriefRoutes, startDailyBriefScheduler } from "./routes/daily-brief.js";
+import { billingWebhookRoutes } from "./routes/billing-webhook.js";
+import { workspaceRoutes } from "./routes/workspaces.js";
+import { waitlistRoutes } from "./routes/waitlist.js";
 import { registerRealtime } from "./ws.js";
 
 const app = Fastify({
@@ -66,6 +69,9 @@ app.addHook("onRequest", async (request, reply) => {
     return;
   }
 
+  const path = request.url.split("?")[0];
+  if (path === "/billing/stripe/webhook") return;
+
   if (request.headers.origin !== allowedOrigin) {
     return reply.code(403).send({
       error: "Invalid request origin",
@@ -82,6 +88,7 @@ app.get("/health", async (request) => ({
   groupE2ee: env.GROUP_E2EE_ENABLED,
   // true unless DAILY_BRIEF_ENABLED is exactly "false".
   dailyBrief: env.DAILY_BRIEF_ENABLED,
+  billing: env.BILLING_ENABLED ? env.BILLING_PROVIDER : "off",
   // true unless SAFETY_NUMBERS_ENABLED is exactly "false".
   safetyNumbers: env.SAFETY_NUMBERS_ENABLED,
   trustProxy: trustProxy === false ? "disabled" : "restricted",
@@ -123,6 +130,9 @@ await app.register(integrationWorkRoutes);
 await app.register(integrationCollabRoutes);
 await app.register(integrationWriteRoutes);
 await app.register(dailyBriefRoutes);
+await app.register(workspaceRoutes);
+await app.register(waitlistRoutes);
+await app.register(billingWebhookRoutes);
 startDailyBriefScheduler((fields) => {
   app.log.info(fields, "daily brief scheduler");
 });

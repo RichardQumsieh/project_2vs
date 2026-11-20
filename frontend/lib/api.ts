@@ -146,6 +146,38 @@ export type TotpSetup = {
   otpauthUrl: string;
 };
 
+export type WorkspaceRole = "OWNER" | "ADMIN" | "MEMBER";
+
+export type WorkspaceSummary = {
+  id: string;
+  name: string;
+  kind: "FAMILY" | "TEAM";
+  planId: string;
+  role: WorkspaceRole;
+  seatCount: number;
+  seatLimit: number;
+  dailyBrief: boolean;
+  billingStatus: string;
+  billingEnabled: boolean;
+};
+
+export type WorkspaceMemberRow = {
+  userId: string;
+  username: string;
+  displayName: string | null;
+  role: WorkspaceRole;
+  joinedAt: string;
+};
+
+export type WorkspaceInviteRow = {
+  id: string;
+  hint: string;
+  expiresAt: string;
+  consumedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+};
+
 export type Conversation = {
   id: string;
   type: "DIRECT" | "GROUP";
@@ -1395,6 +1427,81 @@ export const api = {
   }) =>
     request<DailyBriefResponse>("/daily-brief/preferences", {
       method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  listWorkspaces: () =>
+    request<{ workspaces: WorkspaceSummary[] }>("/workspaces"),
+
+  createWorkspace: (body: { name: string; kind: "FAMILY" | "TEAM" }) =>
+    request<{ workspace: WorkspaceSummary }>("/workspaces", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  workspaceDetail: (id: string) =>
+    request<{
+      workspace: WorkspaceSummary;
+      members: WorkspaceMemberRow[];
+      invites: WorkspaceInviteRow[];
+    }>(`/workspaces/${encodeURIComponent(id)}`),
+
+  workspaceMembers: (id: string, query?: string) =>
+    request<{ members: WorkspaceMemberRow[] }>(
+      `/workspaces/${encodeURIComponent(id)}/members${query ? `?q=${encodeURIComponent(query)}` : ""}`,
+    ),
+
+  setWorkspaceRole: (id: string, userId: string, role: WorkspaceRole) =>
+    request<{ ok: true }>(`/workspaces/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    }),
+
+  removeWorkspaceMember: (id: string, userId: string) =>
+    request<{ ok: true }>(`/workspaces/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+    }),
+
+  createWorkspaceInvite: (id: string, expiresInHours?: number) =>
+    request<{ invite: { id: string; code: string; hint: string; expiresAt: string; path: string } }>(
+      `/workspaces/${encodeURIComponent(id)}/invites`,
+      {
+        method: "POST",
+        body: JSON.stringify(expiresInHours ? { expiresInHours } : {}),
+      },
+    ),
+
+  revokeWorkspaceInvite: (id: string, inviteId: string) =>
+    request<{ ok: true }>(`/workspaces/${encodeURIComponent(id)}/invites/${encodeURIComponent(inviteId)}`, {
+      method: "DELETE",
+    }),
+
+  previewWorkspaceInvite: (code: string) =>
+    request<{ workspace: { name: string; kind: "FAMILY" | "TEAM" } }>(
+      `/workspace-invites/preview?code=${encodeURIComponent(code)}`,
+    ),
+
+  redeemWorkspaceInvite: (code: string) =>
+    request<{ workspace: WorkspaceSummary }>("/workspace-invites/redeem", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+
+  workspaceDirect: (id: string, username: string) =>
+    request<Conversation>(`/workspaces/${encodeURIComponent(id)}/conversations/direct`, {
+      method: "POST",
+      body: JSON.stringify({ username }),
+    }),
+
+  workspaceGroup: (id: string, body: { title?: string; memberUserIds: string[] }) =>
+    request<Conversation>(`/workspaces/${encodeURIComponent(id)}/conversations/group`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  joinDesignPartnerWaitlist: (body: { email: string; locale?: "en" | "ar"; note?: string }) =>
+    request<{ ok: true }>("/waitlist", {
+      method: "POST",
       body: JSON.stringify(body),
     }),
 

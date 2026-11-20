@@ -10,6 +10,12 @@ export const wiredActivityActions = [
   "CALENDAR_DELETE_APPROVED",
   "CALENDAR_RESCHEDULE_APPROVED",
   "BUTTON_ACTION",
+  "WORKSPACE_CREATED",
+  "INVITE_CREATED",
+  "INVITE_REVOKED",
+  "INVITE_REDEEMED",
+  "WORKSPACE_MEMBER_REMOVED",
+  "WORKSPACE_ROLE_CHANGED",
 ] as const;
 
 export type WiredActivityAction = (typeof wiredActivityActions)[number];

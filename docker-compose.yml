@@ -54,6 +54,13 @@ services:
       SAFETY_NUMBERS_ENABLED: ${SAFETY_NUMBERS_ENABLED:-true}
       # Daily brief stays on unless this is exactly false.
       DAILY_BRIEF_ENABLED: ${DAILY_BRIEF_ENABLED:-true}
+      # Billing stays off. mock never calls Stripe. See docs/billing.md.
+      BILLING_ENABLED: ${BILLING_ENABLED:-false}
+      BILLING_PROVIDER: ${BILLING_PROVIDER:-mock}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_FAMILY_PLUS: ${STRIPE_PRICE_FAMILY_PLUS:-}
+      STRIPE_PRICE_TEAM_SEAT: ${STRIPE_PRICE_TEAM_SEAT:-}
     ports:
       - "127.0.0.1:3001:3001"
     volumes:

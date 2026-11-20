@@ -37,6 +37,14 @@ export function Homepage() {
         <li>{t("home.mfa")}</li>
         <li>{t("home.inbox")}</li>
       </ul>
+      <section className="mt-8 max-w-xl" aria-labelledby="home-privacy">
+        <h2 id="home-privacy" className="text-sm font-medium text-(--foreground)">{t("home.privacyTitle")}</h2>
+        <ul className="mt-3 flex flex-col gap-2 text-sm leading-6 text-(--muted)">
+          <li>{t("home.privacyE2ee")}</li>
+          <li>{t("home.privacySafety")}</li>
+          <li>{t("home.privacyApproval")}</li>
+        </ul>
+      </section>
       <div className="mt-8">
         {viewer.isPending ? (
           <p role="status" className="text-sm text-(--muted)">{t("home.checking")}</p>
@@ -45,6 +53,15 @@ export function Homepage() {
         ) : (
           <div className="flex flex-col items-start gap-3">
             <Link href="/signup" className={primaryAction}>{t("home.signup")}</Link>
+            <Link href="/pricing" className="text-sm font-medium text-(--foreground) underline-offset-4 hover:underline">
+              {t("home.pricing")}
+            </Link>
+            <Link
+              href="/pricing#design-partner"
+              className="text-sm text-(--muted) underline-offset-4 hover:text-(--foreground) hover:underline"
+            >
+              {t("home.designPartner")}
+            </Link>
             <Link
               href="/login"
               className="text-sm text-(--muted) underline-offset-4 hover:text-(--foreground) hover:underline"

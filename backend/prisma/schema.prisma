@@ -90,6 +90,12 @@ enum AccountActivityAction {
   MESSAGE_SENT
   MESSAGE_RECEIVED
   INTEGRATION_CONNECT
+  WORKSPACE_CREATED
+  INVITE_CREATED
+  INVITE_REVOKED
+  INVITE_REDEEMED
+  WORKSPACE_MEMBER_REMOVED
+  WORKSPACE_ROLE_CHANGED
 }
 
 model User {
@@ -133,6 +139,9 @@ model User {
   writeApprovals       IntegrationWriteApproval[]
   dailyBriefPreference DailyBriefPreference?
   dailyBriefs          DailyBrief[]
+  workspaceMembers     WorkspaceMember[]
+  invitesCreated       WorkspaceInvite[] @relation("InviteCreator")
+  invitesRedeemed      WorkspaceInvite[] @relation("InviteRedeemer")
 
   @@index([interests], type: Gin)
 }
@@ -691,4 +700,94 @@ model DailyBrief {
 
   @@unique([ownerUserId, localDate])
   @@index([ownerUserId, generatedAt])
+}
+
+enum WorkspaceKind {
+  FAMILY
+  TEAM
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+/// A family or team that can find each other and open E2EE chats.
+/// Membership and invite metadata only. Chat plaintext is never stored here.
+model Workspace {
+  id        String        @id @default(uuid())
+  name      String
+  kind      WorkspaceKind
+  /// Plan id from the server catalog (FREE_FAMILY, FAMILY_PLUS, TEAM).
+  planId    String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  members WorkspaceMember[]
+  invites WorkspaceInvite[]
+  billing WorkspaceBilling?
+
+  @@index([kind, createdAt])
+}
+
+model WorkspaceMember {
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@index([userId])
+}
+
+/// Single-use invite. Only the hash of the code is stored.
+/// codeHint is the last four characters so an admin can tell invites apart.
+model WorkspaceInvite {
+  id               String    @id @default(uuid())
+  workspaceId      String
+  createdByUserId  String
+  codeHash         String    @unique
+  codeHint         String
+  expiresAt        DateTime
+  consumedAt       DateTime?
+  consumedByUserId String?
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy  User      @relation("InviteCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  consumedBy User?     @relation("InviteRedeemer", fields: [consumedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([createdByUserId, createdAt])
+}
+
+/// Billing status for a workspace. No card numbers or payment payloads.
+/// status: comped (design partner, no charge), incomplete (checkout not finished),
+/// active (paid or mock-confirmed), canceled.
+model WorkspaceBilling {
+  workspaceId            String   @id
+  provider               String   @default("none")
+  status                 String   @default("comped")
+  externalCustomerId     String?
+  externalSubscriptionId String?
+  seatQuantity           Int      @default(1)
+  updatedAt              DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+/// Public "Join as design partner" waitlist. Email only, no account required.
+model DesignPartnerRequest {
+  id        String   @id @default(uuid())
+  email     String
+  locale    String   @default("en")
+  note      String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
 }

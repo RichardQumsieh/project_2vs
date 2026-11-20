@@ -21,6 +21,12 @@ const actionKeys: Record<string, MessageKey> = {
   CALENDAR_DELETE_APPROVED: "activity.calendarDelete",
   CALENDAR_RESCHEDULE_APPROVED: "activity.calendarReschedule",
   BUTTON_ACTION: "activity.action",
+  WORKSPACE_CREATED: "activity.workspaceCreated",
+  INVITE_CREATED: "activity.inviteCreated",
+  INVITE_REVOKED: "activity.inviteRevoked",
+  INVITE_REDEEMED: "activity.inviteRedeemed",
+  WORKSPACE_MEMBER_REMOVED: "activity.memberRemoved",
+  WORKSPACE_ROLE_CHANGED: "activity.roleChanged",
 };
 
 export function ActivityLogPanel({

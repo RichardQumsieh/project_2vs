@@ -55,11 +55,13 @@ export async function accountActivityRoutes(app: FastifyInstance) {
         "Approved email drafts",
         "Approved calendar reschedules",
         "Approved calendar deletes",
+        "Workspace creation, invites, and membership changes",
       ],
       notRecorded: [
         "Private message bodies",
         "Email bodies, subjects, and recipients",
         "Tokens, passwords, and prompt text",
+        "Invite codes and links",
         "Buttons that are not wired to this log",
       ],
     };
