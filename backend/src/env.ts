@@ -88,17 +88,27 @@ const envSchema = z.object({
   /**
    * Workspace billing. Default off: no checkout and no charge.
    * mock never calls a provider. stripe calls Stripe only when the secret
-   * and price ids below are set. See docs/billing.md.
+   * and price ids below are set. paypal calls PayPal Subscriptions when the
+   * client id, secret, and plan ids are set. See docs/billing.md.
    */
   BILLING_ENABLED: z
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
-  BILLING_PROVIDER: z.enum(["mock", "stripe"]).default("mock"),
+  BILLING_PROVIDER: z.enum(["mock", "stripe", "paypal"]).default("mock"),
   STRIPE_SECRET_KEY: optionalEnvironmentValue,
   STRIPE_WEBHOOK_SECRET: optionalEnvironmentValue,
   STRIPE_PRICE_FAMILY_PLUS: optionalEnvironmentValue,
   STRIPE_PRICE_TEAM_SEAT: optionalEnvironmentValue,
+  PAYPAL_CLIENT_ID: optionalEnvironmentValue,
+  PAYPAL_CLIENT_SECRET: optionalEnvironmentValue,
+  PAYPAL_ENV: z.preprocess(
+    (value) => value === "" || value === undefined ? "sandbox" : value,
+    z.enum(["sandbox", "live"]),
+  ),
+  PAYPAL_WEBHOOK_ID: optionalEnvironmentValue,
+  PAYPAL_PLAN_FAMILY_PLUS: optionalEnvironmentValue,
+  PAYPAL_PLAN_TEAM_SEAT: optionalEnvironmentValue,
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   /** Hosted Sophia model. Both key and HTTPS base URL are required before any call. */
   SOPHIA_MODEL_API_KEY: optionalEnvironmentValue,
@@ -248,6 +258,16 @@ const envSchema = z.object({
       message:
         "Set both LINEAR_OAUTH_CLIENT_ID and LINEAR_OAUTH_CLIENT_SECRET, or leave both empty",
       path: ["LINEAR_OAUTH_CLIENT_ID"],
+    });
+  }
+
+  const paypalPair = [values.PAYPAL_CLIENT_ID, values.PAYPAL_CLIENT_SECRET];
+  const paypalCount = paypalPair.filter(Boolean).length;
+  if (paypalCount !== 0 && paypalCount !== 2) {
+    context.addIssue({
+      code: "custom",
+      message: "Set both PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET, or leave both empty",
+      path: ["PAYPAL_CLIENT_ID"],
     });
   }
 

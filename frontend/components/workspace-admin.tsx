@@ -253,6 +253,11 @@ export function WorkspaceAdmin() {
             <p className="mt-1 text-sm text-(--muted)">
               {selected.billingEnabled ? t("workspace.billingOn") : t("workspace.billingOff")}
             </p>
+            {isOwner ? (
+              <Link href="/billing/upgrade" className="mt-3 inline-flex min-h-11 items-center text-sm underline-offset-4 hover:underline">
+                {t("billing.upgradeLink")}
+              </Link>
+            ) : null}
           </div>
 
           <div className="flex flex-col gap-2">

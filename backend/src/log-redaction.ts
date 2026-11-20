@@ -58,6 +58,9 @@ function isSensitiveKey(key: string) {
     normalized.includes("password") ||
     normalized.includes("secret") ||
     normalized.includes("token") ||
+    normalized.includes("signature") ||
+    normalized.includes("transmissionsig") ||
+    normalized === "certurl" ||
     normalized.includes("recoverycode") ||
     normalized.includes("privatekey") ||
     normalized.includes("apikey") ||

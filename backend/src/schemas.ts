@@ -501,6 +501,10 @@ export const workspaceCheckoutSchema = z.object({
   seatQuantity: z.number().int().min(1).max(50).optional(),
 }).strict();
 
+export const paypalConfirmSchema = z.object({
+  subscriptionId: z.string().trim().min(3).max(50).regex(/^[A-Za-z0-9-]+$/),
+}).strict();
+
 export const designPartnerSchema = z.object({
   email: z.string().trim().email().max(200),
   locale: z.enum(["en", "ar"]).optional(),

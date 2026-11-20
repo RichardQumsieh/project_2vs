@@ -70,7 +70,7 @@ app.addHook("onRequest", async (request, reply) => {
   }
 
   const path = request.url.split("?")[0];
-  if (path === "/billing/stripe/webhook") return;
+  if (path === "/billing/stripe/webhook" || path === "/billing/paypal/webhook") return;
 
   if (request.headers.origin !== allowedOrigin) {
     return reply.code(403).send({

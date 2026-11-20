@@ -159,6 +159,7 @@ export type WorkspaceSummary = {
   dailyBrief: boolean;
   billingStatus: string;
   billingEnabled: boolean;
+  billingProvider: string;
 };
 
 export type WorkspaceMemberRow = {
@@ -1498,6 +1499,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  checkoutWorkspace: (id: string, body: { planId: "FREE_FAMILY" | "FAMILY_PLUS" | "TEAM"; seatQuantity?: number }) =>
+    request<{ ok: true; status: string; checkoutUrl: string | null }>(
+      `/workspaces/${encodeURIComponent(id)}/billing/checkout`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+
+  confirmPayPalCheckout: (id: string, subscriptionId: string) =>
+    request<{ ok: true; status: string; granted: boolean; planId: string | null }>(
+      `/workspaces/${encodeURIComponent(id)}/billing/paypal/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify({ subscriptionId }),
+      },
+    ),
 
   joinDesignPartnerWaitlist: (body: { email: string; locale?: "en" | "ar"; note?: string }) =>
     request<{ ok: true }>("/waitlist", {
