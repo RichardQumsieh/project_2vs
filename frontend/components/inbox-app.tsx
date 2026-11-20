@@ -107,6 +107,7 @@ import {
   SophiaApproveSuccess,
   SophiaProposalCard,
 } from "@/components/sophia-proposal-card";
+import { draftVoiceForUser } from "@/lib/appearance/store";
 import {
   isSophiaAddressed,
   parseSophiaCommand,
@@ -1565,6 +1566,7 @@ function ThreadConversation({
           messages: messagesRef.current,
           language: assistantSettings.language,
           tone: assistantSettings.tone,
+          draftVoice: draftVoiceForUser(currentUserId()),
         };
         return generateSuggestedReplies(
           request,
@@ -3135,6 +3137,7 @@ function ThreadConversation({
           : null,
         conversationId: conversationRadarAllowed ? conversationId : null,
         jobDefaults: jobDefaultsRef.current,
+        voice: draftVoiceForUser(currentUserId()),
       });
       if (plan.intents.length > 0) {
         try {
@@ -3222,6 +3225,7 @@ function ThreadConversation({
             sources,
             language: assistantSettings.language,
             tone: assistantSettings.tone,
+            draftVoice: draftVoiceForUser(currentUserId()),
           },
           localInferenceProvider,
           {
@@ -3255,6 +3259,7 @@ function ThreadConversation({
             useConversationContext: companionUsesChatContext,
             language: assistantSettings.language,
             tone: assistantSettings.tone,
+            draftVoice: draftVoiceForUser(currentUserId()),
             memories: assistantSettings.personalMemory ? personalMemory : [],
           },
           localInferenceProvider,

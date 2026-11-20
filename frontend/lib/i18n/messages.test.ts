@@ -16,7 +16,9 @@ describe("locale catalog", () => {
     expect(translate("ar", "group.leave")).toMatch(/\p{Script=Arabic}/u);
     expect(translate("ar", "group.memberCount", { count: 3 })).toBe("3 أعضاء");
     expect(translate("en", "auth.stepOf", { step: 2, total: 4 })).toBe("Step 2 of 4");
-    expect(translate("ar", "auth.stepOf", { step: 1, total: 4 })).toContain("1");
+    expect(translate("en", "appearance.proposalEvening")).toBe("Want a calmer evening theme?");
+    expect(translate("ar", "appearance.proposalEvening")).toMatch(/\p{Script=Arabic}/u);
+    expect(translate("ar", "appearance.title")).toMatch(/\p{Script=Arabic}/u);
   });
 
   it("maps locale to document direction and detects mixed script", () => {

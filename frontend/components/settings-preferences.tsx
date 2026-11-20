@@ -9,9 +9,9 @@ export function SettingsPreferences() {
   const { t } = useI18n();
   return (
     <div className="mb-4 grid gap-4 lg:grid-cols-2">
-      <section className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-        <h2 className="text-lg font-medium text-white">{t("settings.appearance")}</h2>
-        <p className="mt-2 text-sm leading-relaxed text-white/55">
+      <section className="rounded-3xl border border-(--line) bg-(--glass) p-5 sm:p-6">
+        <h2 className="text-lg font-medium text-(--foreground)">{t("settings.appearance")}</h2>
+        <p className="mt-2 text-sm leading-relaxed text-(--muted)">
           {t("settings.appearanceBody")}
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -19,9 +19,9 @@ export function SettingsPreferences() {
           <ThemeControl />
         </div>
       </section>
-      <section className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-        <h2 className="text-lg font-medium text-white">{t("settings.driveTitle")}</h2>
-        <p className="mt-2 mb-4 text-sm leading-relaxed text-white/55">
+      <section className="rounded-3xl border border-(--line) bg-(--glass) p-5 sm:p-6">
+        <h2 className="text-lg font-medium text-(--foreground)">{t("settings.driveTitle")}</h2>
+        <p className="mt-2 mb-4 text-sm leading-relaxed text-(--muted)">
           {t("settings.driveBody")}
         </p>
         <GoogleDriveArchiveBackup />
