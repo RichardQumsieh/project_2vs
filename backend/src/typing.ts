@@ -53,6 +53,12 @@ export async function relayPresenceSignal(userId: string, value: unknown): Promi
   const peers = await memberUserIds(conversationId, userId);
   if (!peers) throw new Error("Conversation not found.");
 
+  const rawAt = Reflect.get(value, "at");
+  const at =
+    typeof rawAt === "string" && rawAt.length > 0 && rawAt.length <= 40
+      ? rawAt
+      : new Date().toISOString();
+
   const payload =
     type === "typing"
       ? JSON.stringify({ type: "typing", conversationId, userId })
@@ -60,11 +66,7 @@ export async function relayPresenceSignal(userId: string, value: unknown): Promi
           type: "read",
           conversationId,
           userId,
-          at:
-            typeof (value as { at?: unknown }).at === "string" &&
-            String((value as { at: string }).at).length <= 40
-              ? (value as { at: string }).at
-              : new Date().toISOString(),
+          at,
         });
 
   await Promise.all(
