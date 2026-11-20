@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import { SiteHeader } from "@/components/site-header";
 import { Providers } from "@/components/providers";
@@ -8,6 +8,27 @@ export const metadata: Metadata = {
   title: "Sophia | Chief of staff",
   description:
     "Sophia is the chief of staff in an end-to-end encrypted messenger.",
+  applicationName: "Sophia",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Sophia",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#080d16",
 };
 
 export default async function RootLayout({
@@ -26,6 +47,13 @@ export default async function RootLayout({
           dangerouslySetInnerHTML={{
             __html:
               'try{var t=localStorage.getItem("private-app-theme");document.documentElement.dataset.theme=t==="light"||t==="dark"||t==="system"?t:"system"}catch{document.documentElement.dataset.theme="system"}',
+          }}
+        />
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html:
+              'try{var q=new URLSearchParams(location.search).get("lang");var l=q==="ar"||q==="en"?q:localStorage.getItem("sophia-locale");if(l==="ar"||l==="en"){localStorage.setItem("sophia-locale",l);document.documentElement.lang=l;document.documentElement.dir=l==="ar"?"rtl":"ltr"}}catch(e){}',
           }}
         />
       </head>

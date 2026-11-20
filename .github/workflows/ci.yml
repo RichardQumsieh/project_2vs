@@ -5,43 +5,54 @@ on:
   pull_request:
 
 jobs:
-  test:
+  frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Unit tests
+        working-directory: frontend
+        run: npm test
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc --noEmit
+      - name: Assistant eval without a paid API key
+        working-directory: frontend
+        run: npm run eval:assistant -- --mode=mock
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Mobile locale end-to-end tests
+        working-directory: frontend
+        env:
+          CI: "true"
+        run: npm run test:e2e
 
-      - name: Install backend
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
         working-directory: backend
         run: npm ci
-
       - name: Generate Prisma client
         working-directory: backend
         run: npx prisma generate
-
       - name: Backend tests
         working-directory: backend
         run: npm test
-
       - name: Backend typecheck
         working-directory: backend
-        run: npx tsc --noEmit
-
-      - name: Install frontend
-        working-directory: frontend
-        run: npm ci
-
-      - name: Frontend tests
-        working-directory: frontend
-        run: npm test
-
-      - name: Frontend typecheck
-        working-directory: frontend
         run: npx tsc --noEmit

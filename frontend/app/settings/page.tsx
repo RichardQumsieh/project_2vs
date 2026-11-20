@@ -1,55 +1,28 @@
+"use client";
+
 import { SettingsPreferences } from "@/components/settings-preferences";
 import { ModuleCard, ProductShell } from "@/components/product-shell";
+import { useI18n } from "@/lib/i18n/locale";
 
 export default function SettingsPage() {
+  const { t } = useI18n();
   return (
-    <ProductShell
-      title="Settings"
-      subtitle="Appearance, encrypted backup, privacy, activity, Sophia, devices, and future subscription tiers."
-    >
+    <ProductShell title={t("settings.title")} subtitle={t("settings.subtitle")}>
       <SettingsPreferences />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <ModuleCard
-          href="/settings/sophia"
-          title="Sophia"
-          body="Voice presence, personal memory, fast commands, and robot presentation."
-        />
-        <ModuleCard
-          href="/settings/integrations"
-          title="Integrations"
-          body="Connect mail and calendar. Reconnect after adding send scopes in Google Cloud and Azure."
-        />
-        <ModuleCard
-          href="/settings/privacy"
-          title="Privacy"
-          body="Cloud Sophia consent, what stays on-device, and how to withdraw."
-        />
-        <ModuleCard
-          href="/settings/activity"
-          title="Activity"
-          body="Sign-ins, consent, settings changes, and approved mail or calendar actions you can export or delete."
-        />
-        <ModuleCard
-          href="/settings/security"
-          title="Security"
-          body="Trusted browsers, recovery codes, sessions, and vault unlock behavior."
-        />
-        <ModuleCard
-          href="/settings/devices"
-          title="Devices"
-          body="Active messaging devices and archive recovery posture."
-        />
+        <ModuleCard href="/settings/sophia" title={t("settings.sophia.title")} body={t("settings.sophia.body")} />
+        <ModuleCard href="/settings/integrations" title={t("settings.integrations.title")} body={t("settings.integrations.body")} />
+        <ModuleCard href="/settings/privacy" title={t("settings.privacy.title")} body={t("settings.privacy.body")} />
+        <ModuleCard href="/settings/activity" title={t("settings.activity.title")} body={t("settings.activity.body")} />
+        <ModuleCard href="/settings/security" title={t("settings.security.title")} body={t("settings.security.body")} />
+        <ModuleCard href="/settings/devices" title={t("settings.devices.title")} body={t("settings.devices.body")} />
         <ModuleCard
           href="/settings/subscription"
-          title="Plans & billing"
-          body="Audience tiers for future subscriptions without changing E2EE defaults."
-          badge="Soon"
+          title={t("settings.plans.title")}
+          body={t("settings.plans.body")}
+          badge={t("shell.soon")}
         />
-        <ModuleCard
-          href="/sophia"
-          title="Sophia studio"
-          body="Robot presence, image prompts, and presentation workflow tips."
-        />
+        <ModuleCard href="/sophia" title={t("settings.studio.title")} body={t("settings.studio.body")} />
       </div>
     </ProductShell>
   );

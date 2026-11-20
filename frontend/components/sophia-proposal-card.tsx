@@ -2,19 +2,24 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
+import { ExperimentalBadge } from "@/components/experimental-badge";
 import { Button } from "@/components/ui/button";
-import {
-  agentActionSummary,
-  type AgentProposal,
-} from "@/lib/ai/agent-runtime";
+import type { AgentProposal } from "@/lib/ai/agent-runtime";
 import { isJobManagerTool } from "@/lib/ai/sophia-job-tools";
 import {
-  approveVerb,
   badgeToneClass,
   outboundPayloadFields,
-  provenanceLabel,
   providerBadgeForAction,
 } from "@/lib/ai/sophia-proposal-ux";
+import {
+  localizedActionSummary,
+  localizedApproveVerb,
+  localizedFieldLabel,
+  localizedFieldValue,
+  localizedProvenance,
+  localizedProviderLabel,
+} from "@/lib/i18n/action-summary";
+import { useI18n } from "@/lib/i18n/locale";
 
 type SophiaProposalCardProps = {
   proposal: AgentProposal;
@@ -30,11 +35,12 @@ export function SophiaProposalCard({
   busy = false,
 }: SophiaProposalCardProps) {
   const reduceMotion = useReducedMotion();
+  const { t } = useI18n();
   const [sheetOpen, setSheetOpen] = useState(
     isJobManagerTool(proposal.action.type),
   );
   const badge = providerBadgeForAction(proposal.action);
-  const provenance = provenanceLabel(proposal.provenance);
+  const provenance = localizedProvenance(proposal.provenance, t);
   const fields = outboundPayloadFields(proposal.action);
   const jobWrite = isJobManagerTool(proposal.action.type);
 
@@ -49,17 +55,18 @@ export function SophiaProposalCard({
       }
       transition={{ duration: reduceMotion ? 0 : 0.22, ease: "easeOut" }}
       className="space-y-2 rounded-xl border border-amber-200/20 bg-amber-200/[0.04] p-3"
-      aria-label="Review staged Sophia action"
+      aria-label={t("approval.region")}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-[10px] uppercase tracking-wide text-amber-100/70">
-          Approval required
-          {jobWrite ? " · exact payload" : ""}
+        <ExperimentalBadge />
+        <p className="text-[10px] text-amber-100/70">
+          {t("approval.required")}
+          {jobWrite ? ` · ${t("approval.exact")}` : ""}
         </p>
         <span
           className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${badgeToneClass(badge.tone)}`}
         >
-          {badge.label}
+          {localizedProviderLabel(badge.id, badge.label, t)}
         </span>
         {provenance ? (
           <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/55">
@@ -67,8 +74,8 @@ export function SophiaProposalCard({
           </span>
         ) : null}
       </div>
-      <p className="text-xs text-white/80">
-        {agentActionSummary(proposal.action)}
+      <p dir="auto" className="bidi-plaintext text-xs text-white/80">
+        {localizedActionSummary(proposal.action, t)}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -77,7 +84,7 @@ export function SophiaProposalCard({
           variant="outline"
           onClick={() => setSheetOpen((open) => !open)}
         >
-          {sheetOpen ? "Hide payload" : "Show outbound payload"}
+          {sheetOpen ? t("approval.hide") : t("approval.show")}
         </Button>
       </div>
       <AnimatePresence initial={false}>
@@ -93,19 +100,18 @@ export function SophiaProposalCard({
             <dl className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-white/10 bg-black/35 p-2.5">
               {fields.map((field) => (
                 <div key={`${field.label}-${field.value.slice(0, 24)}`}>
-                  <dt className="text-[10px] uppercase tracking-wide text-white/40">
-                    {field.label}
+                  <dt className="text-[10px] text-white/40">
+                    {localizedFieldLabel(field.label, t)}
                   </dt>
-                  <dd className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-white/75">
-                    {field.value}
+                  <dd dir="auto" className="bidi-plaintext mt-0.5 whitespace-pre-wrap break-words text-[11px] text-white/75">
+                    {localizedFieldValue(field.label, field.value, t)}
                   </dd>
                 </div>
               ))}
             </dl>
             {jobWrite ? (
               <p className="mt-2 text-[10px] leading-relaxed text-white/40">
-                Nothing is sent until you approve this exact payload. Editing
-                after approve requires a new proposal.
+                {t("approval.nothingSent")}
               </p>
             ) : null}
           </motion.div>
@@ -118,7 +124,7 @@ export function SophiaProposalCard({
           disabled={busy}
           onClick={() => void onApprove(proposal)}
         >
-          {approveVerb(proposal.action)}
+          {localizedApproveVerb(proposal.action, t)}
         </Button>
         <Button
           type="button"
@@ -127,7 +133,7 @@ export function SophiaProposalCard({
           disabled={busy}
           onClick={() => onCancel(proposal)}
         >
-          Cancel
+          {t("approval.cancel")}
         </Button>
       </div>
     </motion.article>

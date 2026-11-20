@@ -5,6 +5,9 @@ dist/
 .turbo/
 .vitest-cache/
 coverage/
+playwright-report/
+test-results/
+reports/
 *.log
 .env
 .env.*

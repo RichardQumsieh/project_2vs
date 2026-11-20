@@ -1,3 +1,5 @@
+import { ExperimentalBadge } from "@/components/experimental-badge";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { SophiaLockup } from "@/components/sophia-mark";
 
 export function AuthPageShell({
@@ -16,7 +18,13 @@ export function AuthPageShell({
   return (
     <main className="auth-page mx-auto flex w-full max-w-md flex-col px-4 py-8 sm:py-14">
       <section className="rounded-2xl border border-(--line) bg-(--surface) px-5 py-6 sm:px-7 sm:py-8">
-        <SophiaLockup />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <SophiaLockup />
+          <ExperimentalBadge />
+        </div>
+        <div className="mt-4">
+          <LanguageSwitcher />
+        </div>
         {eyebrow ? (
           <p className="mt-6 text-xs font-medium tracking-[0.16em] text-(--muted) uppercase">{eyebrow}</p>
         ) : null}
