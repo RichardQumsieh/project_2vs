@@ -993,6 +993,22 @@ export function currentSigningMaterial(): {
   };
 }
 
+/** Public identity keys for this unlocked browser. Null while the vault is locked. */
+export function currentPublicIdentity(): {
+  userId: string;
+  deviceId: string;
+  identityPublicKey: string;
+  signingPublicKey: string;
+} | null {
+  if (!identity || !deviceId || !identityUserId) return null;
+  return {
+    userId: identityUserId,
+    deviceId,
+    identityPublicKey: identity.identity.x25519.publicKey,
+    signingPublicKey: identity.identity.signing.publicKey,
+  };
+}
+
 export async function bootstrapDevice(
   password: string,
   recoveryCode?: string,

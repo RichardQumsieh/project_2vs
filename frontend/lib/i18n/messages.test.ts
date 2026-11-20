@@ -19,6 +19,10 @@ describe("locale catalog", () => {
     expect(translate("en", "appearance.proposalEvening")).toBe("Want a calmer evening theme?");
     expect(translate("ar", "appearance.proposalEvening")).toMatch(/\p{Script=Arabic}/u);
     expect(translate("ar", "appearance.title")).toMatch(/\p{Script=Arabic}/u);
+    expect(translate("ar", "safety.title")).toMatch(/\p{Script=Arabic}/u);
+    expect(translate("ar", "safety.warningTitle")).not.toBe(en["safety.warningTitle"]);
+    expect(translate("en", "safety.changedCount", { count: 2 })).toBe("Key changes: 2");
+    expect(translate("ar", "safety.deviceCount", { count: 2 })).toBe("2 أجهزة");
   });
 
   it("maps locale to document direction and detects mixed script", () => {
