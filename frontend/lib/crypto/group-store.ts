@@ -26,6 +26,10 @@ export type GroupOutboxItem = {
   bindingSignature?: Uint8Array;
   /** Present only inside the encrypted record, so a restart can show the sender's own message. */
   plaintext?: string;
+  /** Epoch state from before this commit, so a rejected fork can be rolled back. */
+  priorState?: Uint8Array;
+  batchId?: string;
+  removeDeviceId?: string;
 };
 
 export type GroupRecord = {
@@ -34,6 +38,8 @@ export type GroupRecord = {
   appliedBlobIds: string[];
   keyPackages: PublishedKeyPackage[];
   outbox: GroupOutboxItem[];
+  /** Private key for a role Update that an admin has not committed yet. Never uploaded. */
+  pendingLeaf?: { publicKey: string; privateKey: string };
 };
 
 export type SealedGroupRecord = {
@@ -55,8 +61,12 @@ type StoredMeta = {
     recipientDeviceId?: string;
     bindingSignature?: string;
     plaintext?: string;
+    priorState?: string;
+    batchId?: string;
+    removeDeviceId?: string;
   }>;
   hasSession: boolean;
+  pendingLeaf?: { publicKey: string; privateKey: string };
 };
 
 function scope(userId: string, conversationId: string) {
@@ -138,8 +148,12 @@ export function encodeGroupRecord(record: GroupRecord): Uint8Array {
       ...(item.recipientDeviceId ? { recipientDeviceId: item.recipientDeviceId } : {}),
       ...(item.bindingSignature ? { bindingSignature: bytesToB64(item.bindingSignature) } : {}),
       ...(item.plaintext !== undefined ? { plaintext: item.plaintext } : {}),
+      ...(item.priorState ? { priorState: bytesToB64(item.priorState) } : {}),
+      ...(item.batchId ? { batchId: item.batchId } : {}),
+      ...(item.removeDeviceId ? { removeDeviceId: item.removeDeviceId } : {}),
     })),
     hasSession: record.session !== null,
+    ...(record.pendingLeaf ? { pendingLeaf: record.pendingLeaf } : {}),
   };
   const priv = record.device.privatePackage;
   return frame([
@@ -206,7 +220,11 @@ export function decodeGroupRecord(bytes: Uint8Array): GroupRecord {
       ...(item.recipientDeviceId ? { recipientDeviceId: item.recipientDeviceId } : {}),
       ...(item.bindingSignature ? { bindingSignature: b64ToBytes(item.bindingSignature) } : {}),
       ...(item.plaintext !== undefined ? { plaintext: item.plaintext } : {}),
+      ...(item.priorState ? { priorState: b64ToBytes(item.priorState) } : {}),
+      ...(item.batchId ? { batchId: item.batchId } : {}),
+      ...(item.removeDeviceId ? { removeDeviceId: item.removeDeviceId } : {}),
     })),
+    ...(meta.pendingLeaf ? { pendingLeaf: meta.pendingLeaf } : {}),
   };
 }
 

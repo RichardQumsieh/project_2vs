@@ -8,6 +8,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -90,9 +91,14 @@ async function request<T>(
       }
     }
 
+    const code = typeof data === "object" && data !== null && "code" in data &&
+      typeof (data as { code?: unknown }).code === "string"
+      ? (data as { code: string }).code
+      : undefined;
     throw new ApiError(
       message,
       response.status,
+      code,
     );
   }
 
@@ -151,6 +157,7 @@ export type Conversation = {
   updatedAt: string;
   peer: PublicUser | null;
   lastMessageAt: string | null;
+  unreadCount?: number;
 };
 
 export type EncryptedBackupRecord = {
@@ -523,6 +530,22 @@ export const api = {
     return request<{ ok: true; members: { userId: string; role: "ADMIN" | "MEMBER" }[] }>(
       `/conversations/${encodeURIComponent(conversationId)}/members/${encodeURIComponent(userId)}`,
       { method: "DELETE" },
+    );
+  },
+
+  setGroupMemberRole: (conversationId: string, userId: string, role: "ADMIN" | "MEMBER") => {
+    assertGroupE2eeEnabled();
+    return request<{ ok: true; members: { userId: string; role: "ADMIN" | "MEMBER" }[] }>(
+      `/conversations/${encodeURIComponent(conversationId)}/members/${encodeURIComponent(userId)}`,
+      { method: "PATCH", body: JSON.stringify({ role }) },
+    );
+  },
+
+  markGroupRead: (conversationId: string, blobId?: string) => {
+    assertGroupE2eeEnabled();
+    return request<{ ok: true; blobId: string | null }>(
+      `/conversations/${encodeURIComponent(conversationId)}/read`,
+      { method: "POST", body: JSON.stringify(blobId ? { blobId } : {}) },
     );
   },
 

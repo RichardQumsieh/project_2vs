@@ -30,7 +30,7 @@ Sender keys remain a reasonable fallback if we later have to drop `ts-mls`. They
 ### What we reuse from 1:1
 
 - The device Ed25519 signing key from `frontend/lib/crypto/keys.ts` (the same key `identity.ts` registers). Each device signs its MLS key package with that key. The API checks the signature against `Device.signingPublicKey` before it stores a key package. Other devices repeat the check before they accept an Add.
-- The MLS credential is `sophia-mls/v1:<userId>:<deviceId>:admin|member`. An Update that swaps the user, device, or role is rejected. Adds of a key package we have not verified are rejected. Membership commits are accepted only from an admin leaf.
+- The MLS credential is `sophia-mls/v1:<userId>:<deviceId>:admin|member`. An Update that swaps the user or device is rejected. An Update that changes only `admin|member` is accepted as a proposal, and as a commit only when a different admin commits it. Adds of a key package we have not verified are rejected. Membership commits are accepted only from an admin leaf, except a commit whose only membership change is one or more self-removals.
 - Cipher suite 1 is the same algorithm family as 1:1: X25519, HKDF-SHA-256, AES-GCM, Ed25519.
 - The server already stores opaque `Bytes` ciphertext for direct messages. Group blobs use the same rule.
 - `ConversationType.GROUP` and conversation membership are the ACL. Direct chats are unchanged.
@@ -47,7 +47,8 @@ Each device is its own MLS leaf. Two devices of one user are two leaves and one 
 4. Existing members call `trustKeyPackage` (same binding check) and then `applyCommit`. A commit that adds an unbound package is rejected and does not move their epoch.
 5. The new device calls `joinFromWelcome` and must see exactly the expected member list.
 6. `sealMessage` / `openMessage` encrypt one ciphertext for the current epoch. Every device that has processed the same commits can open it.
-7. `removeDevice` commits a Remove and is refused for a non-admin. `proposeSelfRemoval` lets a member publish a Remove of their own leaf; `commitPending` is how an admin rotates the epoch afterward. The removed device, if it processes the commit, lands in `removedFromGroup`. If it ignores the commit and keeps the old epoch, it still cannot open the next application message.
+7. `removeDevice` commits a Remove and is refused for a non-admin. `proposeSelfRemoval` lets a member publish a Remove of their own leaf. Any remaining member may `commitPending({ selfRemovalsOnly: true })`, which keeps only those self-removals. An admin's `commitPending` also commits Adds, admin Removes, and role Updates that match the directory. The removed device, if it processes the commit, lands in `removedFromGroup`. If it ignores the commit and keeps the old epoch, it still cannot open the next application message.
+8. A role change is not an admin-signed Update of someone else's leaf. The target device calls `proposeRoleUpdate`, which signs a new leaf (new HPKE key, same Ed25519 signature key, same user and device, new `admin|member`). A different admin commits it. The proposer installs the new HPKE private key before applying that commit, because the update path is encrypted to the new key. ts-mls rejects a commit that contains the committer's own Update.
 
 Recommended server order for a membership change:
 
@@ -63,12 +64,14 @@ Both switches default to off.
 
 | Variable | Where | Effect |
 | --- | --- | --- |
-| `GROUP_E2EE_ENABLED` | API | `503 group_e2ee_disabled` on `/conversations/group`, member changes, and `/conversations/:id/mls` |
+| `GROUP_E2EE_ENABLED` | API | `503 group_e2ee_disabled` on `/conversations/group`, member and role changes, the group read cursor, and `/conversations/:id/mls` |
 | `NEXT_PUBLIC_GROUP_E2EE_ENABLED` | Web client | `api.createGroup` and the other group helpers throw before any request |
 
 `GET /health` reports `groupE2ee` so an operator can see the API switch. The client flag is a product switch on a machine the user already controls. The API flag is what keeps group delivery off in production.
 
 Pairwise `POST /conversations/:id/messages` and `GET /conversations/:id/messages` return 409 for a GROUP conversation, so a group is not silently downgraded to per-device Double Ratchet envelopes.
+
+Apply `Conversation.mlsEpoch`, `GroupMlsCommit`, and `ConversationMember.groupReadBlobId` with the same `prisma db push` this prototype already uses. There is no migration directory. Those columns are delivery metadata, not message contents.
 
 ## Threat model
 
@@ -91,16 +94,19 @@ The API is an untrusted delivery service for group content.
 | User ids in the ACL, device ids, blob kind, sizes, timestamps | Message plaintext |
 | That a Welcome is addressed to a device | Welcome secrets (HPKE to the joiner's init key) |
 | The public bytes of a key package, which are public by design | MLS private keys or epoch secrets |
-| MLS private-message framing. The bytes include a public group id and epoch if someone parses them. This server does not parse them. | The sender's identity inside a private message, or the proposal list inside a private commit |
+| The public MLS header of a private message: group id, epoch, and content type (`application`, `proposal`, or `commit`). Welcome and key-package messages are checked as structures only. | Message plaintext, proposal bodies, and the sender identity inside a private message. Public MLS messages are rejected so those bodies are not walked. |
 
-A malicious server can drop, delay, reorder, or fork commits. Clients process blobs in `(createdAt, id)` order and will fail closed on a gap, but this prototype has no MLS Delivery Service, no fork-resolution protocol, and no external commit policy. Two honest members can be split if the server shows them different commit histories. That is the main remaining availability and consistency gap.
+`admitGroupBlob` rejects a truncated or trailing buffer (`400 mls_malformed`), an epoch other than the conversation's current epoch (`409 mls_epoch_order`), and a second commit for the epoch that already has one (`409 mls_epoch_conflict`). A stored commit advances `Conversation.mlsEpoch` by one. The upload transaction locks the conversation row first, so a slower application or proposal cannot write the epoch backwards after a commit, and two commits cannot both advance it. The same `clientId` may be retried; a different commit for that epoch may not. The check compares lengths and integer fields. It does not decode ciphertext.
+
+A malicious server can still drop or delay blobs, and a commit that honest clients reject can still win the epoch. The server cannot see, inside the ciphertext, whether the committer is an admin. That commit then occupies the epoch and later honest commits are `mls_epoch_order` until someone recovers the group by hand. Two honest members who commit the same epoch are not forked in the database: the first insert wins, the other gets `409`, restores the session from before that commit, ingests the winner, and retries. There is still no MLS Delivery Service and no external-commit authentication.
 
 The server ACL is enforced in addition to MLS, not instead of it. Removing a member deletes their `ConversationMember` row, and later GETs are 404. That stops casual delivery. It is not the cryptographic guarantee. The tests that matter decrypt with the removed member's old MLS state and expect failure.
 
 ### Members
 
-- The creator is the admin. Honest clients accept an Add or a Remove only when the committer's leaf credential is `admin`. A modified client can still upload a commit; other members reject it and stay on the previous epoch. The server stores that blob but does not parse it, so it cannot delete the fork.
-- A member leaves by publishing a Remove proposal for their own leaf. ts-mls rejects a commit that removes the committer, so an admin's client commits that proposal and rotates the epoch. Until that commit, the member can still read the group. The last admin cannot leave while anyone else remains. Promoting a second admin is not implemented.
+- Honest clients accept an Add, a non-self Remove, or a role-changing Update only when the committer's leaf credential is `admin`, and a role-changing Update only when a different admin commits it. A modified client can still upload a well-formed commit. The server will store the first commit for that epoch. Other members reject it and do not advance, which stalls the group on the server epoch. That is the cost of staying plaintext-blind.
+- A member leaves by publishing a Remove proposal for their own leaf. ts-mls rejects a commit that removes the committer, so some other member's client commits that proposal and rotates the epoch. The committer does not have to be an admin, and the commit includes only self-removals. Until that commit, the member can still read the group. Leave still needs one remaining member online. The sole remaining member deletes the ACL row and does not wait for a commit. The last admin cannot leave, and cannot be demoted, while anyone else remains.
+- A second admin is an ACL change first (`PATCH` the member to `ADMIN`). The cryptographic role changes only after that member's device proposes an Update and another admin commits it. Until then, honest clients do not treat the promoted member as an MLS admin, and a demoted admin's old leaf can still produce commits those clients accept. The directory role has to match the proposed role or the admin's commit drops the proposal.
 - A removed member can still decrypt history from epochs they belonged to. Removal is forward. It is not a remote wipe.
 - A new member cannot decrypt messages from before their Welcome. The client test checks that.
 - `ts-mls` 1.6.4's `AuthenticationService` only sees one credential at a time. Successor continuity is enforced in our commit callback (an Update must keep the same `userId` and `deviceId`), not by the library.
@@ -128,31 +134,40 @@ Decrypted group messages are then cached in the same local message store as 1:1 
 
 ## Inbox
 
-With both flags on, the inbox can create a group by name and username, open it, show members and roles, send and receive, add or remove members as an admin, and leave. Those strings come from the same English and Arabic catalog as the rest of the app, and the group screen follows the document direction (titles and message text use bidirectional isolation; usernames stay left-to-right). The group screen does not offer Sophia, attachments, or calls. A GROUP conversation opened while the client flag is off does not fall through to the pairwise composer.
+With both flags on, the inbox can create a group by name and username, open it, show members and roles, send and receive, add or remove members, promote or demote admins, attach a file, and leave. Admin buttons are shown only when the ACL role and the MLS leaf role are both admin. Those strings come from the same English and Arabic catalog as the rest of the app, and the group screen follows the document direction (titles and message text use bidirectional isolation; usernames and file names stay left-to-right). The group screen does not offer Sophia or calls. A GROUP conversation opened while the client flag is off does not fall through to the pairwise composer.
 
-The creator's client builds the MLS group. Other members upload a key package when they open the thread. The admin's client commits the Add and Welcome on its next sync. Delivery while a thread is open polls every few seconds and also wakes on the existing `group_mls` websocket event, which carries only the conversation id.
+A group file uses the same client path as a 1:1 file: `inspectAndEncryptFileAttachment` (AES-GCM file key), upload of the ciphertext through the existing media route, and a `PM1FIL:` payload sealed inside an MLS application message. The file key and nonce travel inside MLS. The media bytes are the ciphertext. The group composer accepts the same document types as 1:1 (pdf, docx, pptx, xlsx, txt, csv). Upload still requires the same object-storage configuration as a 1:1 attachment.
+
+The conversation list shows an unread count for groups. It counts application blobs after `ConversationMember.groupReadBlobId`, excluding the viewer's own sends. Opening the thread moves that cursor. The count is metadata (kind, sender user, time, id). Payloads are not loaded for it.
+
+The creator's client builds the MLS group. Other members upload a key package when they open the thread. The admin's client commits the Add and Welcome on its next sync. Delivery while a thread is open polls every few seconds and also wakes on the `group_mls` websocket event. That event carries the conversation id and the blob kind. It does not carry plaintext. A notification is raised only for an application blob, only when that thread is not the visible open conversation, and the title and body are catalog strings that name the group. They do not include the message.
 
 ## Admin and leaving
 
-Server ACL: `ConversationMember.role` is `ADMIN` for the creator and `MEMBER` for everyone else. Only an admin can add a member or remove someone else. Any member can delete their own row, except the last admin while other members remain. That ACL is delivery control. The cryptographic rule is the credential role `sophia-mls/v1:<userId>:<deviceId>:admin|member`.
+Server ACL: `ConversationMember.role` starts as `ADMIN` for the creator and `MEMBER` for everyone else. An admin can add a member, remove someone else, or `PATCH` another member's role. Any member can delete their own row, except the last admin while other members remain. Demoting the last admin is the same `409 last_admin`. That ACL is delivery control. The cryptographic rule is the credential role `sophia-mls/v1:<userId>:<deviceId>:admin|member`.
 
-Self-leave uploads a Remove proposal. The admin client commits it, which changes the epoch key. The leaving client applies that commit, then deletes its ACL row. If no admin is online, the proposal waits and the member can still decrypt.
+Self-leave uploads a Remove proposal. The next member whose client syncs commits that proposal (and only self-removals, if that client is not an MLS admin) and rotates the epoch key. The leaving client applies that commit, then deletes its ACL row. If nobody else is online, the proposal waits and the member can still decrypt. There is no server-side commit. If they are the only member left, the client deletes the ACL row immediately.
+
+Promote and demote update the ACL immediately and show a notice that the MLS role finishes when that member's device is online and another admin commits the Update.
 
 ## What is not done
 
-- No second admin. The creator stays the only admin, and cannot leave while the group still has other members.
-- Leave does not finish until an admin client syncs and commits. There is no server-side commit.
+- The server does not authenticate that a committer is an admin. A well-formed commit that honest clients reject can occupy the epoch and stall the group. Recovery from that stall is not automatic.
+- Leave finishes when any other member's client syncs. It does not finish while every other member is offline, and the server does not commit on their behalf. The last admin still cannot leave or be demoted while other members remain.
+- A demotion or promotion is not cryptographic until the Update commit. Until then the old leaf role is what honest clients enforce.
 - The inbox welcomes up to two active devices per member, but there is no device picker. A removed device still depends on the same commit path as a removed user.
 - No scheduled Updates, external join, or PSK resumption.
-- No group attachments, voice notes, archive history, or Sophia context. Do not send group plaintext to Cloud Sophia.
-- No Delivery Service guarantees and no server-side MLS parsing. An uploaded commit is not checked against the ACL. Honest clients reject a non-admin membership commit; a malicious server can still fork what it delivers.
-- The local decrypted-message cache is plaintext in IndexedDB, matching 1:1 messages. MLS private keys are not.
+- No group voice notes, photos, albums, archive history, or Sophia context. Do not send group plaintext to Cloud Sophia. File attachments need the same media storage configuration as 1:1.
+- Notifications name the group only. They require browser notification permission and include no message preview.
+- No full MLS Delivery Service. Epoch order and one-commit-per-epoch are enforced from the public header. A malicious server that ignores its own checks can still fork what it delivers.
+- The local decrypted-message cache is plaintext in IndexedDB, matching 1:1 messages. MLS private keys, including a pending role-update HPKE key, stay inside the sealed group record.
 - Cap is 8 users and 2 devices each. That is a product limit in the client and the ACL, not an MLS limit.
 - `ts-mls` 1.6.4 only. Do not bump it casually. It is unaudited.
 
 ## Tests
 
-- `frontend/lib/crypto/group-mls.test.ts`: create, send/receive, add (including "untrusted Add is rejected" and "new member cannot read history"), remove (removed member cannot decrypt the next message, another member can), multi-device, binding-signature rejection, private keys absent from the published key package, admin-only removal, and self-leave (the removed member cannot decrypt the next message).
+- `frontend/lib/crypto/group-mls.test.ts`: create, send/receive, add (including "untrusted Add is rejected" and "new member cannot read history"), remove (removed member cannot decrypt the next message, another member can), multi-device, binding-signature rejection, private keys absent from the published key package, admin-only removal, self-leave (the removed member cannot decrypt the next message), promote and demote (the new HPKE key is installed before the Update commit, and a demoted leaf cannot remove another member), a non-admin committing only a self-removal, and a file attachment whose MLS ciphertext does not contain the file key or the file bytes.
 - `frontend/lib/crypto/group-store.test.ts`: sealed state round-trips across a restart, the ciphertext does not contain the leaf private key or message plaintext, and a wrong vault key or a different user or conversation cannot open it.
-- `frontend/lib/group-runtime.test.ts`: create, deliver, restore from the sealed record, and complete self-leave when the admin syncs.
-- `backend/tests/group-e2ee.test.ts`: flag off, 8-member cap, admin add/remove, member self-leave, last-admin refusal, removed member cannot be authorized for the next blob, schema rejects a `plaintext` field, stored bytes are the ciphertext, Welcome is device-addressed, Web Crypto Ed25519 signatures verify with the API's raw-key check.
+- `frontend/lib/group-runtime.test.ts`: create, deliver, restore from the sealed record, complete self-leave when the admin syncs, complete self-leave when a non-admin commits and the admin does not sync, and recover when two admins commit the same epoch (the loser rolls back, ingests the winner, and can still read the next message).
+- `frontend/lib/group-alerts.test.ts`: a notification is considered only for an application blob, and not while that group is the visible open thread.
+- `backend/tests/group-e2ee.test.ts`: flag off, 8-member cap, admin add/remove, member self-leave, last-admin refusal on leave and on demote, a second admin can leave, removed member cannot be authorized for the next blob, schema rejects a `plaintext` field, stored bytes are the ciphertext, Welcome is device-addressed, Web Crypto Ed25519 signatures verify with the API's raw-key check, malformed and out-of-order and forked commits are rejected from the public header, and unread counts skip the viewer's own application blobs and anything at or before the read cursor.

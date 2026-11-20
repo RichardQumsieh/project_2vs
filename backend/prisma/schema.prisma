@@ -290,12 +290,16 @@ model Conversation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Next MLS epoch the delivery service will accept. Public framing only.
+  mlsEpoch Int @default(0)
+
   members         ConversationMember[]
   messages        Message[]
   messageDeletions MessageDeletion[]
   archiveMessages AccountArchiveMessage[]
   media           MediaObject[]
   groupMlsBlobs   GroupMlsBlob[]
+  groupCommits    GroupMlsCommit[]
 }
 
 /// Opaque MLS (RFC 9420) wire bytes for a small group.
@@ -310,14 +314,30 @@ model GroupMlsBlob {
   bindingSignature  Bytes?
   /// Client idempotency key. A retry of the same upload returns the original row.
   clientId          String?
+  /// Public epoch from a private message. Null for key packages and welcomes.
+  epoch             Int?
   createdAt         DateTime @default(now())
 
   conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   senderDevice    Device       @relation("GroupMlsBlobSender", fields: [senderDeviceId], references: [id])
   recipientDevice Device?      @relation("GroupMlsBlobRecipient", fields: [recipientDeviceId], references: [id], onDelete: SetNull)
+  commit          GroupMlsCommit?
 
   @@unique([conversationId, clientId])
   @@index([conversationId, createdAt])
+}
+
+/// One accepted commit per epoch. A second commit for the same epoch is a fork.
+model GroupMlsCommit {
+  conversationId String
+  epoch          Int
+  blobId         String   @unique
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  blob         GroupMlsBlob @relation(fields: [blobId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, epoch])
 }
 
 model ConversationMember {
@@ -325,6 +345,8 @@ model ConversationMember {
   userId         String
   /// Used by GROUP conversations. DIRECT membership ignores it.
   role           GroupMemberRole @default(MEMBER)
+  /// Latest group blob this member has opened. Unread counts use it. Not message contents.
+  groupReadBlobId String?
 
   joinedAt DateTime @default(now())
 

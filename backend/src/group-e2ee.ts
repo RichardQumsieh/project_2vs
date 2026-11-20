@@ -1,4 +1,5 @@
 import { verifyEd25519 } from "./ed25519.js";
+import { readPublicMlsHeader, type MlsContentType } from "./mls-framing.js";
 
 export const GROUP_E2EE_MAX_USERS = 8;
 export const GROUP_MLS_BLOB_MAX_BYTES = 256 * 1024;
@@ -90,6 +91,71 @@ export function planMembershipChange(
     };
   }
   return { ok: true, members: members.filter((member) => member.userId !== change.userId) };
+}
+
+export function planRoleChange(
+  members: readonly GroupMemberRef[],
+  actorUserId: string,
+  userId: string,
+  role: "ADMIN" | "MEMBER",
+): GroupGateSuccess<{ members: GroupMemberRef[] }> | GroupGateFailure {
+  const actor = members.find((member) => member.userId === actorUserId);
+  if (!actor) {
+    return { ok: false, status: 404, error: "Conversation not found" };
+  }
+  if (actor.role !== "ADMIN") {
+    return { ok: false, status: 403, error: "Only a group admin can change roles" };
+  }
+  const target = members.find((member) => member.userId === userId);
+  if (!target) {
+    return { ok: false, status: 404, error: "Member not found" };
+  }
+  if (target.role === role) {
+    return { ok: true, members: members.map((member) => ({ ...member })) };
+  }
+  const admins = members.filter((member) => member.role === "ADMIN");
+  const demotingLastAdmin =
+    role === "MEMBER" && admins.length === 1 && admins[0]?.userId === userId && members.length > 1;
+  if (demotingLastAdmin) {
+    return {
+      ok: false,
+      status: 409,
+      error: "The last admin cannot leave while other members remain",
+      code: "last_admin",
+    };
+  }
+  return {
+    ok: true,
+    members: members.map((member) => (member.userId === userId ? { ...member, role } : { ...member })),
+  };
+}
+
+export type GroupUnreadBlob = {
+  id: string;
+  conversationId: string;
+  kind: string;
+  createdAt: string;
+  senderUserId: string;
+};
+
+/**
+ * Unread application blobs for one member. Ordering is (createdAt, id).
+ * The cursor blob itself is already read. Own sends are not unread.
+ */
+export function countUnreadGroupApplications(input: {
+  blobs: readonly GroupUnreadBlob[];
+  conversationId: string;
+  viewerUserId: string;
+  readThrough: { createdAt: string; id: string } | null;
+}): number {
+  return input.blobs.filter((blob) => {
+    if (blob.conversationId !== input.conversationId || blob.kind !== "application") return false;
+    if (blob.senderUserId === input.viewerUserId) return false;
+    if (!input.readThrough) return true;
+    if (blob.createdAt > input.readThrough.createdAt) return true;
+    if (blob.createdAt < input.readThrough.createdAt) return false;
+    return blob.id > input.readThrough.id;
+  }).length;
 }
 
 /** Non-members get the same 404 as a missing conversation. */
@@ -188,4 +254,93 @@ export function keyPackageBoundToDevice(input: {
   bindingSignature: Uint8Array;
 }): boolean {
   return verifyEd25519(input.signingPublicKey, input.payload, input.bindingSignature);
+}
+
+const contentTypeForKind: Partial<Record<GroupMlsBlobKind, MlsContentType>> = {
+  application: "application",
+  proposal: "proposal",
+  commit: "commit",
+};
+
+export type AdmittedGroupBlob = {
+  payload: Uint8Array;
+  bindingSignature: Uint8Array | null;
+  recipientDeviceId: string | null;
+  epoch: number | null;
+  nextEpoch: number;
+  recordCommit: boolean;
+};
+
+/**
+ * Validate opaque MLS bytes against the delivery cursor.
+ * Rejects a malformed frame, a group id other than this conversation, an
+ * epoch that is not the current one, and a second commit for the current epoch.
+ * The ciphertext is not decrypted.
+ */
+export function admitGroupBlob(input: {
+  kind: GroupMlsBlobKind;
+  payload: string;
+  recipientDeviceId?: string;
+  bindingSignature?: string;
+  senderDeviceId: string;
+  conversationId: string;
+  currentEpoch: number;
+  commitRecordedForCurrentEpoch: boolean;
+}): GroupGateSuccess<AdmittedGroupBlob> | GroupGateFailure {
+  const stored = validateGroupBlob(input);
+  if (!stored.ok) return stored;
+  const header = readPublicMlsHeader(stored.payload);
+  if (!header) {
+    return { ok: false, status: 400, error: "Malformed MLS payload", code: "mls_malformed" };
+  }
+  const expected = contentTypeForKind[input.kind];
+  if (expected) {
+    if (header.shape !== "private" || header.contentType !== expected) {
+      return { ok: false, status: 400, error: "Malformed MLS payload", code: "mls_malformed" };
+    }
+    const groupId = new TextEncoder().encode(input.conversationId);
+    if (groupId.byteLength !== header.groupId.byteLength || !groupId.every((byte, index) => byte === header.groupId[index])) {
+      return { ok: false, status: 400, error: "MLS group id does not match this conversation", code: "mls_malformed" };
+    }
+    if (header.epoch !== input.currentEpoch) {
+      return {
+        ok: false,
+        status: 409,
+        error: "MLS epoch is not the current group epoch",
+        code: "mls_epoch_order",
+      };
+    }
+    if (input.kind === "commit" && input.commitRecordedForCurrentEpoch) {
+      return {
+        ok: false,
+        status: 409,
+        error: "Another member already committed this epoch",
+        code: "mls_epoch_conflict",
+      };
+    }
+    return {
+      ok: true,
+      payload: stored.payload,
+      bindingSignature: stored.bindingSignature,
+      recipientDeviceId: stored.recipientDeviceId,
+      epoch: header.epoch,
+      nextEpoch: input.kind === "commit" ? input.currentEpoch + 1 : input.currentEpoch,
+      recordCommit: input.kind === "commit",
+    };
+  }
+  if (input.kind === "welcome" && header.shape !== "welcome") {
+    return { ok: false, status: 400, error: "Malformed MLS payload", code: "mls_malformed" };
+  }
+  if (input.kind === "key_package" && header.shape !== "key_package") {
+    return { ok: false, status: 400, error: "Malformed MLS payload", code: "mls_malformed" };
+  }
+  return {
+    ok: true,
+    payload: stored.payload,
+    bindingSignature: stored.bindingSignature,
+    recipientDeviceId: stored.recipientDeviceId,
+    epoch: null,
+    nextEpoch: input.currentEpoch,
+    recordCommit: false,
+  };
 }

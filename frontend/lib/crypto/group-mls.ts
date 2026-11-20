@@ -12,7 +12,11 @@ import type {
 } from "ts-mls";
 import { createCommit } from "ts-mls/createCommit.js";
 import { createApplicationMessage, createProposal } from "ts-mls/createMessage.js";
-import { createGroup, decodeGroupState, encodeGroupState, joinGroup } from "ts-mls/clientState.js";
+import { createGroup, decodeGroupState, encodeGroupState, getOwnLeafNode, joinGroup } from "ts-mls/clientState.js";
+import { signWithLabel } from "ts-mls/crypto/signature.js";
+import { encodeLeafNodeTBS } from "ts-mls/leafNode.js";
+import { updateLeafKey } from "ts-mls/privateKeyPath.js";
+import type { ProposalWithSender } from "ts-mls/unappliedProposals.js";
 import { getCiphersuiteFromName } from "ts-mls/crypto/ciphersuite.js";
 import { getCiphersuiteImpl } from "ts-mls/crypto/getCiphersuiteImpl.js";
 import { defaultCapabilities } from "ts-mls/defaultCapabilities.js";
@@ -277,6 +281,27 @@ function membersEqual(actual: readonly DeviceRef[], expected: readonly DeviceRef
   return actual.every((ref) => keys.has(`${ref.userId}:${ref.deviceId}`));
 }
 
+function isSelfRemovalEntry(
+  state: ClientState,
+  entry: { proposal: Proposal; senderLeafIndex: number | undefined },
+): boolean {
+  if (entry.proposal.proposalType !== "remove" || entry.senderLeafIndex === undefined) return false;
+  const sender = leafAt(state, entry.senderLeafIndex);
+  const target = leafAt(state, entry.proposal.remove.removed);
+  return Boolean(sender && target && sender.deviceId === target.deviceId);
+}
+
+function roleChangeOf(
+  state: ClientState,
+  entry: { proposal: Proposal; senderLeafIndex: number | undefined },
+): { deviceId: string; role: GroupRole } | null {
+  if (entry.proposal.proposalType !== "update" || entry.senderLeafIndex === undefined) return null;
+  const current = leafAt(state, entry.senderLeafIndex);
+  const next = deviceRefFromCredential(entry.proposal.update.leafNode.credential);
+  if (!current || !next || !sameRef(current, next) || current.role === next.role) return null;
+  return { deviceId: next.deviceId, role: next.role };
+}
+
 function leafIndexFor(state: ClientState, deviceId: string): number {
   const matches: number[] = [];
   state.ratchetTree.forEach((node, nodeIndex) => {
@@ -296,10 +321,12 @@ function acceptIncoming(state: ClientState, trusted: ReadonlySet<string>): Incom
     const committer = incoming.kind === "commit" && incoming.senderLeafIndex !== undefined
       ? leafAt(state, incoming.senderLeafIndex)
       : null;
-    const membershipChanges = proposals.filter((item) =>
-      item.proposal.proposalType === "add" || item.proposal.proposalType === "remove",
+    const roleChanges = proposals.filter((item) => roleChangeOf(state, item) !== null);
+    const adminMembership = proposals.some((item) =>
+      item.proposal.proposalType === "add" ||
+      (item.proposal.proposalType === "remove" && !isSelfRemovalEntry(state, item)),
     );
-    if (incoming.kind === "commit" && membershipChanges.length > 0 && committer?.role !== "admin") {
+    if (incoming.kind === "commit" && (adminMembership || roleChanges.length > 0) && committer?.role !== "admin") {
       return "reject";
     }
     for (const item of proposals) {
@@ -333,7 +360,14 @@ function acceptIncoming(state: ClientState, trusted: ReadonlySet<string>): Incom
         if (senderIndex === undefined) return "reject";
         const current = leafAt(state, senderIndex);
         const next = deviceRefFromCredential(proposal.update.leafNode.credential);
-        if (!current || !next || !sameRef(current, next) || current.role !== next.role) return "reject";
+        if (!current || !next || !sameRef(current, next)) return "reject";
+        if (
+          current.role !== next.role &&
+          incoming.kind === "commit" &&
+          (committer?.role !== "admin" || committer.deviceId === current.deviceId)
+        ) {
+          return "reject";
+        }
         continue;
       }
       return "reject";
@@ -729,25 +763,121 @@ export async function proposeSelfRemoval(
 }
 
 /**
- * Commit proposals already accepted into this epoch, including a member's
- * self-removal. ts-mls rejects a commit that removes the committer, so the
- * leaving member cannot rotate the epoch alone.
+ * An Update signed by this leaf that changes only admin|member.
+ * Another admin has to commit it. ts-mls rejects a commit that contains the
+ * committer's own update, so a member cannot promote themselves.
+ */
+export async function proposeRoleUpdate(
+  session: GroupSession,
+  role: GroupRole,
+): Promise<{ session: GroupSession; proposal: Uint8Array; leafPublicKey: Uint8Array; leafPrivateKey: Uint8Array }> {
+  if (session.state.groupActiveState.kind !== "active") {
+    throw new GroupCryptoError("This device is not an active group member", "not_member");
+  }
+  const current = listRoster(session).find((leaf) => leaf.deviceId === session.device.ref.deviceId);
+  if (!current || current.role === role) {
+    throw new GroupCryptoError("This device already has that group role", "invalid");
+  }
+  const own = getOwnLeafNode(session.state);
+  const suite = await cipherSuite();
+  const hpke = await suite.hpke.generateKeyPair();
+  const leafPublicKey = new Uint8Array(await suite.hpke.exportPublicKey(hpke.publicKey));
+  const leafPrivateKey = new Uint8Array(await suite.hpke.exportPrivateKey(hpke.privateKey));
+  const tbs = {
+    hpkePublicKey: leafPublicKey,
+    signaturePublicKey: own.signaturePublicKey,
+    credential: {
+      credentialType: "basic" as const,
+      identity: utf8ToBytes(formatIdentity(session.device.ref, role)),
+    },
+    capabilities: own.capabilities,
+    leafNodeSource: "update" as const,
+    extensions: own.extensions,
+    groupId: session.state.groupContext.groupId,
+    leafIndex: session.state.privatePath.leafIndex,
+  };
+  const signature = await signWithLabel(
+    session.state.signaturePrivateKey,
+    "LeafNodeTBS",
+    encodeLeafNodeTBS(tbs),
+    suite.signature,
+  );
+  const proposal: Proposal = {
+    proposalType: "update",
+    update: {
+      leafNode: {
+        hpkePublicKey: leafPublicKey,
+        signaturePublicKey: own.signaturePublicKey,
+        credential: tbs.credential,
+        capabilities: own.capabilities,
+        leafNodeSource: "update",
+        extensions: own.extensions,
+        signature,
+      },
+    },
+  };
+  const created = await createProposal(isolateState(session.state), false, proposal, suite);
+  wipe(created.consumed);
+  return {
+    session: withTrust(session, new Set(session.trustedKeyPackages), created.newState),
+    proposal: encodeMlsMessage(created.message),
+    leafPublicKey,
+    leafPrivateKey,
+  };
+}
+
+export function ownLeafPublicKey(session: GroupSession): Uint8Array {
+  return getOwnLeafNode(session.state).hpkePublicKey;
+}
+
+/** Install the private key for an Update this device proposed, before applying the commit that publishes it. */
+export function withLeafPrivateKey(session: GroupSession, leafPrivateKey: Uint8Array): GroupSession {
+  const state = isolateState(session.state);
+  state.privatePath = updateLeafKey(state.privatePath, leafPrivateKey);
+  return withTrust(session, new Set(session.trustedKeyPackages), state);
+}
+
+/**
+ * Commit proposals already accepted into this epoch.
+ * An admin commits membership and role changes. Any other member may commit
+ * only self-removal proposals, which is how a leave finishes while every admin
+ * is offline. ts-mls rejects a commit that removes the committer.
  */
 export async function commitPending(
   session: GroupSession,
+  options?: {
+    selfRemovalsOnly?: boolean;
+    directoryRoles?: ReadonlyMap<string, GroupRole>;
+  },
 ): Promise<{ session: GroupSession; commit: Uint8Array; welcome?: Uint8Array }> {
   if (session.state.groupActiveState.kind !== "active") {
     throw new GroupCryptoError("This device is not an active group member", "not_member");
   }
-  assertAdmin(session);
-  if (!hasPendingProposals(session)) {
+  if (!options?.selfRemovalsOnly) assertAdmin(session);
+  const filtered = isolateState(session.state);
+  const kept: Record<string, ProposalWithSender> = {};
+  const selfLeaf = filtered.privatePath.leafIndex;
+  for (const [key, entry] of Object.entries(filtered.unappliedProposals)) {
+    if (options?.selfRemovalsOnly) {
+      if (isSelfRemovalEntry(session.state, entry)) kept[key] = entry;
+      continue;
+    }
+    if (entry.proposal.proposalType === "update" && entry.senderLeafIndex === selfLeaf) continue;
+    const roleChange = roleChangeOf(session.state, entry);
+    if (roleChange && options?.directoryRoles) {
+      if (options.directoryRoles.get(roleChange.deviceId) !== roleChange.role) continue;
+    }
+    kept[key] = entry;
+  }
+  filtered.unappliedProposals = kept;
+  if (Object.keys(kept).length === 0) {
     throw new GroupCryptoError("There is no pending group proposal to commit", "invalid");
   }
   const suite = await cipherSuite();
   let committed;
   try {
     committed = await createCommit(
-      { state: isolateState(session.state), cipherSuite: suite, pskIndex: emptyPskIndex },
+      { state: filtered, cipherSuite: suite, pskIndex: emptyPskIndex },
       { ratchetTreeExtension: true },
     );
   } catch (error) {

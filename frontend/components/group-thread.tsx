@@ -2,13 +2,16 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
+import { EncryptedFileAttachment } from "@/components/encrypted-file-attachment";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, type Conversation } from "@/lib/api";
+import { ApiError, api, type Conversation } from "@/lib/api";
+import { encodeFilePayload, parseChatPayload } from "@/lib/chat-payload";
 import { b64ToBytes } from "@/lib/crypto/bytes";
+import { inspectAndEncryptFileAttachment } from "@/lib/crypto/file-attachment";
 import { openGroupRecord, sealGroupRecord } from "@/lib/crypto/group-store";
-import { listMembers } from "@/lib/crypto/group-mls";
+import { listMembers, listRoster, type GroupRole } from "@/lib/crypto/group-mls";
 import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
 import { useI18n, type MessageKey } from "@/lib/i18n/locale";
 import {
@@ -108,6 +111,8 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
   const [draft, setDraft] = useState("");
   const [username, setUsername] = useState("");
   const [actionError, setActionError] = useState<MessageKey | null>(null);
+  const [notice, setNotice] = useState<MessageKey | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const userId = currentUserId();
   const me = conversation.members?.find((member) => member.userId === userId);
   const isAdmin = me?.role === "ADMIN";
@@ -116,8 +121,10 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
     queryKey: ["group-sync", conversation.id, userId],
     enabled: Boolean(userId),
     refetchInterval: 4000,
-    queryFn: () => refreshGroup(conversation),
+    queryFn: () => refreshGroup(conversation, queryClient),
   });
+  const mlsRole = sync.data?.mlsRole ?? null;
+  const canAdminister = isAdmin && mlsRole === "admin";
 
   const messages = sync.data?.messages ?? [];
   const joined = sync.data?.joined ?? false;
@@ -132,11 +139,18 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
       ? t("group.syncFailed")
       : null;
 
+  function requestGroupNotifications() {
+    if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+    void Notification.requestPermission();
+  }
+
   async function sendMessage(event: FormEvent) {
     event.preventDefault();
     const text = draft.trim();
     if (!text || !userId) return;
+    requestGroupNotifications();
     setActionError(null);
+    setNotice(null);
     try {
       const key = requireVault();
       const sealed = await loadSealedGroup(userId, conversation.id);
@@ -155,11 +169,59 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
     }
   }
 
+  async function sendFile(file: File) {
+    if (!userId) return;
+    requestGroupNotifications();
+    setActionError(null);
+    setNotice(null);
+    try {
+      const prepared = await inspectAndEncryptFileAttachment(file);
+      const ciphertext = prepared.ciphertext;
+      if (
+        ciphertext.byteOffset !== 0 ||
+        !(ciphertext.buffer instanceof ArrayBuffer) ||
+        ciphertext.byteLength !== ciphertext.buffer.byteLength
+      ) {
+        throw new Error("The encrypted file could not be uploaded.");
+      }
+      const upload = await api.mediaUpload(conversation.id, ciphertext.byteLength, "file");
+      const response = await fetch(upload.uploadUrl, {
+        method: "PUT",
+        headers: upload.headers,
+        body: ciphertext.buffer,
+      });
+      if (!response.ok) throw new Error("The encrypted file could not be uploaded.");
+      const body = encodeFilePayload({
+        id: upload.mediaId,
+        k: prepared.key,
+        n: prepared.nonce,
+        name: prepared.name,
+        mime: prepared.mime,
+        bytes: ciphertext.byteLength,
+        containsExternalLinks: prepared.containsExternalLinks,
+      });
+      const key = requireVault();
+      const sealed = await loadSealedGroup(userId, conversation.id);
+      if (!sealed) {
+        setActionError("group.notJoined");
+        return;
+      }
+      const record = await openGroupRecord(key, userId, conversation.id, sealed);
+      const queued = await queueGroupMessage(record, body);
+      await saveSealedGroup(userId, conversation.id, await sealGroupRecord(key, userId, conversation.id, queued));
+      await queryClient.invalidateQueries({ queryKey: ["group-sync", conversation.id] });
+    } catch (cause) {
+      setActionError("group.attachFailed");
+      console.warn("Could not send the group file", cause);
+    }
+  }
+
   async function addMember(event: FormEvent) {
     event.preventDefault();
     const name = username.trim().replace(/^@/, "");
     if (!name) return;
     setActionError(null);
+    setNotice(null);
     try {
       await api.addGroupMember(conversation.id, { username: name });
       setUsername("");
@@ -171,9 +233,24 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
     }
   }
 
-  async function removeMember(memberUserId: string) {
-    if (!userId) return;
+  async function setMemberRole(memberUserId: string, role: "ADMIN" | "MEMBER") {
     setActionError(null);
+    setNotice(null);
+    try {
+      await api.setGroupMemberRole(conversation.id, memberUserId, role);
+      setNotice("group.rolePending");
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["group-sync", conversation.id] });
+    } catch (cause) {
+      setActionError(cause instanceof ApiError && cause.code === "last_admin" ? "group.lastAdmin" : "group.roleFailed");
+      console.warn("Could not change the group role", cause);
+    }
+  }
+
+  async function removeMember(memberUserId: string) {
+    if (!userId || !canAdminister) return;
+    setActionError(null);
+    setNotice(null);
     try {
       const key = requireVault();
       const sealed = await loadSealedGroup(userId, conversation.id);
@@ -191,7 +268,7 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
           conversation.id,
           await sealGroupRecord(key, userId, conversation.id, record),
         );
-        await refreshGroup(conversation);
+        await refreshGroup(conversation, queryClient);
       }
       await api.removeGroupMember(conversation.id, memberUserId);
       await queryClient.invalidateQueries({ queryKey: ["conversations"] });
@@ -211,6 +288,18 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
       return;
     }
     setActionError(null);
+    setNotice(null);
+    if (others.length === 0) {
+      try {
+        await api.removeGroupMember(conversation.id, userId);
+        await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        router.push("/inbox");
+      } catch (cause) {
+        setActionError("group.leaveFailed");
+        console.warn("Could not leave the group", cause);
+      }
+      return;
+    }
     try {
       const key = requireVault();
       const sealed = await loadSealedGroup(userId, conversation.id);
@@ -227,7 +316,7 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
       }
       const queued = await queueSelfRemoval(record);
       await saveSealedGroup(userId, conversation.id, await sealGroupRecord(key, userId, conversation.id, queued));
-      const result = await refreshGroup(conversation);
+      const result = await refreshGroup(conversation, queryClient);
       if (result.selfRemoved) {
         await api.removeGroupMember(conversation.id, userId);
         await queryClient.invalidateQueries({ queryKey: ["conversations"] });
@@ -276,11 +365,32 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
                     {message.fromMe ? t("group.you") : memberLabel(conversation, message, t("group.member"))}
                   </BidiText>
                 </p>
-                <p className="whitespace-pre-wrap break-words"><BidiText>{message.plaintext}</BidiText></p>
+                <GroupMessageBody conversationId={conversation.id} plaintext={message.plaintext} />
               </article>
             ))}
           </div>
           <form className="flex gap-2 border-t border-white/10 p-3" onSubmit={(event) => void sendMessage(event)}>
+            <input
+              ref={fileInput}
+              type="file"
+              className="sr-only"
+              accept=".pdf,.docx,.pptx,.xlsx,.txt,.csv,application/pdf,text/plain,text/csv"
+              aria-label={t("group.attach")}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void sendFile(file);
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!joined}
+              onClick={() => fileInput.current?.click()}
+            >
+              {t("group.attach")}
+            </Button>
             <Input
               aria-label={t("group.messageLabel")}
               placeholder={joined ? t("group.messagePlaceholder") : t("group.waitingJoin")}
@@ -310,15 +420,25 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
                     {member.role === "ADMIN" ? t("group.admin") : t("group.member")}
                   </span>
                 </span>
-                {isAdmin && member.userId !== userId ? (
-                  <Button type="button" size="sm" variant="ghost" onClick={() => void removeMember(member.userId)}>
-                    {t("group.remove")}
-                  </Button>
+                {canAdminister && member.userId !== userId ? (
+                  <span className="flex shrink-0 gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void setMemberRole(member.userId, member.role === "ADMIN" ? "MEMBER" : "ADMIN")}
+                    >
+                      {member.role === "ADMIN" ? t("group.demote") : t("group.promote")}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => void removeMember(member.userId)}>
+                      {t("group.remove")}
+                    </Button>
+                  </span>
                 ) : null}
               </li>
             ))}
           </ul>
-          {isAdmin ? (
+          {canAdminister ? (
             <form className="mt-4 space-y-2" onSubmit={(event) => void addMember(event)}>
               <Input
                 aria-label={t("group.addLabel")}
@@ -331,10 +451,29 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
             </form>
           ) : null}
           {status && joined ? <p className="mt-3 text-xs text-white/45">{status}</p> : null}
+          {notice ? <p className="mt-3 text-xs text-white/55">{t(notice)}</p> : null}
           {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
         </aside>
       </div>
     </div>
+  );
+}
+
+function GroupMessageBody({
+  conversationId,
+  plaintext,
+}: {
+  conversationId: string;
+  plaintext: string;
+}) {
+  const payload = parseChatPayload(plaintext);
+  if (payload.type === "file") {
+    return <EncryptedFileAttachment conversationId={conversationId} payload={payload} />;
+  }
+  return (
+    <p className="whitespace-pre-wrap break-words">
+      <BidiText>{payload.type === "text" ? payload.text : ""}</BidiText>
+    </p>
   );
 }
 
@@ -363,12 +502,16 @@ async function loadBlobs(conversationId: string, deviceId: string) {
   return blobs;
 }
 
-async function refreshGroup(conversation: Conversation): Promise<{
+async function refreshGroup(
+  conversation: Conversation,
+  queryClient: { invalidateQueries: (filters: { queryKey: string[] }) => Promise<unknown> },
+): Promise<{
   messages: LocalMessage[];
   joined: boolean;
   status: GroupNotice | null;
   error: string | null;
   selfRemoved: boolean;
+  mlsRole: GroupRole | null;
 }> {
   const userId = currentUserId();
   const signing = currentSigningMaterial();
@@ -380,6 +523,7 @@ async function refreshGroup(conversation: Conversation): Promise<{
       status: "group.unlock",
       error: null,
       selfRemoved: false,
+      mlsRole: null,
     };
   }
   const deviceId = currentDeviceId();
@@ -421,9 +565,23 @@ async function refreshGroup(conversation: Conversation): Promise<{
   }
   const messages = await listLocalMessages(conversation.id, 100);
   const selfRemoved = result.selfRemoved;
+  const joined = Boolean(result.record.session) && !selfRemoved;
+  const mlsRole = result.record.session
+    ? listRoster(result.record.session).find((leaf) => leaf.deviceId === deviceId)?.role ?? null
+    : null;
+  const latestBlobId = blobs.at(-1)?.id;
+  if (joined && latestBlobId && markedGroupRead.get(conversation.id) !== latestBlobId) {
+    try {
+      await api.markGroupRead(conversation.id, latestBlobId);
+      markedGroupRead.set(conversation.id, latestBlobId);
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (cause) {
+      console.warn("Could not mark the group read", cause);
+    }
+  }
   return {
     messages,
-    joined: Boolean(result.record.session) && !selfRemoved,
+    joined,
     status: selfRemoved
       ? "group.left"
       : result.record.session
@@ -431,8 +589,11 @@ async function refreshGroup(conversation: Conversation): Promise<{
         : "group.waitingAdmin",
     error: result.error,
     selfRemoved,
+    mlsRole,
   };
 }
+
+const markedGroupRead = new Map<string, string>();
 
 function localFrom(
   conversationId: string,
