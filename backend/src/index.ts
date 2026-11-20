@@ -28,6 +28,7 @@ import { integrationEmailRoutes } from "./routes/integrations-email.js";
 import { integrationWorkRoutes } from "./routes/integrations-work.js";
 import { integrationCollabRoutes } from "./routes/integrations-collab.js";
 import { integrationWriteRoutes } from "./routes/integrations-write.js";
+import { dailyBriefRoutes, startDailyBriefScheduler } from "./routes/daily-brief.js";
 import { registerRealtime } from "./ws.js";
 
 const app = Fastify({
@@ -79,6 +80,8 @@ app.get("/health", async (request) => ({
   cookieHttpOnly: true,
   cookieSameSite: authCookieSameSite(),
   groupE2ee: env.GROUP_E2EE_ENABLED,
+  // true unless DAILY_BRIEF_ENABLED is exactly "false".
+  dailyBrief: env.DAILY_BRIEF_ENABLED,
   // true unless SAFETY_NUMBERS_ENABLED is exactly "false".
   safetyNumbers: env.SAFETY_NUMBERS_ENABLED,
   trustProxy: trustProxy === false ? "disabled" : "restricted",
@@ -119,6 +122,10 @@ await app.register(integrationEmailRoutes);
 await app.register(integrationWorkRoutes);
 await app.register(integrationCollabRoutes);
 await app.register(integrationWriteRoutes);
+await app.register(dailyBriefRoutes);
+startDailyBriefScheduler((fields) => {
+  app.log.info(fields, "daily brief scheduler");
+});
 await registerCallIceServerRoute(app);
 await registerRealtime(app);
 

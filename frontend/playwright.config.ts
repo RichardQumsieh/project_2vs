@@ -22,6 +22,7 @@ export default defineConfig({
       NEXT_PUBLIC_API_URL: "http://127.0.0.1:3001",
       NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED: "true",
       NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED: "true",
+      NEXT_PUBLIC_DAILY_BRIEF_ENABLED: "true",
     },
   },
   projects: [

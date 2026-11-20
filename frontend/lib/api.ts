@@ -1,4 +1,5 @@
 import { resolveApiUrl } from "./api-url";
+import type { DailyBriefResponse } from "./daily-brief/types";
 import { assertGroupE2eeEnabled } from "./group-e2ee-flag";
 import { assertSafetyNumbersEnabled } from "./safety-numbers-flag";
 import type { IdentityDirectory } from "./crypto/safety-view";
@@ -1379,6 +1380,21 @@ export const api = {
   }) =>
     request<{ event: AccountActivityEvent }>("/account/activity", {
       method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  dailyBrief: () => request<DailyBriefResponse>("/daily-brief"),
+
+  generateDailyBrief: () =>
+    request<DailyBriefResponse>("/daily-brief", { method: "POST" }),
+
+  saveDailyBriefPreference: (body: {
+    briefTime: string;
+    language: "en" | "ar";
+    timeZone: string;
+  }) =>
+    request<DailyBriefResponse>("/daily-brief/preferences", {
+      method: "PUT",
       body: JSON.stringify(body),
     }),
 

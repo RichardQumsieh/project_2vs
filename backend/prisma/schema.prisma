@@ -131,6 +131,8 @@ model User {
   workItems            WorkItemMirror[]
   collabChannels       CollabChannelMirror[]
   writeApprovals       IntegrationWriteApproval[]
+  dailyBriefPreference DailyBriefPreference?
+  dailyBriefs          DailyBrief[]
 
   @@index([interests], type: Gin)
 }
@@ -656,4 +658,37 @@ model IntegrationWriteApproval {
 
   @@unique([ownerUserId, idempotencyKey])
   @@index([ownerUserId, createdAt])
+}
+
+/// When Sophia should prepare the manager brief. Times are local to timeZone.
+/// This row does not store mail, calendar, or chat text.
+model DailyBriefPreference {
+  userId    String   @id
+  briefTime String   @default("07:00")
+  language  String   @default("en")
+  timeZone  String   @default("Asia/Amman")
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// One prepared brief for a local calendar day.
+/// `document` holds meeting titles, mail subjects, and unsent action drafts
+/// from integrations the owner connected. It must not contain E2EE chat.
+/// Do not log `document`; the process logger redacts brief fields.
+model DailyBrief {
+  id          String   @id @default(uuid())
+  ownerUserId String
+  localDate   String
+  language    String
+  timeZone    String
+  source      String
+  mode        String
+  document    Json
+  generatedAt DateTime @default(now())
+
+  owner User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerUserId, localDate])
+  @@index([ownerUserId, generatedAt])
 }

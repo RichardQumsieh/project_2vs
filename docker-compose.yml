@@ -52,6 +52,8 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       GROUP_E2EE_ENABLED: ${GROUP_E2EE_ENABLED:-false}
       SAFETY_NUMBERS_ENABLED: ${SAFETY_NUMBERS_ENABLED:-true}
+      # Daily brief stays on unless this is exactly false.
+      DAILY_BRIEF_ENABLED: ${DAILY_BRIEF_ENABLED:-true}
     ports:
       - "127.0.0.1:3001:3001"
     volumes:
@@ -84,6 +86,8 @@ services:
       NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED: ${NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED:-false}
       # Safety numbers stay on unless this is exactly false.
       NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED: ${NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED:-true}
+      # Daily brief stays on unless this is exactly false.
+      NEXT_PUBLIC_DAILY_BRIEF_ENABLED: ${NEXT_PUBLIC_DAILY_BRIEF_ENABLED:-true}
       WATCHPACK_POLLING: "true"
     ports:
       - "127.0.0.1:3000:3000"
