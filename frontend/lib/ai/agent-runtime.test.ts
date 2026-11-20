@@ -3,7 +3,6 @@ import {
   buildApprovedSearchUrl,
   createAgentRuntime,
   type AgentContext,
-  type AgentToolHandlers,
 } from "./agent-runtime";
 
 const initialContext: AgentContext = {
@@ -11,7 +10,7 @@ const initialContext: AgentContext = {
   recipientUsername: "friend",
 };
 
-function mockHandlers(): AgentToolHandlers {
+function mockHandlers() {
   return {
     sendMessage: vi.fn().mockResolvedValue(undefined),
     webSearch: vi.fn(),
@@ -335,6 +334,59 @@ describe("permissioned local agent runtime", () => {
     expect(handlers.createCalendarEvent).toHaveBeenCalledTimes(1);
     expect(handlers.createGitHubIssue).toHaveBeenCalledTimes(1);
     expect(handlers.draftEmail).not.toHaveBeenCalled();
+  });
+
+  it("reuses the same approval id for mail writes and ignores a second click", async () => {
+    const { runtime, handlers } = setup();
+    let release: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    handlers.draftEmail.mockImplementation(() => pending);
+    const email = runtime.propose({
+      type: "draft_email",
+      provider: "gmail",
+      to: ["dana@example.com"],
+      subject: "Proposal",
+      body: "Here is the draft.",
+      delivery: "send",
+    });
+    const first = runtime.approve(email.id);
+    const second = runtime.approve(email.id);
+    await expect(second).rejects.toThrow(/already running/i);
+    release?.();
+    await first;
+    expect(handlers.draftEmail).toHaveBeenCalledTimes(1);
+    expect(handlers.draftEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "draft_email", delivery: "send" }),
+      { proposalId: email.id },
+    );
+  });
+
+  it("keeps a failed mail approval so a retry uses the same id", async () => {
+    const { runtime, handlers } = setup();
+    handlers.draftEmail
+      .mockRejectedValueOnce(new Error("provider timeout"))
+      .mockResolvedValueOnce(undefined);
+    const email = runtime.propose({
+      type: "draft_email",
+      provider: "outlook-mail",
+      to: ["dana@example.com"],
+      subject: "Proposal",
+      body: "Here is the draft.",
+    });
+    await expect(runtime.approve(email.id)).rejects.toThrow(/timeout/);
+    await runtime.approve(email.id);
+    expect(handlers.draftEmail).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ provider: "outlook-mail" }),
+      { proposalId: email.id },
+    );
+    expect(handlers.draftEmail).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ provider: "outlook-mail" }),
+      { proposalId: email.id },
+    );
   });
 
   it("removes a calendar event only after approval", async () => {

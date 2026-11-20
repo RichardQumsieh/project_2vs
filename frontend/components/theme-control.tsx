@@ -1,13 +1,15 @@
 "use client";
 
 import { useThemePreference } from "@/components/theme-provider";
+import { useI18n } from "@/lib/i18n/locale";
 
 export function ThemeControl() {
   const { theme, setTheme, persistenceError } = useThemePreference();
+  const { t } = useI18n();
 
   return (
     <div className="theme-control">
-      <label htmlFor="theme-preference">Appearance</label>
+      <label htmlFor="theme-preference">{t("settings.theme")}</label>
       <select
         id="theme-preference"
         value={theme}
@@ -22,13 +24,13 @@ export function ThemeControl() {
           }
         }}
       >
-        <option value="system">System</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
+        <option value="system">{t("settings.themeSystem")}</option>
+        <option value="light">{t("settings.themeLight")}</option>
+        <option value="dark">{t("settings.themeDark")}</option>
       </select>
       {persistenceError ? (
         <span role="status" className="theme-control-error">
-          Could not save preference
+          {t("settings.themeSaveFailed")}
         </span>
       ) : null}
     </div>

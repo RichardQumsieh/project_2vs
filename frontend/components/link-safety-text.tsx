@@ -83,7 +83,7 @@ export function LinkSafetyText({ text }: { text: string }) {
   }, [links.length, reputationUrls, requestKey]);
 
   if (links.length === 0) {
-    return <p className="whitespace-pre-wrap break-words">{text}</p>;
+    return <p dir="auto" className="bidi-plaintext whitespace-pre-wrap break-words">{text}</p>;
   }
 
   const messageParts: ReactNode[] = [];
@@ -102,7 +102,7 @@ export function LinkSafetyText({ text }: { text: string }) {
 
   return (
     <div className="space-y-2">
-      <p className="whitespace-pre-wrap break-words">{messageParts}</p>
+      <p dir="auto" className="bidi-plaintext whitespace-pre-wrap break-words">{messageParts}</p>
       {links.length > maxLinksPerMessage ? (
         <p role="alert" className="rounded-lg bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-200">
           This message contains too many links to check. Links are not clickable.

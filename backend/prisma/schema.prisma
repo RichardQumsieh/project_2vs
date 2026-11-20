@@ -60,6 +60,20 @@ enum IntegrationConnectionStatus {
   ERROR
 }
 
+enum IntegrationWriteAction {
+  SEND_EMAIL
+  SAVE_DRAFT
+  RESCHEDULE_EVENT
+  DELETE_EVENT
+}
+
+enum IntegrationWriteStatus {
+  PENDING
+  EXECUTING
+  SUCCEEDED
+  FAILED
+}
+
 /// Actions the account activity log can store. Only a subset is written today.
 /// MESSAGE_*, EMAIL_RECEIVED, and INTEGRATION_CONNECT are reserved and unused.
 enum AccountActivityAction {
@@ -69,7 +83,9 @@ enum AccountActivityAction {
   SETTING_CHANGED
   EMAIL_SENT
   EMAIL_RECEIVED
+  EMAIL_DRAFT_SAVED
   CALENDAR_DELETE_APPROVED
+  CALENDAR_RESCHEDULE_APPROVED
   BUTTON_ACTION
   MESSAGE_SENT
   MESSAGE_RECEIVED
@@ -114,6 +130,7 @@ model User {
   mailMessages         MailMessageMirror[]
   workItems            WorkItemMirror[]
   collabChannels       CollabChannelMirror[]
+  writeApprovals       IntegrationWriteApproval[]
 
   @@index([interests], type: Gin)
 }
@@ -590,4 +607,31 @@ model CollabChannelMirror {
 
   @@unique([connectionId, externalChannelId])
   @@index([ownerUserId, syncedAt])
+}
+
+/// One explicit approval of a mail or calendar write.
+/// The provider is called only after status moves pending → executing, and a
+/// second approval of the same row never calls it again. Payload bytes are not
+/// stored; only a hash, so the approve request must resend the exact proposal.
+model IntegrationWriteApproval {
+  id             String                 @id @default(uuid())
+  ownerUserId    String
+  idempotencyKey String
+  action         IntegrationWriteAction
+  provider       String
+  payloadHash    String
+  status         IntegrationWriteStatus @default(PENDING)
+  externalId     String?
+  htmlLink       String?
+  errorCode      String?
+  errorMessage   String?
+  errorStatus    Int?
+  expiresAt      DateTime
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  owner User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerUserId, idempotencyKey])
+  @@index([ownerUserId, createdAt])
 }

@@ -9,6 +9,8 @@ import { api, type Conversation } from "@/lib/api";
 import { b64ToBytes } from "@/lib/crypto/bytes";
 import { openGroupRecord, sealGroupRecord } from "@/lib/crypto/group-store";
 import { listMembers } from "@/lib/crypto/group-mls";
+import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
+import { useI18n, type MessageKey } from "@/lib/i18n/locale";
 import {
   queueGroupMessage,
   queueMemberRemoval,
@@ -26,9 +28,10 @@ import {
 import type { LocalMessage } from "@/lib/crypto/types";
 
 export function GroupUnavailable() {
+  const { t } = useI18n();
   return (
     <div className="grid h-full place-items-center p-8 text-center text-sm text-white/70">
-      Group encryption is turned off in this app. Turn on both group flags to open this conversation.
+      {t("group.unavailable")}
     </div>
   );
 }
@@ -36,9 +39,10 @@ export function GroupUnavailable() {
 export function NewGroupForm() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [title, setTitle] = useState("");
   const [usernames, setUsernames] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<MessageKey | null>(null);
   const create = useMutation({
     mutationFn: async () => {
       const memberUsernames = usernames
@@ -58,7 +62,8 @@ export function NewGroupForm() {
       router.push(`/inbox/${conversation.id}`);
     },
     onError: (cause) => {
-      setError(cause instanceof Error ? cause.message : "Could not create the group.");
+      setError("group.createFailed");
+      console.warn("Could not create the group", cause);
     },
   });
 
@@ -70,34 +75,39 @@ export function NewGroupForm() {
         create.mutate();
       }}
     >
-      <p className="text-xs font-medium text-white/70">New encrypted group</p>
+      <p className="text-xs font-medium text-white/70">{t("group.new")}</p>
       <Input
-        aria-label="Group name"
-        placeholder="Group name"
+        aria-label={t("group.name")}
+        placeholder={t("group.name")}
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         maxLength={80}
       />
       <Input
-        aria-label="Group member usernames"
-        placeholder="Usernames, separated by spaces"
+        aria-label={t("group.usernames")}
+        placeholder={t("group.usernames")}
         value={usernames}
         onChange={(event) => setUsernames(event.target.value)}
+        dir="ltr"
+        className="text-start"
       />
       <Button type="submit" size="sm" disabled={create.isPending}>
-        {create.isPending ? "Creating…" : "Create group"}
+        {create.isPending ? t("group.creating") : t("group.create")}
       </Button>
-      {error ? <p className="text-sm text-red-300">{error}</p> : null}
+      {error ? <p className="text-sm text-red-300">{t(error)}</p> : null}
     </form>
   );
 }
 
+type GroupNotice = "group.unlock" | "group.left" | "group.membersOnly" | "group.waitingAdmin";
+
 export function GroupThread({ conversation }: { conversation: Conversation }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { t } = useI18n();
   const [draft, setDraft] = useState("");
   const [username, setUsername] = useState("");
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<MessageKey | null>(null);
   const userId = currentUserId();
   const me = conversation.members?.find((member) => member.userId === userId);
   const isAdmin = me?.role === "ADMIN";
@@ -111,8 +121,16 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
 
   const messages = sync.data?.messages ?? [];
   const joined = sync.data?.joined ?? false;
-  const status = sync.data?.status ?? (sync.isLoading ? "Opening the group…" : null);
-  const error = actionError ?? sync.data?.error ?? (sync.error instanceof Error ? sync.error.message : null);
+  const status = sync.data?.status
+    ? t(sync.data.status)
+    : sync.isLoading
+      ? t("group.opening")
+      : null;
+  const error = actionError
+    ? t(actionError)
+    : sync.data?.error || sync.error
+      ? t("group.syncFailed")
+      : null;
 
   async function sendMessage(event: FormEvent) {
     event.preventDefault();
@@ -122,14 +140,18 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
     try {
       const key = requireVault();
       const sealed = await loadSealedGroup(userId, conversation.id);
-      if (!sealed) throw new Error("This device has not joined the group yet.");
+      if (!sealed) {
+        setActionError("group.notJoined");
+        return;
+      }
       const record = await openGroupRecord(key, userId, conversation.id, sealed);
       const queued = await queueGroupMessage(record, text);
       await saveSealedGroup(userId, conversation.id, await sealGroupRecord(key, userId, conversation.id, queued));
       setDraft("");
       await queryClient.invalidateQueries({ queryKey: ["group-sync", conversation.id] });
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : "Could not send the message.");
+      setActionError("group.sendFailed");
+      console.warn("Could not send the group message", cause);
     }
   }
 
@@ -144,7 +166,8 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
       await queryClient.invalidateQueries({ queryKey: ["conversations"] });
       await queryClient.invalidateQueries({ queryKey: ["group-sync", conversation.id] });
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : "Could not add that member.");
+      setActionError("group.addFailed");
+      console.warn("Could not add the group member", cause);
     }
   }
 
@@ -174,7 +197,8 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
       await queryClient.invalidateQueries({ queryKey: ["conversations"] });
       await queryClient.invalidateQueries({ queryKey: ["group-sync", conversation.id] });
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : "Could not remove that member.");
+      setActionError("group.removeFailed");
+      console.warn("Could not remove the group member", cause);
     }
   }
 
@@ -183,7 +207,7 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
     const others = (conversation.members ?? []).filter((member) => member.userId !== userId);
     const admins = (conversation.members ?? []).filter((member) => member.role === "ADMIN");
     if (admins.length === 1 && admins[0]?.userId === userId && others.length > 0) {
-      setActionError("The last admin cannot leave while other members remain.");
+      setActionError("group.lastAdmin");
       return;
     }
     setActionError(null);
@@ -210,10 +234,11 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
         router.push("/inbox");
         return;
       }
-      setActionError("Leave is waiting for an admin to commit the new group keys.");
+      setActionError("group.leavePending");
       await queryClient.invalidateQueries({ queryKey: ["group-sync", conversation.id] });
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : "Could not leave the group.");
+      setActionError("group.leaveFailed");
+      console.warn("Could not leave the group", cause);
     }
   }
 
@@ -221,13 +246,15 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div className="min-w-0">
-          <h1 className="truncate text-sm font-medium">{conversation.title?.trim() || "Encrypted group"}</h1>
+          <h1 className="truncate text-sm font-medium">
+            <BidiText>{conversation.title?.trim() || t("group.fallbackTitle")}</BidiText>
+          </h1>
           <p className="truncate text-xs text-white/45">
-            End-to-end encrypted · {(conversation.members ?? []).length} members
+            <BidiText>{t("group.encryptedLine", { count: (conversation.members ?? []).length })}</BidiText>
           </p>
         </div>
         <Button type="button" size="sm" variant="outline" onClick={() => void leaveGroup()}>
-          Leave
+          {t("group.leave")}
         </Button>
       </header>
       <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_16rem]">
@@ -235,50 +262,57 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-4" aria-live="polite">
             {messages.length === 0 ? (
               <p className="text-sm text-white/45">
-                {joined ? "No messages yet." : status}
+                {joined ? t("group.empty") : status}
               </p>
             ) : messages.map((message) => (
               <article
                 key={message.id}
                 className={`max-w-[36rem] rounded-2xl px-3 py-2 text-sm ${
-                  message.fromMe ? "ml-auto bg-cyan-300/15" : "bg-white/[0.04]"
+                  message.fromMe ? "ms-auto bg-cyan-300/15" : "bg-white/[0.04]"
                 }`}
               >
                 <p className="mb-1 text-[11px] text-white/40">
-                  {message.fromMe ? "You" : memberLabel(conversation, message)}
+                  <BidiText>
+                    {message.fromMe ? t("group.you") : memberLabel(conversation, message, t("group.member"))}
+                  </BidiText>
                 </p>
-                <p className="whitespace-pre-wrap break-words">{message.plaintext}</p>
+                <p className="whitespace-pre-wrap break-words"><BidiText>{message.plaintext}</BidiText></p>
               </article>
             ))}
           </div>
           <form className="flex gap-2 border-t border-white/10 p-3" onSubmit={(event) => void sendMessage(event)}>
             <Input
-              aria-label="Group message"
-              placeholder={joined ? "Message the group" : "Waiting to join"}
+              aria-label={t("group.messageLabel")}
+              placeholder={joined ? t("group.messagePlaceholder") : t("group.waitingJoin")}
               value={draft}
               disabled={!joined}
               onChange={(event) => setDraft(event.target.value)}
               maxLength={16000}
+              dir="auto"
             />
             <Button type="submit" size="sm" disabled={!joined || draft.trim().length === 0}>
-              Send
+              {t("group.send")}
             </Button>
           </form>
         </div>
-        <aside className="border-t border-white/10 p-4 md:border-t-0 md:border-l">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-white/45">Members</h2>
+        <aside className="border-t border-white/10 p-4 md:border-t-0 md:border-s">
+          <h2 className="text-xs font-medium uppercase tracking-wide text-white/45">{t("group.members")}</h2>
           <ul className="mt-3 space-y-2">
             {(conversation.members ?? []).map((member) => (
               <li key={member.userId} className="flex items-center justify-between gap-2 text-sm">
                 <span className="min-w-0">
-                  <span className="block truncate">{member.displayName?.trim() || member.username}</span>
+                  <span className="block truncate">
+                    <BidiText>{member.displayName?.trim() || member.username}</BidiText>
+                  </span>
                   <span className="block truncate text-xs text-white/40">
-                    @{member.username} · {member.role === "ADMIN" ? "Admin" : "Member"}
+                    <LtrIsolate>@{member.username}</LtrIsolate>
+                    {" · "}
+                    {member.role === "ADMIN" ? t("group.admin") : t("group.member")}
                   </span>
                 </span>
                 {isAdmin && member.userId !== userId ? (
                   <Button type="button" size="sm" variant="ghost" onClick={() => void removeMember(member.userId)}>
-                    Remove
+                    {t("group.remove")}
                   </Button>
                 ) : null}
               </li>
@@ -287,12 +321,13 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
           {isAdmin ? (
             <form className="mt-4 space-y-2" onSubmit={(event) => void addMember(event)}>
               <Input
-                aria-label="Username to add"
-                placeholder="Username to add"
+                aria-label={t("group.addLabel")}
+                placeholder={t("group.addPlaceholder")}
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
+                dir="ltr"
               />
-              <Button type="submit" size="sm" variant="outline">Add member</Button>
+              <Button type="submit" size="sm" variant="outline">{t("group.add")}</Button>
             </form>
           ) : null}
           {status && joined ? <p className="mt-3 text-xs text-white/45">{status}</p> : null}
@@ -303,9 +338,9 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
   );
 }
 
-function memberLabel(conversation: Conversation, message: LocalMessage) {
+function memberLabel(conversation: Conversation, message: LocalMessage, fallback: string) {
   const member = conversation.members?.find((item) => item.userId === message.senderUserId);
-  return member?.displayName?.trim() || (member ? `@${member.username}` : "Member");
+  return member?.displayName?.trim() || (member ? `@${member.username}` : fallback);
 }
 
 function requireVault() {
@@ -331,7 +366,7 @@ async function loadBlobs(conversationId: string, deviceId: string) {
 async function refreshGroup(conversation: Conversation): Promise<{
   messages: LocalMessage[];
   joined: boolean;
-  status: string | null;
+  status: GroupNotice | null;
   error: string | null;
   selfRemoved: boolean;
 }> {
@@ -342,7 +377,7 @@ async function refreshGroup(conversation: Conversation): Promise<{
     return {
       messages: [],
       joined: false,
-      status: "Unlock this device to use the group.",
+      status: "group.unlock",
       error: null,
       selfRemoved: false,
     };
@@ -390,10 +425,10 @@ async function refreshGroup(conversation: Conversation): Promise<{
     messages,
     joined: Boolean(result.record.session) && !selfRemoved,
     status: selfRemoved
-      ? "You left this group. Later messages cannot be decrypted here."
+      ? "group.left"
       : result.record.session
-        ? "Only members can read this conversation."
-        : "Waiting for an admin to add this device.",
+        ? "group.membersOnly"
+        : "group.waitingAdmin",
     error: result.error,
     selfRemoved,
   };

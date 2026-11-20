@@ -6,6 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ProductShell } from "@/components/product-shell";
 import { api, ApiError } from "@/lib/api";
+import { LtrIsolate } from "@/lib/i18n/bidi";
+import { useI18n } from "@/lib/i18n/locale";
 
 type CalendarProviderId = "google" | "outlook";
 type EmailProviderId = "gmail" | "outlook-mail";
@@ -566,26 +568,30 @@ function ProviderCard(props: {
 }) {
   const { label, scopes, configured, connection, needsScopeUpgrade, busy } =
     props;
+  const { t } = useI18n();
   return (
     <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold text-white">{label}</h3>
           <p className="mt-1 text-xs text-white/45">
-            Scopes: {scopes.join(", ") || "—"}
+            {t("integrations.scopes")}: {scopes.join(", ") || "—"}
           </p>
           <p className="mt-2 text-sm text-white/60">
             {configured
               ? connection?.status === "CONNECTED"
-                ? `Connected${connection.accountEmail ? ` as ${connection.accountEmail}` : ""}.`
-                : "OAuth client configured. Connect when ready."
-              : "OAuth client env vars are not configured on the API yet."}
+                ? (
+                  <>
+                    {t("integrations.connected")}
+                    {connection.accountEmail ? <> <LtrIsolate>{connection.accountEmail}</LtrIsolate></> : null}
+                  </>
+                )
+                : t("integrations.ready")
+              : t("integrations.unconfigured")}
           </p>
           {needsScopeUpgrade ? (
             <p className="mt-2 text-sm text-amber-100/80">
-              Write permissions need an upgrade. Reconnect to grant the new
-              OAuth scopes before Sophia can send mail, save drafts, create
-              events, file issues, or post to Slack.
+              {t("integrations.upgradeBody")}
             </p>
           ) : null}
         </div>
@@ -597,10 +603,10 @@ function ProviderCard(props: {
             onClick={props.onConnect}
           >
             {needsScopeUpgrade
-              ? "Upgrade permissions"
+              ? t("integrations.upgrade")
               : connection?.status === "CONNECTED"
-                ? "Re-authorize"
-                : "Connect"}
+                ? t("integrations.reauth")
+                : t("integrations.connect")}
           </Button>
           <Button
             type="button"
@@ -609,7 +615,7 @@ function ProviderCard(props: {
             disabled={!configured || connection?.status !== "CONNECTED" || busy}
             onClick={props.onSync}
           >
-            Sync now
+            {t("integrations.sync")}
           </Button>
           <Button
             type="button"
@@ -618,7 +624,7 @@ function ProviderCard(props: {
             disabled={!connection || connection.status === "REVOKED" || busy}
             onClick={props.onDisconnect}
           >
-            Disconnect
+            {t("integrations.disconnect")}
           </Button>
         </div>
       </div>
@@ -627,13 +633,14 @@ function ProviderCard(props: {
 }
 
 export default function IntegrationsSettingsPage() {
+  const { t } = useI18n();
   return (
     <ProductShell
-      title="Integrations"
-      subtitle="Connect, reconnect, or upgrade scopes. Read and write mail and calendar from the inbox. Revocable anytime. Chat E2EE stays untouched."
+      title={t("integrations.title")}
+      subtitle={t("integrations.subtitle")}
     >
       <Suspense
-        fallback={<p className="text-sm text-white/50">Loading integrations…</p>}
+        fallback={<p className="text-sm text-white/50">{t("integrations.loading")}</p>}
       >
         <IntegrationsSettingsInner />
       </Suspense>

@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ExperimentalBadge } from "@/components/experimental-badge";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { SophiaMark } from "@/components/sophia-mark";
+import { useI18n } from "@/lib/i18n/locale";
 import { useViewerSession } from "@/lib/use-viewer";
 
 const primaryAction =
@@ -14,10 +17,12 @@ const quietAction =
 export function SiteHeader() {
   const pathname = usePathname();
   const viewer = useViewerSession();
+  const { t } = useI18n();
   if (
     pathname.startsWith("/inbox") ||
     pathname.startsWith("/settings") ||
-    pathname.startsWith("/sophia")
+    pathname.startsWith("/sophia") ||
+    pathname.startsWith("/preview")
   ) {
     return null;
   }
@@ -31,20 +36,22 @@ export function SiteHeader() {
       <Link href="/" className="flex items-center gap-2 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)">
         <SophiaMark />
         <span className="text-sm font-semibold tracking-[-0.02em] text-(--foreground)">Sophia</span>
+        <ExperimentalBadge />
       </Link>
-      <div className="ml-auto flex items-center gap-2">
-        <nav aria-label="Account" aria-busy={pending} className="flex min-h-10 min-w-28 items-center justify-end gap-1">
+      <div className="ms-auto flex flex-wrap items-center gap-2">
+        <LanguageSwitcher />
+        <nav aria-label={t("nav.account")} aria-busy={pending} className="flex min-h-11 min-w-28 items-center justify-end gap-1">
           {pending ? (
-            <span className="sr-only">Checking session</span>
+            <span className="sr-only">{t("nav.checking")}</span>
           ) : account ? (
             <>
-              <span className="max-w-32 truncate px-2 text-sm text-(--muted)">{name}</span>
-              <Link href="/inbox" className={primaryAction}>Open inbox</Link>
+              <span className="max-w-32 truncate px-2 text-sm text-(--muted)" dir="auto">{name}</span>
+              <Link href="/inbox" className={primaryAction}>{t("nav.openInbox")}</Link>
             </>
           ) : (
             <>
-              <Link href="/login" className={quietAction}>Log in</Link>
-              <Link href="/signup" className={primaryAction}>Sign up</Link>
+              <Link href="/login" className={quietAction}>{t("nav.login")}</Link>
+              <Link href="/signup" className={primaryAction}>{t("nav.signup")}</Link>
             </>
           )}
         </nav>

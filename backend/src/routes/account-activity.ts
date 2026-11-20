@@ -52,6 +52,8 @@ export async function accountActivityRoutes(app: FastifyInstance) {
         "Cloud Sophia consent granted or withdrawn",
         "Settings changes from the consent and activity controls",
         "Approved email sends",
+        "Approved email drafts",
+        "Approved calendar reschedules",
         "Approved calendar deletes",
       ],
       notRecorded: [

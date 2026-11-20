@@ -1,15 +1,19 @@
+"use client";
+
+import Link from "next/link";
 import { AuthForm } from "@/components/auth-form";
 import { AuthPageShell } from "@/components/auth-page-shell";
-import Link from "next/link";
+import { useI18n } from "@/lib/i18n/locale";
 
 export default function SignupPage() {
+  const { t } = useI18n();
   return (
     <AuthPageShell
       footer={
         <>
-          Already here?{" "}
+          {t("auth.already")}{" "}
           <Link href="/login" className="font-medium text-(--foreground)">
-            Log in
+            {t("auth.loginLink")}
           </Link>
         </>
       }

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
+import { archiveRecoveryHashMatches } from "../src/archive-recovery.js";
 import {
   createAccountArchiveKeySchema,
   deviceVaultBackupSchema,
@@ -77,4 +79,15 @@ test("encrypted device recovery schemas", async (t) => {
       records: [record, record],
     }).success, false);
   });
+});
+
+test("archive recovery authorization compares hashes and does not accept a different code", () => {
+  const stored = createHash("sha256").update("SAVED-RECOVERY-CODE").digest("base64");
+  const same = createHash("sha256").update("SAVED-RECOVERY-CODE").digest("base64");
+  const other = createHash("sha256").update("OTHER-RECOVERY-CODE").digest("base64");
+
+  assert.equal(archiveRecoveryHashMatches(stored, same), true);
+  assert.equal(archiveRecoveryHashMatches(stored, other), false);
+  assert.equal(archiveRecoveryHashMatches(stored, "not-base64"), false);
+  assert.equal(archiveRecoveryHashMatches(stored, ""), false);
 });

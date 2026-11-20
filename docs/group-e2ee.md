@@ -128,7 +128,7 @@ Decrypted group messages are then cached in the same local message store as 1:1 
 
 ## Inbox
 
-With both flags on, the inbox can create a group by name and username, open it, show members and roles, send and receive, add or remove members as an admin, and leave. The group screen does not offer Sophia, attachments, or calls. A GROUP conversation opened while the client flag is off does not fall through to the pairwise composer.
+With both flags on, the inbox can create a group by name and username, open it, show members and roles, send and receive, add or remove members as an admin, and leave. Those strings come from the same English and Arabic catalog as the rest of the app, and the group screen follows the document direction (titles and message text use bidirectional isolation; usernames stay left-to-right). The group screen does not offer Sophia, attachments, or calls. A GROUP conversation opened while the client flag is off does not fall through to the pairwise composer.
 
 The creator's client builds the MLS group. Other members upload a key package when they open the thread. The admin's client commits the Add and Welcome on its next sync. Delivery while a thread is open polls every few seconds and also wakes on the existing `group_mls` websocket event, which carries only the conversation id.
 

@@ -8,6 +8,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { z } from "zod";
 import { PasswordRules } from "@/components/password-rules";
+import { useI18n, type MessageKey } from "@/lib/i18n/locale";
 import { logAccountActivity } from "@/lib/account-activity";
 import { ApiError, api, type TotpSetup } from "@/lib/api";
 import {
@@ -58,12 +59,16 @@ function isArchiveError(error: unknown) {
   );
 }
 
-function messageFrom(error: unknown, fallback: string) {
+function messageFrom(
+  error: unknown,
+  fallback: string,
+  t?: (key: MessageKey) => string,
+) {
   if (error instanceof Error && error.message === "ARCHIVE_RECOVERY_CODE_REQUIRED") {
-    return "Enter the Google Drive recovery code to unlock encrypted history on this device.";
+    return t ? t("auth.archiveRequired") : "Enter the Google Drive recovery code to unlock encrypted history on this device.";
   }
   if (error instanceof Error && error.message === "INVALID_ARCHIVE_RECOVERY_CODE") {
-    return "That recovery code is not valid. Check it and try again.";
+    return t ? t("auth.archiveInvalid") : "That recovery code is not valid. Check it and try again.";
   }
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
@@ -72,6 +77,7 @@ function messageFrom(error: unknown, fallback: string) {
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [checkingSession, setCheckingSession] = useState(true);
   const [sessionCheckError, setSessionCheckError] = useState<string | null>(null);
   const [sessionCheckAttempt, setSessionCheckAttempt] = useState(0);
@@ -106,14 +112,14 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   }, [router, sessionCheckAttempt]);
 
   if (checkingSession) {
-    return <p role="status" className="text-sm text-(--muted)">Checking your session…</p>;
+    return <p role="status" className="text-sm text-(--muted)">{t("auth.checking")}</p>;
   }
 
   if (sessionCheckError) {
     return (
       <div className="space-y-4 text-center">
         <p role="alert" className="text-sm text-(--danger)">
-          Could not verify your current session. {sessionCheckError}
+          {t("auth.sessionFailed")} {sessionCheckError}
         </p>
         <button
           type="button"
@@ -124,7 +130,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
             setSessionCheckAttempt((attempt) => attempt + 1);
           }}
         >
-          Retry session check
+          {t("auth.retrySession")}
         </button>
       </div>
     );
@@ -135,6 +141,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
 
 function SignupForm() {
   const router = useRouter();
+  const { t } = useI18n();
   const [step, setStep] = useState<"profile" | "email" | "password" | "consent" | "enroll" | "codes">("profile");
   const [cloudConsent, setCloudConsent] = useState(false);
   const [username, setUsername] = useState("");
@@ -177,7 +184,7 @@ function SignupForm() {
       setSetup(null);
       setStep("codes");
     } catch (err) {
-      setError(messageFrom(err, "Could not finish secure device setup. Retry and check browser storage and the API connection."));
+      setError(messageFrom(err, t("auth.deviceSetupFailed"), t));
     } finally {
       setSubmitting(false);
     }
@@ -200,7 +207,7 @@ function SignupForm() {
       if (archiveRecoveryCode) await acknowledgeArchiveRecoveryCode();
       router.replace("/inbox");
     } catch (err) {
-      setError(messageFrom(err, "Authenticator setup is complete, but secure device setup failed. Check browser storage and the API connection, then retry."));
+      setError(messageFrom(err, t("auth.deviceSetupAfterMfa"), t));
     } finally {
       setSubmitting(false);
     }
@@ -226,9 +233,9 @@ function SignupForm() {
     return (
       <div className="auth-step">
         <StepHeader
-          eyebrow="Authenticator"
-          title="Add your authenticator."
-          description="Scan the key, then enter the current six-digit code. This finishes account setup."
+          eyebrow={t("auth.authenticator")}
+          title={t("auth.addAuthenticator")}
+          description={t("auth.addAuthenticatorBody")}
         />
         <TotpEnrollment
           setup={setup}
@@ -249,7 +256,7 @@ function SignupForm() {
           if (!passwordReady || submitting) return;
           setError(null);
           if (!cryptoSupported()) {
-            setError("This browser does not support the Web Crypto APIs required for E2EE.");
+            setError(t("auth.cryptoUnsupported"));
             return;
           }
           const failure = passwordPolicyFailure(password, email);
@@ -268,21 +275,21 @@ function SignupForm() {
               setStep("enroll");
             },
             (err: unknown) => {
-              setError(err instanceof ApiError ? err.message : "Could not create this account. Check that the API is available.");
+              setError(err instanceof ApiError ? err.message : t("auth.createFailed"));
             },
           ).finally(() => setSubmitting(false));
         }}
       >
         <StepHeader
-          eyebrow="Step 4 of 4"
-          title="Cloud Sophia, only if you agree."
-          description="This step is separate from your password. The choice starts off. You can create the account either way and withdraw later in Settings."
+          eyebrow={t("auth.stepOf", { step: 4, total: 4 })}
+          title={t("auth.cloudTitle")}
+          description={t("auth.cloudBody")}
         />
         <blockquote className="rounded-xl border border-(--line) bg-(--control-bg) p-4 text-sm leading-relaxed text-(--foreground)">
           {CLOUD_SOPHIA_PURPOSE}
         </blockquote>
         <p className="text-xs text-(--muted)">
-          Version {CLOUD_SOPHIA_CONSENT_VERSION}. Checking this records your new account, the time, this purpose text, and that version. Leaving it off keeps Sophia on this device.
+          {t("auth.cloudVersion", { version: CLOUD_SOPHIA_CONSENT_VERSION })}
         </p>
         <label className="flex items-start gap-3 text-sm text-(--muted)">
           <input
@@ -291,14 +298,14 @@ function SignupForm() {
             onChange={(event) => setCloudConsent(event.target.checked)}
             className="mt-1 accent-(--accent)"
           />
-          I agree that Sophia may use a hosted model for this purpose.
+          {t("auth.cloudAgree")}
         </label>
         <FormError message={error} />
         <button type="submit" className={primaryButton} disabled={!passwordReady || submitting}>
-          {submitting ? "Working…" : "Continue to authenticator"}
+          {submitting ? t("auth.working") : t("auth.continueAuthenticator")}
         </button>
         <button type="button" className={secondaryButton} onClick={() => setStep("password")}>
-          Back
+          {t("auth.back")}
         </button>
       </form>
     );
@@ -313,7 +320,7 @@ function SignupForm() {
           if (!passwordReady || submitting) return;
           setError(null);
           if (!cryptoSupported()) {
-            setError("This browser does not support the Web Crypto APIs required for E2EE.");
+            setError(t("auth.cryptoUnsupported"));
             return;
           }
           const failure = passwordPolicyFailure(password, email);
@@ -322,13 +329,13 @@ function SignupForm() {
         }}
       >
         <StepHeader
-          eyebrow="Step 3 of 4"
-          title="Choose a password."
-          description="These rules are checked as you type and again by the API."
+          eyebrow={t("auth.stepOf", { step: 3, total: 4 })}
+          title={t("auth.passwordTitle")}
+          description={t("auth.passwordBody")}
         />
         <TextField
           id="signup-password"
-          label="Password"
+          label={t("auth.password")}
           type="password"
           autoComplete="new-password"
           value={password}
@@ -336,7 +343,7 @@ function SignupForm() {
         />
         <TextField
           id="passwordConfirm"
-          label="Repeat password"
+          label={t("auth.repeatPassword")}
           type="password"
           autoComplete="new-password"
           value={passwordConfirm}
@@ -349,10 +356,10 @@ function SignupForm() {
         />
         <FormError message={error} />
         <button type="submit" className={primaryButton} disabled={!passwordReady || submitting}>
-          Continue
+          {t("auth.continue")}
         </button>
         <button type="button" className={secondaryButton} onClick={() => setStep("email")}>
-          Back
+          {t("auth.back")}
         </button>
       </form>
     );
@@ -366,7 +373,7 @@ function SignupForm() {
           event.preventDefault();
           const parsed = z.string().trim().email().safeParse(email);
           if (!parsed.success) {
-            setEmailError("Enter a valid email.");
+            setEmailError(t("auth.invalidEmail"));
             return;
           }
           setEmail(parsed.data);
@@ -375,13 +382,13 @@ function SignupForm() {
         }}
       >
         <StepHeader
-          eyebrow="Step 2 of 4"
-          title="Your email."
-          description="Used for sign-in and password reset. The part before @ cannot appear in your password."
+          eyebrow={t("auth.stepOf", { step: 2, total: 4 })}
+          title={t("auth.emailTitle")}
+          description={t("auth.emailBody")}
         />
         <TextField
           id="email"
-          label="Email"
+          label={t("auth.email")}
           type="email"
           autoComplete="email"
           value={email}
@@ -391,8 +398,8 @@ function SignupForm() {
             setEmailError(null);
           }}
         />
-        <button type="submit" className={primaryButton}>Continue</button>
-        <button type="button" className={secondaryButton} onClick={() => setStep("profile")}>Back</button>
+        <button type="submit" className={primaryButton}>{t("auth.continue")}</button>
+        <button type="button" className={secondaryButton} onClick={() => setStep("profile")}>{t("auth.back")}</button>
       </form>
     );
   }
@@ -405,11 +412,11 @@ function SignupForm() {
         const name = displayName.trim();
         const handle = username.trim();
         if (!/^[a-zA-Z0-9_]{3,24}$/.test(handle)) {
-          setProfileError("Use 3–24 letters, numbers, or underscores.");
+          setProfileError(t("auth.usernameRule"));
           return;
         }
         if (name.length < 1 || name.length > 80) {
-          setProfileError("Enter a display name.");
+          setProfileError(t("auth.displayNameRule"));
           return;
         }
         setUsername(handle);
@@ -419,13 +426,13 @@ function SignupForm() {
       }}
     >
       <StepHeader
-        eyebrow="Step 1 of 4"
-        title="Create your account."
-        description="Sophia lives in the messenger. Start with the name people will see."
+        eyebrow={t("auth.stepOf", { step: 1, total: 4 })}
+        title={t("auth.createTitle")}
+        description={t("auth.createBody")}
       />
       <TextField
         id="username"
-        label="Username"
+        label={t("auth.username")}
         autoComplete="username"
         value={username}
         onChange={(value) => {
@@ -435,7 +442,7 @@ function SignupForm() {
       />
       <TextField
         id="displayName"
-        label="Display name"
+        label={t("auth.displayName")}
         autoComplete="name"
         value={displayName}
         onChange={(value) => {
@@ -444,13 +451,14 @@ function SignupForm() {
         }}
       />
       <FormError message={profileError} />
-      <button type="submit" className={primaryButton}>Continue</button>
+      <button type="submit" className={primaryButton}>{t("auth.continue")}</button>
     </form>
   );
 }
 
 function LoginForm() {
   const router = useRouter();
+  const { t } = useI18n();
   const [step, setStep] = useState<"credentials" | "totp" | "enroll" | "drive" | "codes">("credentials");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -559,11 +567,11 @@ function LoginForm() {
       if (isArchiveError(err)) {
         setArchiveLocked(true);
         setStep("drive");
-        setError(messageFrom(err, "Enter the Google Drive recovery code."));
+        setError(messageFrom(err, t("auth.driveCodePrompt"), t));
         return;
       }
       setStep("credentials");
-      setError(messageFrom(err, "Could not unlock this device. Check your password and local browser storage."));
+      setError(messageFrom(err, t("auth.unlockFailed"), t));
     }
   }
 
@@ -577,7 +585,7 @@ function LoginForm() {
       }
       await finishDevice();
     } catch (err) {
-      setError(messageFrom(err, "Could not check this device."));
+      setError(messageFrom(err, t("auth.deviceCheckFailed"), t));
     }
   }
 
@@ -635,7 +643,7 @@ function LoginForm() {
       if (archiveRecoveryCode) await acknowledgeArchiveRecoveryCode();
       router.replace("/inbox");
     } catch (err) {
-      setError(messageFrom(err, "Secure device setup failed. Check browser storage and the API connection, then retry."));
+      setError(messageFrom(err, t("auth.resetDeviceFailed"), t));
     } finally {
       setSubmitting(false);
     }
@@ -671,21 +679,19 @@ function LoginForm() {
         }}
       >
         <StepHeader
-          eyebrow="This device"
-          title="Restore from Google Drive."
-          description={archiveLocked
-            ? "Your password cannot open encrypted history here. Enter the recovery code for the Google Drive backup. It is not part of the password or authenticator step."
-            : "This device is not already trusted. Enter the recovery code for the Google Drive backup if you have one. The code stays on this device."}
+          eyebrow={t("auth.thisDevice")}
+          title={t("auth.driveTitle")}
+          description={archiveLocked ? t("auth.driveLocked") : t("auth.driveOptional")}
         />
         <TextField
           id="history-recovery-code"
-          label="Google Drive recovery code"
+          label={t("auth.driveCode")}
           autoComplete="off"
           value={historyRecoveryCode}
           onChange={setHistoryRecoveryCode}
         />
         <p className="text-xs leading-5 text-(--muted)">
-          The code decrypts the backup locally. Google Drive does not receive it.
+          {t("auth.driveLocal")}
         </p>
         {driveConfigured ? (
           <button
@@ -695,16 +701,16 @@ function LoginForm() {
             onClick={() => void connectGoogleDrive()}
           >
             {driveConnecting
-              ? "Connecting…"
+              ? t("auth.driveConnecting")
               : driveAccessToken
-                ? "Google Drive connected"
+                ? t("auth.driveConnected")
                 : driveReady
-                  ? "Connect Google Drive"
-                  : "Loading Google sign-in…"}
+                  ? t("auth.driveConnect")
+                  : t("auth.driveLoading")}
           </button>
         ) : (
           <p className="text-xs leading-5 text-(--muted)">
-            Google Drive is not configured in this build. The same recovery code can still unlock history stored with the account.
+            {t("auth.driveMissing")}
           </p>
         )}
         <FormError message={driveError} />
@@ -714,10 +720,10 @@ function LoginForm() {
           className={primaryButton}
           disabled={submitting || (archiveLocked && !codeReady)}
         >
-          {submitting ? "Working…" : "Continue"}
+          {submitting ? t("auth.working") : t("auth.continue")}
         </button>
         <button type="button" className={secondaryButton} disabled={submitting} onClick={() => void leaveDeviceStep()}>
-          Sign out
+          {t("auth.signOut")}
         </button>
       </form>
     );
@@ -727,9 +733,9 @@ function LoginForm() {
     return (
       <div className="auth-step">
         <StepHeader
-          eyebrow="Authenticator"
-          title="Finish authenticator setup."
-          description="This account does not have MFA yet. Add an authenticator and enter its six-digit code."
+          eyebrow={t("auth.authenticator")}
+          title={t("auth.finishAuthenticator")}
+          description={t("auth.finishAuthenticatorBody")}
         />
         <TotpEnrollment
           setup={setup}
@@ -748,7 +754,7 @@ function LoginForm() {
               await finishDevice(undefined, result.recoveryCodes);
               setSetup(null);
             } catch (err) {
-              setError(messageFrom(err, "Could not finish authenticator or secure device setup."));
+              setError(messageFrom(err, t("auth.mfaFailed"), t));
             } finally {
               setSubmitting(false);
             }
@@ -792,15 +798,15 @@ function LoginForm() {
         }}
       >
         <StepHeader
-          eyebrow="Authenticator"
-          title={factorMode === "app" ? "Enter the 6-digit code." : "Enter a one-time backup code."}
+          eyebrow={t("auth.authenticator")}
+          title={factorMode === "app" ? t("auth.codeTitle") : t("auth.backupTitle")}
           description={mfaReason === "network_changed"
-            ? "Your network changed since this browser was trusted. Confirm it is you with the six-digit code."
-            : "From your authenticator app. This step is only the six-digit code."}
+            ? t("auth.codeNetwork")
+            : t("auth.codeBody")}
         />
         <TextField
           id="code"
-          label={factorMode === "app" ? "Six-digit code" : "One-time backup code"}
+          label={factorMode === "app" ? t("auth.sixDigit") : t("auth.backupCode")}
           autoComplete="one-time-code"
           inputMode={factorMode === "app" ? "numeric" : "text"}
           value={factorCode}
@@ -815,7 +821,7 @@ function LoginForm() {
             onChange={(event) => setTrustBrowser(event.target.checked)}
             className="mt-1 accent-(--accent)"
           />
-          Trust this browser for 30 days, only on a device you control.
+          {t("auth.trustBrowser")}
         </label>
         <button
           type="button"
@@ -827,12 +833,12 @@ function LoginForm() {
           }}
         >
           {factorMode === "app"
-            ? "Use a one-time backup code instead"
-            : "Use the 6-digit authenticator code"}
+            ? t("auth.useBackup")
+            : t("auth.useAppCode")}
         </button>
         <FormError message={error} />
         <button type="submit" className={primaryButton} disabled={!factorReady || submitting}>
-          {submitting ? "Working…" : "Verify and continue"}
+          {submitting ? t("auth.working") : t("auth.verifyContinue")}
         </button>
         <button
           type="button"
@@ -843,7 +849,7 @@ function LoginForm() {
             setStep("credentials");
           }}
         >
-          Back
+          {t("auth.back")}
         </button>
       </form>
     );
@@ -856,11 +862,11 @@ function LoginForm() {
         event.preventDefault();
         const parsed = credentialsSchema.safeParse({ email, password });
         if (!parsed.success) {
-          setFieldError(parsed.error.issues[0]?.message ?? "Enter your email and password.");
+          setFieldError(t("auth.enterBoth"));
           return;
         }
         if (!cryptoSupported()) {
-          setFieldError("This browser does not support the Web Crypto APIs required for E2EE.");
+          setFieldError(t("auth.cryptoUnsupported"));
           return;
         }
         setFieldError(null);
@@ -886,18 +892,18 @@ function LoginForm() {
           }
           await continueAfterSession(true);
         }, (err: unknown) => {
-          setError(err instanceof ApiError ? err.message : "Could not sign in. Check your email and password.");
+          setError(err instanceof ApiError ? err.message : t("auth.signInFailed"));
         }).finally(() => setSubmitting(false));
       }}
     >
       <StepHeader
-        eyebrow="Sign in"
-        title="Email and password."
-          description="The authenticator code is the next step, unless this browser is already trusted."
+        eyebrow={t("auth.signIn")}
+        title={t("auth.credentialsTitle")}
+        description={t("auth.credentialsBody")}
       />
       <TextField
         id="email"
-        label="Email"
+        label={t("auth.email")}
         type="email"
         autoComplete="email"
         value={email}
@@ -909,20 +915,20 @@ function LoginForm() {
       />
       <TextField
         id="login-password"
-        label="Password"
+        label={t("auth.password")}
         type="password"
         autoComplete="current-password"
         value={password}
         onChange={setPassword}
       />
-      <div className="text-right text-sm">
+      <div className="text-end text-sm">
         <Link href="/forgot-password" className="text-(--muted) hover:text-(--foreground)">
-          Forgot password?
+          {t("auth.forgot")}
         </Link>
       </div>
       <FormError message={error} />
       <button type="submit" className={primaryButton} disabled={submitting}>
-        {submitting ? "Working…" : "Continue"}
+        {submitting ? t("auth.working") : t("auth.continue")}
       </button>
     </form>
   );
@@ -939,6 +945,7 @@ function TotpEnrollment({
   submitting: boolean;
   onConfirm: (code: string, trustBrowser: boolean) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [trustBrowser, setTrustBrowser] = useState(false);
   const [code, setCode] = useState("");
   const ready = /^\d{6}$/.test(code);
@@ -953,26 +960,26 @@ function TotpEnrollment({
       }}
     >
       <div className="rounded-xl border border-(--line) bg-(--control-bg) p-4 text-center">
-        <p className="text-sm font-medium text-(--foreground)">Scan with your authenticator app</p>
+        <p className="text-sm font-medium text-(--foreground)">{t("auth.scanQr")}</p>
         <div className="mx-auto mt-3 w-fit rounded-lg bg-white p-3">
-          <QRCodeSVG value={setup.otpauthUrl} size={196} level="M" title="Authenticator setup QR code" />
+          <QRCodeSVG value={setup.otpauthUrl} size={196} level="M" title={t("auth.qrTitle")} />
         </div>
-        <p className="mt-3 text-xs text-(--muted)">The QR code contains your secret setup key. Keep it private.</p>
+        <p className="mt-3 text-xs text-(--muted)">{t("auth.qrPrivate")}</p>
       </div>
       <div className="space-y-2">
-        <p className="text-xs font-medium tracking-[0.14em] text-(--muted) uppercase">Manual setup key</p>
+        <p className="text-xs font-medium text-(--muted)">{t("auth.manualKey")}</p>
         <code className="block break-all text-sm tracking-wider text-(--foreground)">{setup.secret}</code>
         <a href={setup.otpauthUrl} className="inline-block text-xs text-(--foreground) underline underline-offset-4">
-          Open authenticator app
+          {t("auth.openAuthenticator")}
         </a>
       </div>
       <TextField
         id="totp-confirm-code"
-        label="Six-digit code"
+        label={t("auth.sixDigit")}
         autoComplete="one-time-code"
         inputMode="numeric"
         value={code}
-        error={code.length > 0 && !ready ? "Enter the current six-digit authenticator code." : undefined}
+        error={code.length > 0 && !ready ? t("auth.currentCode") : undefined}
         onChange={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))}
       />
       <label className="flex items-start gap-3 text-sm text-(--muted)">
@@ -982,11 +989,11 @@ function TotpEnrollment({
           onChange={(event) => setTrustBrowser(event.target.checked)}
           className="mt-1 accent-(--accent)"
         />
-        Trust this browser for 30 days, only on a device you control.
+        {t("auth.trustBrowser")}
       </label>
       <FormError message={error} />
       <button type="submit" className={primaryButton} disabled={!ready || submitting}>
-        {submitting ? "Verifying…" : "Verify and enable MFA"}
+        {submitting ? t("auth.verifying") : t("auth.enableMfa")}
       </button>
     </form>
   );
@@ -1009,6 +1016,7 @@ function RecoveryCodes({
   submitting: boolean;
   onContinue: () => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [recoveryCodeSaved, setRecoveryCodeSaved] = useState(false);
@@ -1029,15 +1037,13 @@ function RecoveryCodes({
   return (
     <div className="space-y-5">
       <StepHeader
-        eyebrow={celebrate ? "Ready" : "Save these"}
+        eyebrow={celebrate ? t("auth.ready") : t("auth.saveThese")}
         title={celebrate
-          ? "Your account is ready."
+          ? t("auth.accountReady")
           : codes.length
-            ? "Save your recovery codes."
-            : "Save your history recovery code."}
-        description={codes.length
-          ? "Each authenticator backup code works once if you cannot access your authenticator. The history code unlocks older messages after a password reset."
-          : "Save the history recovery code somewhere private before continuing. It is shown only now."}
+            ? t("auth.saveCodes")
+            : t("auth.saveHistoryCode")}
+        description={codes.length ? t("auth.codesBody") : t("auth.historyOnlyBody")}
       />
       {codes.length ? (
         <div className="grid grid-cols-1 gap-2 rounded-xl border border-(--line) bg-(--control-bg) p-4 font-mono text-sm text-(--foreground) sm:grid-cols-2">
@@ -1046,7 +1052,7 @@ function RecoveryCodes({
       ) : null}
       {archiveRecoveryCode ? (
         <div className="rounded-xl border border-(--line) bg-(--control-bg) p-4">
-          <p className="mb-2 text-xs text-(--muted)">Message history recovery code</p>
+          <p className="mb-2 text-xs text-(--muted)">{t("auth.historyCode")}</p>
           <code className="block break-all font-mono text-sm text-(--foreground)">{archiveRecoveryCode}</code>
         </div>
       ) : null}
@@ -1058,13 +1064,13 @@ function RecoveryCodes({
             onChange={(event) => setRecoveryCodeSaved(event.target.checked)}
             className="mt-1 accent-(--accent)"
           />
-          I saved this history recovery code somewhere private.
+          {t("auth.savedHistory")}
         </label>
       ) : null}
       <button type="button" className={secondaryButton} onClick={() => void copyCodes()}>
-        {copied ? "Copied" : "Copy recovery information"}
+        {copied ? t("auth.copied") : t("auth.copyRecovery")}
       </button>
-      {copyError ? <p className="text-sm text-(--danger)">Clipboard access is unavailable. Copy the codes manually.</p> : null}
+      {copyError ? <p className="text-sm text-(--danger)">{t("auth.clipboardFailed")}</p> : null}
       <FormError message={error} />
       <button
         type="button"
@@ -1072,13 +1078,14 @@ function RecoveryCodes({
         disabled={submitting || Boolean(archiveRecoveryCode && !recoveryCodeSaved)}
         onClick={() => void onContinue()}
       >
-        {vaultReady ? "Continue to inbox" : "Finish secure device setup"}
+        {vaultReady ? t("auth.continueInbox") : t("auth.finishDevice")}
       </button>
     </div>
   );
 }
 
 export function ForgotPasswordForm() {
+  const { t } = useI18n();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const form = useForm<z.infer<typeof forgotPasswordSchema>>({
@@ -1096,13 +1103,13 @@ export function ForgotPasswordForm() {
           const result = await api.requestPasswordReset(email);
           setMessage(result.message);
         } catch (err) {
-          setError(err instanceof ApiError ? err.message : "Could not request password recovery. Try again later.");
+          setError(err instanceof ApiError ? err.message : t("auth.resetRequestFailed"));
         }
       })}
     >
       <Field
         id="recovery-email"
-        label="Account email"
+        label={t("auth.accountEmail")}
         type="email"
         autoComplete="email"
         registration={form.register("email")}
@@ -1115,13 +1122,14 @@ export function ForgotPasswordForm() {
       ) : null}
       <FormError message={error} />
       <button type="submit" className={primaryButton} disabled={form.formState.isSubmitting}>
-        {form.formState.isSubmitting ? "Sending…" : "Send reset link"}
+        {form.formState.isSubmitting ? t("auth.sending") : t("auth.sendReset")}
       </button>
     </form>
   );
 }
 
 export function ResetPasswordForm({ token }: { token: string }) {
+  const { t } = useI18n();
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const form = useForm<z.infer<typeof resetPasswordSchema>>({
@@ -1140,12 +1148,10 @@ export function ResetPasswordForm({ token }: { token: string }) {
   if (complete) {
     return (
       <div className="space-y-4">
-        <p className="text-sm text-(--foreground)">Password reset. Sign in and create a new device vault.</p>
-        <p className="text-sm text-(--muted)">
-          Old device keys are not restored. Use your saved history recovery code when this device asks for the Google Drive backup.
-        </p>
+        <p className="text-sm text-(--foreground)">{t("auth.resetDone")}</p>
+        <p className="text-sm text-(--muted)">{t("auth.resetDoneBody")}</p>
         <Link href="/login" className="inline-block text-sm font-medium text-(--foreground) underline underline-offset-4">
-          Continue to login
+          {t("auth.continueLogin")}
         </Link>
       </div>
     );
@@ -1161,14 +1167,14 @@ export function ResetPasswordForm({ token }: { token: string }) {
           await api.resetPassword(values);
           setComplete(true);
         } catch (err) {
-          setError(err instanceof ApiError ? err.message : "Could not reset the password. The link may have expired.");
+          setError(err instanceof ApiError ? err.message : t("auth.resetFailed"));
         }
       })}
     >
       <input type="hidden" {...form.register("token")} />
       <Field
         id="reset-password"
-        label="New password"
+        label={t("auth.newPassword")}
         type="password"
         autoComplete="new-password"
         registration={form.register("password")}
@@ -1176,7 +1182,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
       />
       <Field
         id="reset-password-confirm"
-        label="Repeat new password"
+        label={t("auth.repeatNewPassword")}
         type="password"
         autoComplete="new-password"
         registration={form.register("passwordConfirm")}
@@ -1184,11 +1190,11 @@ export function ResetPasswordForm({ token }: { token: string }) {
       />
       <PasswordRules password={password} confirmed={password.length > 0 && password === passwordConfirm} />
       <p className="text-xs leading-5 text-(--muted)">
-        The new password also cannot contain your email name. A valid authenticator or unused backup code is required.
+        {t("auth.resetHint")}
       </p>
       <Field
         id="reset-code"
-        label="Authenticator or backup code"
+        label={t("auth.resetCode")}
         autoComplete="one-time-code"
         inputMode="text"
         registration={form.register("code")}
@@ -1196,7 +1202,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
       />
       <FormError message={error} />
       <button type="submit" className={primaryButton} disabled={!token || !ready || form.formState.isSubmitting}>
-        {form.formState.isSubmitting ? "Resetting…" : "Reset password"}
+        {form.formState.isSubmitting ? t("auth.resetting") : t("auth.resetPassword")}
       </button>
     </form>
   );
@@ -1252,6 +1258,7 @@ function TextField({
       <input
         id={id}
         type={type}
+        dir={type === "email" || type === "password" || inputMode === "numeric" ? "ltr" : "auto"}
         autoComplete={autoComplete}
         inputMode={inputMode}
         value={value}
@@ -1288,6 +1295,7 @@ function Field({
       <input
         id={id}
         type={type}
+        dir={type === "email" || type === "password" || inputMode === "numeric" ? "ltr" : "auto"}
         autoComplete={autoComplete}
         inputMode={inputMode}
         className={controlClass}

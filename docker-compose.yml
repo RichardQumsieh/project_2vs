@@ -2,6 +2,8 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
+      # Local-only default. The published port is 127.0.0.1. Do not reuse this
+      # password for a database that is reachable beyond localhost.
       POSTGRES_USER: messenger
       POSTGRES_PASSWORD: messenger
       POSTGRES_DB: messenger
@@ -36,9 +38,13 @@ services:
     environment:
       DATABASE_URL: postgresql://messenger:messenger@postgres:5432/messenger
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: dev-secret-key-for-local-messenger-1234
-      TOTP_ENCRYPTION_KEY: 1f8364077a753ad2e85819ea23a046bb54b4ed2ad14c393f2f8cb4f5d2c9b611
+      # Local secrets come from the gitignored repo-root `.env`. Compose fails
+      # closed when they are missing. Do not put generated values in this file.
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the repo-root .env (see .env.example)}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?Set TOTP_ENCRYPTION_KEY in the repo-root .env (see .env.example)}
       PORT: 3001
+      # Leave empty locally. Never set true.
+      TRUST_PROXY: ${TRUST_PROXY:-}
       # Literal localhost previously ignored root `.env`; interpolate so host/.env can override.
       # Prod overlay defaults FRONTEND_ORIGIN to https://sophia.apps.grok.bot (docker-compose.prod.yml).
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}

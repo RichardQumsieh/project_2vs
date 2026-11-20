@@ -143,6 +143,57 @@ describe("integration write gate (authz + missing scope)", () => {
     }
   });
 
+  it("keeps the master flag ahead of a dogfood allowlist", () => {
+    const blocked = gateIntegrationWrite({
+      ownerUserId: "user-a",
+      sessionUserId: "user-a",
+      status: "CONNECTED",
+      grantedScopes: ["repo", "read:user"],
+      requiredWriteScopes: writeRequiredScopes.github,
+      writesEnabled: false,
+      allowlist: ["user-a", "ada@example.com"],
+      username: "ada",
+      userEmail: "ada@example.com",
+    });
+    assert.equal(blocked.ok, false);
+    if (!blocked.ok) {
+      assert.equal(blocked.status, 503);
+      assert.equal(blocked.code, "writes_disabled");
+    }
+  });
+
+  it("limits writes to the allowlisted account when the flag is on", () => {
+    const denied = gateIntegrationWrite({
+      ownerUserId: "user-a",
+      sessionUserId: "user-a",
+      status: "CONNECTED",
+      grantedScopes: ["repo", "read:user"],
+      requiredWriteScopes: writeRequiredScopes.github,
+      writesEnabled: true,
+      allowlist: ["ada@example.com"],
+      username: "ada",
+      userEmail: "other@example.com",
+    });
+    assert.equal(denied.ok, false);
+    if (!denied.ok) {
+      assert.equal(denied.status, 503);
+      assert.equal(denied.code, "writes_not_enabled_for_user");
+    }
+
+    const allowed = gateIntegrationWrite({
+      ownerUserId: "user-a",
+      sessionUserId: "user-a",
+      status: "CONNECTED",
+      grantedScopes: ["repo", "read:user"],
+      requiredWriteScopes: writeRequiredScopes.github,
+      writesEnabled: true,
+      allowlist: ["ADA@example.com"],
+      username: "someone-else",
+      userEmail: "ada@example.com",
+    });
+    assert.equal(allowed.ok, true);
+  });
+
   it("allows owner with required scopes when writes are enabled", () => {
     const result = gateIntegrationWrite({
       ownerUserId: "user-a",
