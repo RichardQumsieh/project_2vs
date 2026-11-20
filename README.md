@@ -219,7 +219,7 @@ On unless `SAFETY_NUMBERS_ENABLED` or `NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED` is ex
 
 ## Workspaces and plans
 
-Families and teams live in a workspace with an owner, admins, and members. Members find each other there and open the same end-to-end encrypted chats; the API still stores ciphertext only. Invites are single-use expiring links. The code is hashed at rest and is not emailed. Seat limits and the manager daily brief are enforced from `backend/src/plans.ts`. Billing is off unless `BILLING_ENABLED=true`. Details: [docs/workspaces.md](docs/workspaces.md) and [docs/billing.md](docs/billing.md).
+Families and teams live in a workspace with an owner, admins, and members. Members find each other there and open the same end-to-end encrypted chats; the API still stores ciphertext only. Invites are single-use expiring links. The code is hashed at rest and is not emailed. Seat limits and the manager daily brief are enforced from `backend/src/plans.ts`. Billing is off unless `BILLING_ENABLED=true`. PayPal is the provider for a business in Jordan, where Stripe cannot onboard the account. The Stripe adapter remains available. Details: [docs/workspaces.md](docs/workspaces.md) and [docs/billing.md](docs/billing.md).
 
 After pulling this change, create the new tables once:
 

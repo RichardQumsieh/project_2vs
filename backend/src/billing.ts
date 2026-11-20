@@ -1,11 +1,12 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { createPayPalBilling, type PayPalPlanIds } from "./paypal-billing.js";
 import type { PlanId } from "./plans.js";
 
 /**
  * Billing stays off until BILLING_ENABLED=true.
- * The mock adapter never leaves the process. The Stripe adapter is the only
- * one that can call Stripe, and only when a secret key is configured.
- * No adapter stores card numbers.
+ * The mock adapter never leaves the process. Stripe and PayPal are called
+ * only when that provider is selected and its keys are configured.
+ * No adapter stores card numbers, access tokens, or client secrets.
  */
 
 export type BillingCheckoutInput = {
@@ -20,26 +21,91 @@ export type BillingCheckoutInput = {
 export type BillingCheckoutResult =
   | {
       ok: true;
-      provider: "mock" | "stripe";
+      provider: "mock" | "stripe" | "paypal";
       status: "active" | "incomplete";
       checkoutUrl: string | null;
       externalSubscriptionId: string;
     }
   | { ok: false; code: "billing_disabled" | "billing_unconfigured" | "billing_failed"; error: string };
 
+export type BillingConfirmResult =
+  | {
+      ok: true;
+      status: "active" | "incomplete" | "canceled" | "suspended" | "past_due";
+      planId: PlanId | null;
+      seatQuantity: number;
+      externalCustomerId: string | null;
+      externalSubscriptionId: string;
+      /** True only when the provider itself says the subscription is active. */
+      granted: boolean;
+    }
+  | {
+      ok: false;
+      code: "billing_disabled" | "billing_unconfigured" | "billing_failed" | "billing_mismatch" | "billing_unsupported";
+      error: string;
+    };
+
+export type BillingSeatUpdateResult =
+  | { ok: true; seatQuantity: number; status: "active" | "incomplete"; checkoutUrl: string | null }
+  | { ok: false; code: "billing_disabled" | "billing_unconfigured" | "billing_failed" | "billing_unsupported"; error: string };
+
+export type BillingWebhookCheck = {
+  rawBody: string;
+  headers: Record<string, string | undefined>;
+};
+
 export interface BillingProvider {
-  readonly id: "disabled" | "mock" | "stripe";
+  readonly id: "disabled" | "mock" | "stripe" | "paypal";
   createCheckout(input: BillingCheckoutInput): Promise<BillingCheckoutResult>;
+  confirmSubscription(input: { subscriptionId: string; workspaceId: string }): Promise<BillingConfirmResult>;
+  updateSeatQuantity(input: {
+    subscriptionId: string;
+    seatQuantity: number;
+    returnUrl: string;
+    cancelUrl: string;
+  }): Promise<BillingSeatUpdateResult>;
+  verifyWebhook(input: BillingWebhookCheck): Promise<boolean>;
 }
+
+const otherProvider: Pick<BillingProvider, "confirmSubscription" | "updateSeatQuantity" | "verifyWebhook"> = {
+  async confirmSubscription() {
+    return {
+      ok: false,
+      code: "billing_unsupported",
+      error: "This provider does not confirm PayPal subscriptions.",
+    };
+  },
+  async updateSeatQuantity() {
+    return {
+      ok: false,
+      code: "billing_unsupported",
+      error: "This provider does not update PayPal seat quantity.",
+    };
+  },
+  async verifyWebhook() {
+    return false;
+  },
+};
+
+const billingOff = {
+  ok: false as const,
+  code: "billing_disabled" as const,
+  error: "Billing is off. Joining the design-partner list does not charge anyone.",
+};
 
 export const disabledBilling: BillingProvider = {
   id: "disabled",
   async createCheckout() {
-    return {
-      ok: false,
-      code: "billing_disabled",
-      error: "Billing is off. Joining the design-partner list does not charge anyone.",
-    };
+    return billingOff;
+  },
+  async confirmSubscription() {
+    return billingOff;
+  },
+  async updateSeatQuantity() {
+    return billingOff;
+  },
+  async verifyWebhook() {
+    return false;
   },
 };
 
@@ -47,6 +113,7 @@ export function createMockBilling(): BillingProvider {
   let sequence = 0;
   return {
     id: "mock",
+    ...otherProvider,
     async createCheckout(input) {
       sequence += 1;
       return {
@@ -92,6 +159,7 @@ export function createStripeBilling(options: {
 }): BillingProvider {
   return {
     id: "stripe",
+    ...otherProvider,
     async createCheckout(input) {
       const priceId = stripePriceId(input.planId, options.prices);
       if (!options.secretKey || !priceId) {
@@ -140,16 +208,33 @@ export function createStripeBilling(options: {
 
 export function selectBillingProvider(config: {
   enabled: boolean;
-  provider: "mock" | "stripe";
+  provider: "mock" | "stripe" | "paypal";
   stripeSecretKey?: string;
   prices: StripePriceIds;
+  paypal?: {
+    clientId?: string;
+    clientSecret?: string;
+    environment?: "sandbox" | "live";
+    webhookId?: string;
+    plans?: PayPalPlanIds;
+  };
   fetchImpl?: typeof fetch;
 }): BillingProvider {
   if (!config.enabled) return disabledBilling;
   if (config.provider === "mock") return createMockBilling();
-  return createStripeBilling({
-    secretKey: config.stripeSecretKey,
-    prices: config.prices,
+  if (config.provider === "stripe") {
+    return createStripeBilling({
+      secretKey: config.stripeSecretKey,
+      prices: config.prices,
+      fetchImpl: config.fetchImpl,
+    });
+  }
+  return createPayPalBilling({
+    clientId: config.paypal?.clientId,
+    clientSecret: config.paypal?.clientSecret,
+    environment: config.paypal?.environment,
+    webhookId: config.paypal?.webhookId,
+    plans: config.paypal?.plans ?? {},
     fetchImpl: config.fetchImpl,
   });
 }

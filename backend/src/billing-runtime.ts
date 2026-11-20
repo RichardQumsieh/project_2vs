@@ -10,5 +10,15 @@ export const billingProvider = selectBillingProvider({
     FAMILY_PLUS: env.STRIPE_PRICE_FAMILY_PLUS,
     TEAM: env.STRIPE_PRICE_TEAM_SEAT,
   },
+  paypal: {
+    clientId: env.PAYPAL_CLIENT_ID,
+    clientSecret: env.PAYPAL_CLIENT_SECRET,
+    environment: env.PAYPAL_ENV,
+    webhookId: env.PAYPAL_WEBHOOK_ID,
+    plans: {
+      FAMILY_PLUS: env.PAYPAL_PLAN_FAMILY_PLUS,
+      TEAM: env.PAYPAL_PLAN_TEAM_SEAT,
+    },
+  },
   fetchImpl: globalThis.fetch.bind(globalThis),
 });

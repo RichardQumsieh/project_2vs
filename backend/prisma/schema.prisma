@@ -766,9 +766,10 @@ model WorkspaceInvite {
   @@index([createdByUserId, createdAt])
 }
 
-/// Billing status for a workspace. No card numbers or payment payloads.
+/// Billing status for a workspace. No card numbers, PayPal tokens, or payment payloads.
 /// status: comped (design partner, no charge), incomplete (checkout not finished),
-/// active (paid or mock-confirmed), canceled.
+/// active (paid or mock-confirmed), canceled, suspended, past_due.
+/// pendingPlanId is the plan the server asked the provider to start. It is not proof of payment.
 model WorkspaceBilling {
   workspaceId            String   @id
   provider               String   @default("none")
@@ -776,9 +777,22 @@ model WorkspaceBilling {
   externalCustomerId     String?
   externalSubscriptionId String?
   seatQuantity           Int      @default(1)
+  pendingPlanId          String?
   updatedAt              DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([externalSubscriptionId])
+}
+
+/// Provider webhook ids already applied. The PayPal event id is the primary key.
+model BillingWebhookEvent {
+  id         String   @id
+  provider   String
+  eventType  String
+  receivedAt DateTime @default(now())
+
+  @@index([provider, receivedAt])
 }
 
 /// Public "Join as design partner" waitlist. Email only, no account required.

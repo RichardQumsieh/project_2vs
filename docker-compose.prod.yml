@@ -48,6 +48,20 @@ services:
       B2_BUCKET: ${B2_BUCKET-}
       B2_KEY_ID: ${B2_KEY_ID-}
       B2_APPLICATION_KEY: ${B2_APPLICATION_KEY-}
+      # Billing stays off until BILLING_ENABLED=true. PayPal defaults to sandbox.
+      # See docs/billing.md. Do not commit live secrets into this file.
+      BILLING_ENABLED: ${BILLING_ENABLED:-false}
+      BILLING_PROVIDER: ${BILLING_PROVIDER:-mock}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_FAMILY_PLUS: ${STRIPE_PRICE_FAMILY_PLUS:-}
+      STRIPE_PRICE_TEAM_SEAT: ${STRIPE_PRICE_TEAM_SEAT:-}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_ENV: ${PAYPAL_ENV:-sandbox}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
+      PAYPAL_PLAN_FAMILY_PLUS: ${PAYPAL_PLAN_FAMILY_PLUS:-}
+      PAYPAL_PLAN_TEAM_SEAT: ${PAYPAL_PLAN_TEAM_SEAT:-}
     volumes: []
 
   frontend:

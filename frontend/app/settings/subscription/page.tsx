@@ -29,6 +29,7 @@ export default function SubscriptionPage() {
       </div>
       <p className="mt-4 text-sm text-(--muted)">{t("pricing.noCharge")}</p>
       <div className="mt-4 flex flex-col gap-2 text-sm">
+        <Link href="/billing/upgrade" className="underline-offset-4 hover:underline">{t("billing.upgradeLink")}</Link>
         <Link href="/settings/workspace" className="underline-offset-4 hover:underline">{t("settings.workspace.title")}</Link>
         <Link href="/pricing#design-partner" className="underline-offset-4 hover:underline">{t("home.designPartner")}</Link>
       </div>

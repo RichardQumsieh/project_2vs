@@ -32,7 +32,8 @@ While `BILLING_ENABLED` is false (the default), a new team workspace is marked `
 
 `npx prisma db push` (from `backend/`) creates:
 
-- `Workspace`, `WorkspaceMember`, `WorkspaceInvite`, `WorkspaceBilling`
+- `Workspace`, `WorkspaceMember`, `WorkspaceInvite`, `WorkspaceBilling` (`pendingPlanId` records the plan a checkout asked for; it is not proof of payment)
+- `BillingWebhookEvent` for PayPal webhook ids that have already been applied
 - `DesignPartnerRequest` for the public waitlist
 - activity actions `WORKSPACE_CREATED`, `INVITE_CREATED`, `INVITE_REVOKED`, `INVITE_REDEEMED`, `WORKSPACE_MEMBER_REMOVED`, `WORKSPACE_ROLE_CHANGED`
 

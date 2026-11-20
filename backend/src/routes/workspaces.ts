@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { tryRecordWorkspaceActivity } from "../account-activity-store.js";
 import { requireUser } from "../auth.js";
 import { billingProvider } from "../billing-runtime.js";
@@ -30,6 +30,7 @@ import {
   previewWorkspaceInviteQuery,
   redeemWorkspaceInviteSchema,
   updateWorkspaceRoleSchema,
+  paypalConfirmSchema,
   workspaceCheckoutSchema,
   workspaceDirectSchema,
   workspaceDirectoryQuery,
@@ -92,7 +93,54 @@ function presentWorkspace(input: {
     }),
     billingStatus: gate.billingStatus,
     billingEnabled,
+    billingProvider: billingEnabled ? env.BILLING_PROVIDER : "off",
   };
+}
+
+function paypalReturnUrl(workspaceId: string) {
+  return `${env.FRONTEND_ORIGIN}/billing/paypal/return?workspace=${encodeURIComponent(workspaceId)}`;
+}
+
+function paypalCancelUrl(workspaceId: string) {
+  return `${env.FRONTEND_ORIGIN}/billing/paypal/cancel?workspace=${encodeURIComponent(workspaceId)}`;
+}
+
+async function syncPaypalSeatQuantity(
+  log: FastifyBaseLogger,
+  workspace: {
+    id: string;
+    planId: string;
+    billing: {
+      provider: string;
+      status: string;
+      externalSubscriptionId: string | null;
+      seatQuantity: number;
+    } | null;
+  },
+) {
+  if (billingProvider.id !== "paypal") return;
+  const plan = getPlan(workspace.planId);
+  const billing = workspace.billing;
+  if (!plan?.perSeat || !billing || billing.provider !== "paypal" || billing.status !== "active") return;
+  if (!billing.externalSubscriptionId) return;
+  const memberCount = await prisma.workspaceMember.count({ where: { workspaceId: workspace.id } });
+  const quantity = Math.min(plan.seatLimit, Math.max(1, memberCount));
+  if (quantity === billing.seatQuantity) return;
+  const updated = await billingProvider.updateSeatQuantity({
+    subscriptionId: billing.externalSubscriptionId,
+    seatQuantity: quantity,
+    returnUrl: paypalReturnUrl(workspace.id),
+    cancelUrl: paypalCancelUrl(workspace.id),
+  });
+  if (!updated.ok || updated.status !== "active") {
+    log.info({ billing: true, provider: "paypal", outcome: updated.ok ? "seat_quantity_needs_approval" : "seat_quantity_failed" }, "billing seats");
+    return;
+  }
+  await prisma.workspaceBilling.update({
+    where: { workspaceId: workspace.id },
+    data: { seatQuantity: updated.seatQuantity },
+  });
+  log.info({ billing: true, provider: "paypal", outcome: "seat_quantity_updated" }, "billing seats");
 }
 
 async function actorIn(workspaceId: string, userId: string) {
@@ -349,6 +397,7 @@ export async function workspaceRoutes(app: FastifyInstance) {
       subjectKind: "workspace",
       subjectId: id,
     });
+    await syncPaypalSeatQuantity(request.log, actor.workspace);
     reply.header("Cache-Control", "no-store");
     return { ok: true as const };
   });
@@ -558,6 +607,7 @@ export async function workspaceRoutes(app: FastifyInstance) {
         subjectKind: "invite",
         subjectId: invite.id,
       });
+      await syncPaypalSeatQuantity(request.log, invite.workspace);
       const count = memberCount + 1;
       reply.header("Cache-Control", "no-store");
       return {
@@ -617,17 +667,57 @@ export async function workspaceRoutes(app: FastifyInstance) {
           seatLimit: plan.seatLimit,
         });
       }
+      const billingRow = actor.workspace.billing;
+      const paypalSeats = billingProvider.id === "paypal"
+        && plan.perSeat
+        && billingRow?.provider === "paypal"
+        && billingRow.status === "active"
+        && Boolean(billingRow.externalSubscriptionId)
+        && actor.workspace.planId === plan.id;
+      if (paypalSeats && billingRow?.externalSubscriptionId) {
+        if (billingRow.seatQuantity === quantity) {
+          reply.header("Cache-Control", "no-store");
+          return { ok: true as const, status: "active" as const, checkoutUrl: null };
+        }
+        const updated = await billingProvider.updateSeatQuantity({
+          subscriptionId: billingRow.externalSubscriptionId,
+          seatQuantity: quantity,
+          returnUrl: paypalReturnUrl(id),
+          cancelUrl: paypalCancelUrl(id),
+        });
+        if (!updated.ok) {
+          const status = updated.code === "billing_disabled" ? 403 : 503;
+          return reply.code(status).send({ error: updated.error, code: updated.code });
+        }
+        if (updated.status === "active") {
+          await prisma.workspaceBilling.update({
+            where: { workspaceId: id },
+            data: { seatQuantity: updated.seatQuantity },
+          });
+        }
+        reply.header("Cache-Control", "no-store");
+        return {
+          ok: true as const,
+          status: updated.status,
+          checkoutUrl: updated.checkoutUrl,
+        };
+      }
       const email = await prisma.user.findUnique({
         where: { id: session.sub },
         select: { email: true },
       });
+      const paypal = billingProvider.id === "paypal";
       const checkout = await billingProvider.createCheckout({
         workspaceId: id,
         planId: plan.id as PlanId,
         seatQuantity: quantity,
         customerEmail: email?.email ?? "",
-        successUrl: `${env.FRONTEND_ORIGIN}/settings/workspace?billing=success`,
-        cancelUrl: `${env.FRONTEND_ORIGIN}/settings/workspace?billing=cancel`,
+        successUrl: paypal
+          ? paypalReturnUrl(id)
+          : `${env.FRONTEND_ORIGIN}/settings/workspace?billing=success`,
+        cancelUrl: paypal
+          ? paypalCancelUrl(id)
+          : `${env.FRONTEND_ORIGIN}/settings/workspace?billing=cancel`,
       });
       if (!checkout.ok) {
         const status = checkout.code === "billing_disabled" ? 403 : 503;
@@ -640,6 +730,7 @@ export async function workspaceRoutes(app: FastifyInstance) {
           status: checkout.status,
           externalSubscriptionId: checkout.externalSubscriptionId,
           seatQuantity: quantity,
+          pendingPlanId: checkout.provider === "paypal" ? plan.id : null,
         },
       });
       if (checkout.status === "active") {
@@ -650,6 +741,72 @@ export async function workspaceRoutes(app: FastifyInstance) {
         ok: true as const,
         status: checkout.status,
         checkoutUrl: checkout.checkoutUrl,
+      };
+    },
+  );
+
+  app.post(
+    "/workspaces/:id/billing/paypal/confirm",
+    { bodyLimit: 1024, config: { rateLimit: { max: 30, timeWindow: "1 hour" } } },
+    async (request, reply) => {
+      if (!billingEnabled || env.BILLING_PROVIDER !== "paypal") {
+        return reply.code(404).send({ error: "PayPal billing is off." });
+      }
+      const session = await requireUser(request, reply);
+      if (!session) return;
+      const { id } = request.params as { id: string };
+      const parsed = paypalConfirmSchema.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: "Invalid subscription", code: "billing_mismatch" });
+      const actor = await actorIn(id, session.sub);
+      if (!actor) return reply.code(404).send({ error: "Workspace not found" });
+      if (actor.role !== "OWNER") {
+        return reply.code(403).send({ error: "Only an owner can change the plan.", code: "forbidden" });
+      }
+      const billingRow = actor.workspace.billing;
+      if (!billingRow?.externalSubscriptionId || billingRow.externalSubscriptionId !== parsed.data.subscriptionId) {
+        return reply.code(400).send({
+          error: "This return does not match a checkout we started.",
+          code: "billing_mismatch",
+        });
+      }
+      const confirmed = await billingProvider.confirmSubscription({
+        subscriptionId: billingRow.externalSubscriptionId,
+        workspaceId: id,
+      });
+      if (!confirmed.ok) {
+        const status = confirmed.code === "billing_mismatch" ? 400 : 503;
+        return reply.code(status).send({ error: confirmed.error, code: confirmed.code });
+      }
+      if (confirmed.granted && confirmed.status === "active" && confirmed.planId) {
+        await prisma.workspace.update({
+          where: { id },
+          data: {
+            planId: confirmed.planId,
+            billing: {
+              update: {
+                provider: "paypal",
+                status: "active",
+                externalCustomerId: confirmed.externalCustomerId,
+                externalSubscriptionId: confirmed.externalSubscriptionId,
+                seatQuantity: confirmed.seatQuantity,
+                pendingPlanId: null,
+              },
+            },
+          },
+        });
+      } else if (confirmed.status === "canceled" || confirmed.status === "suspended" || confirmed.status === "past_due") {
+        await prisma.workspaceBilling.update({
+          where: { workspaceId: id },
+          data: { provider: "paypal", status: confirmed.status },
+        });
+      }
+      request.log.info({ billing: true, provider: "paypal", outcome: confirmed.granted ? "granted" : confirmed.status }, "billing confirm");
+      reply.header("Cache-Control", "no-store");
+      return {
+        ok: true as const,
+        status: confirmed.status,
+        granted: confirmed.granted,
+        planId: confirmed.granted ? confirmed.planId : null,
       };
     },
   );

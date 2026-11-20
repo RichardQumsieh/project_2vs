@@ -52,7 +52,7 @@ export const plans: Record<PlanId, PlanDefinition> = {
   },
 };
 
-export type BillingStatus = "comped" | "incomplete" | "active" | "canceled";
+export type BillingStatus = "comped" | "incomplete" | "active" | "canceled" | "suspended" | "past_due";
 
 export function isPlanId(value: string): value is PlanId {
   return (planIds as readonly string[]).includes(value);
