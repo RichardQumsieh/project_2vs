@@ -209,6 +209,12 @@ export function mockAssistantResponse(item: ScoredCase): string {
   if (item.id === "levantine-schedule-hold") {
     return "اقتراح بس ولسا بدها موافقة: الخميس الساعة ٢ لـ ٢:٣٠، نص ساعة مع خالد. ما في حجز ولا تأكيد من خالد.";
   }
+  if (item.id === "en-daily-brief") {
+    return "Today the board review conflicts with the client call. Reply to Lina first; Omar's follow-up is overdue. Suggestions wait for your approval. Nothing was sent or changed.";
+  }
+  if (item.id === "levantine-daily-brief") {
+    return "اليوم اجتماع البورد بيتعارض مع مكالمة الزبون. الأولوية للرد على لينا، والمتابعة متأخرة. الاقتراحات بتستنى موافقتك. ما انبعت إشي.";
+  }
   if (item.expectScript === "arabic" || item.expectScript === "mixed") {
     if (item.id === "jordanian-levantine") {
       return "احكيله خفيف: «تمام، خلينا الأسبوع الجاي» — بدون ما نفترض شو حاسس.";

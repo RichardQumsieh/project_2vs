@@ -276,3 +276,7 @@ INTEGRATIONS_WRITE_ALLOWLIST=dogfood@example.com
 5. In Sophia, stage a send and click the explicit Approve control once. Confirm the message arrives, Settings → Activity shows one "Email sent" row, and repeating the approve request returns the original result without a second message.
 
 To turn it back off, set `INTEGRATIONS_WRITE_ENABLED=false` and recreate the API container. Pending proposals then fail closed and do not send.
+
+### Manager daily brief
+
+Behind `DAILY_BRIEF_ENABLED` and `NEXT_PUBLIC_DAILY_BRIEF_ENABLED` (both default off). After the time the person sets, Sophia prepares a short brief from connected mail and calendar only: today's meetings and prep notes, conflicts, emails that need a reply, overdue follow-ups, and suggested actions. A draft, a reschedule, and a decline each wait for the same explicit approval as any other mail or calendar write. Encrypted chats are not included. Without a Cloud Sophia consent and model key, the wording is deterministic and no model is called. Details: `docs/daily-brief.md`.

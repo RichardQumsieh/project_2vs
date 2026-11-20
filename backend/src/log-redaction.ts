@@ -60,7 +60,19 @@ function isSensitiveKey(key: string) {
     normalized.includes("token") ||
     normalized.includes("recoverycode") ||
     normalized.includes("privatekey") ||
-    normalized.includes("apikey")
+    normalized.includes("apikey") ||
+    normalized === "brief" ||
+    normalized === "narrative" ||
+    normalized === "prepnote" ||
+    normalized === "prepnotes" ||
+    normalized === "snippet" ||
+    normalized === "subject" ||
+    normalized === "headline" ||
+    normalized === "followup" ||
+    normalized === "followups" ||
+    normalized === "fromaddress" ||
+    normalized === "briefdocument" ||
+    normalized.includes("dailybrief")
   );
 }
 

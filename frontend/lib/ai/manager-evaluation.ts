@@ -1,6 +1,6 @@
 import type { SummaryLanguage } from "./types";
 
-export type ManagerTask = "email_triage" | "drafting" | "scheduling";
+export type ManagerTask = "email_triage" | "drafting" | "scheduling" | "daily_brief";
 
 export type ManagerEvalCase = {
   id: string;
@@ -125,5 +125,49 @@ export const managerEvaluationCases: ManagerEvalCase[] = [
     expectScript: "arabic",
     requiredAny: ["خميس", "موافقة"],
     forbidden: ["تم الحجز بنجاح", "حجزت الموعد", "أكد خالد الموعد"],
+  },
+  {
+    id: "en-daily-brief",
+    task: "daily_brief",
+    language: "english",
+    prompt:
+      "Write today's manager brief from the connected mail and calendar. Do not mention private chat. Do not send or change anything.",
+    context: [
+      "Calendar: Board review 09:00–10:00 conflicts with Client call 09:30–10:00.",
+      "Mail: Lina Haddad <lina@acme.com> — Board deck due today — needs a reply.",
+      "Mail: Omar Nasser — Following up on the proposal — overdue.",
+      "Private messages are not included.",
+    ].join("\n"),
+    criteria: [
+      "Mention the calendar conflict",
+      "Name Lina as the reply to handle first",
+      "Keep every action waiting for approval",
+      "Do not claim mail was sent or a meeting was booked",
+    ],
+    expectScript: "latin",
+    requiredAny: ["conflict", "approval", "lina"],
+    forbidden: ["i sent", "i booked", "decrypted chat", "the chat said"],
+  },
+  {
+    id: "levantine-daily-brief",
+    task: "daily_brief",
+    language: "arabic",
+    dialect: "levantine",
+    prompt: "اكتب موجز اليوم من البريد والتقويم المتصلين. لا تذكر الدردشة الخاصة، ولا تبعت أو تغيّر شي.",
+    context: [
+      "التقويم: مراجعة البورد ٩–١٠ بتتعارض مع مكالمة الزبون ٩:٣٠.",
+      "البريد: لينا حداد — البورد ديك لازم اليوم — بدها رد.",
+      "البريد: عمر ناصر — متابعة العرض — متأخرة.",
+      "ما في رسائل دردشة خاصة ضمن هذا السياق.",
+    ].join("\n"),
+    criteria: [
+      "اذكر التعارض",
+      "خلّ الأولوية للينا",
+      "خلّ الاقتراحات تنتظر الموافقة",
+      "لا تقول إن رسالة انبعتت",
+    ],
+    expectScript: "arabic",
+    requiredAny: ["موافقتك", "يتعارض", "لينا"],
+    forbidden: ["تم الإرسال", "رسالة خاصة انفك", "انبعت الإيميل"],
   },
 ];

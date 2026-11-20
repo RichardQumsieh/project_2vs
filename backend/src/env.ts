@@ -64,6 +64,15 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
+  /**
+   * Manager daily brief. Default OFF. Reads connected mail and calendar
+   * mirrors only. Suggested sends and calendar changes still require the
+   * existing approval path. See docs/daily-brief.md.
+   */
+  DAILY_BRIEF_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   /** Hosted Sophia model. Both key and HTTPS base URL are required before any call. */
   SOPHIA_MODEL_API_KEY: optionalEnvironmentValue,
@@ -329,3 +338,6 @@ export const integrationsWriteAllowlist = env.INTEGRATIONS_WRITE_ALLOWLIST
 
 /** Small-group MLS delivery. Default false. See docs/group-e2ee.md. */
 export const groupE2eeEnabled = env.GROUP_E2EE_ENABLED;
+
+/** Manager daily brief. Default false. See docs/daily-brief.md. */
+export const dailyBriefEnabled = env.DAILY_BRIEF_ENABLED;

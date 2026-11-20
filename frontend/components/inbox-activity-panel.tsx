@@ -54,6 +54,8 @@ import {
   type MailReplySeed,
 } from "@/lib/inbox-activity";
 import { currentUserId } from "@/lib/session";
+import { briefCopy } from "@/lib/daily-brief/copy";
+import { dailyBriefEnabled } from "@/lib/daily-brief/flag";
 import { useI18n } from "@/lib/i18n/locale";
 
 type MailRow = {
@@ -594,7 +596,7 @@ export function InboxActivityPanel({
   showBack?: boolean;
   onBack?: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { mail, events, recentMail, upcoming } = useMirroredActivity();
   const [calendarProvider, setCalendarProvider] = useState(calendarProviderDefault);
   const [title, setTitle] = useState("");
@@ -708,6 +710,14 @@ export function InboxActivityPanel({
             {t("mail.subtitle")}
           </p>
         </div>
+        {dailyBriefEnabled() ? (
+          <Link
+            href="/inbox/brief"
+            className="shrink-0 rounded-full border border-white/15 px-2.5 py-1 text-xs text-white/80"
+          >
+            {briefCopy(locale, "open")}
+          </Link>
+        ) : null}
         {onClose ? (
           <button
             type="button"

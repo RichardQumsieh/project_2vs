@@ -22,10 +22,12 @@ describe("assistant eval", () => {
         "levantine-draft-reply",
         "en-schedule-hold",
         "levantine-schedule-hold",
+        "en-daily-brief",
+        "levantine-daily-brief",
         ...companionEvaluationCases.map((item) => item.id),
       ]),
     );
-    expect(managerEvaluationCases.filter((item) => item.dialect === "levantine")).toHaveLength(3);
+    expect(managerEvaluationCases.filter((item) => item.dialect === "levantine")).toHaveLength(4);
   });
 
   it("scores a useful mock answer and rejects a fabricated send", () => {

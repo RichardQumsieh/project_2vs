@@ -86,6 +86,8 @@ Local inference can fail. There is no automatic cloud fallback when it does.
 
 Connected integrations do not by themselves grant the model access. Cloud consent does.
 
+- **Manager daily brief.** Off unless `DAILY_BRIEF_ENABLED` is exactly `true` and the web build was made with `NEXT_PUBLIC_DAILY_BRIEF_ENABLED=true`. The brief is built from that person's connected mail and calendar mirrors (subject, from, snippet, title, and time). It does not read E2EE chat plaintext or ciphertext. The stored brief document contains those integration fields and the unsent action drafts. Process logs redact that document. A hosted model is asked for the opening paragraph only when Cloud Sophia consent is active and the model key and HTTPS base URL are set; otherwise the paragraph is the local deterministic text and no model is called. Suggested sends, reschedules, and declines do nothing until the person approves them on the existing write-approval path, and that path still obeys `INTEGRATIONS_WRITE_ENABLED`. See [Manager daily brief](daily-brief.md).
+
 ## Transport, cookies, and logs
 
 - The API listens on HTTP. Production TLS is terminated at a reverse proxy. Browsers need HTTPS for secure cookies, microphone, camera, and HSTS.

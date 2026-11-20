@@ -1,4 +1,5 @@
 import { resolveApiUrl } from "./api-url";
+import type { DailyBriefDocument } from "./daily-brief/types";
 import { assertGroupE2eeEnabled } from "./group-e2ee-flag";
 import type { OutboundEmailAttachment } from "./email-attachments";
 
@@ -1370,6 +1371,49 @@ export const api = {
   }) =>
     request<{ event: AccountActivityEvent }>("/account/activity", {
       method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  dailyBrief: () =>
+    request<{
+      enabled: true;
+      preference: {
+        briefTime: string;
+        language: "en" | "ar";
+        timeZone: string;
+      };
+      brief: DailyBriefDocument | null;
+      pendingReason: "before_brief_time" | null;
+    }>("/daily-brief"),
+
+  generateDailyBrief: () =>
+    request<{
+      enabled: true;
+      preference: {
+        briefTime: string;
+        language: "en" | "ar";
+        timeZone: string;
+      };
+      brief: DailyBriefDocument | null;
+      pendingReason: "before_brief_time" | null;
+    }>("/daily-brief", { method: "POST" }),
+
+  saveDailyBriefPreference: (body: {
+    briefTime: string;
+    language: "en" | "ar";
+    timeZone: string;
+  }) =>
+    request<{
+      enabled: true;
+      preference: {
+        briefTime: string;
+        language: "en" | "ar";
+        timeZone: string;
+      };
+      brief: DailyBriefDocument | null;
+      pendingReason: "before_brief_time" | null;
+    }>("/daily-brief/preferences", {
+      method: "PUT",
       body: JSON.stringify(body),
     }),
 
