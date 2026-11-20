@@ -1,6 +1,6 @@
 /** Product switch for the group MLS client. The API flag is the real gate. */
 export function groupE2eeEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_GROUP_E2EE_ENABLED === "true";
+  return process.env.NEXT_PUBLIC_GROUP_E2EE_ENABLED !== "false";
 }
 
 export function assertGroupE2eeEnabled(): void {

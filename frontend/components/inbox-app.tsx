@@ -107,7 +107,16 @@ import {
   SophiaApproveSuccess,
   SophiaProposalCard,
 } from "@/components/sophia-proposal-card";
+import { useAppearance } from "@/components/appearance-provider";
 import { draftVoiceForUser } from "@/lib/appearance/store";
+import {
+  clearDmUnread,
+  loadDmUnread,
+  saveDmUnread,
+  type DmUnreadMap,
+} from "@/lib/dm-unread";
+import { sendReadReceipt, sendTyping } from "@/lib/realtime-socket";
+import { subscribePeerRead, subscribeTyping } from "@/lib/typing-state";
 import {
   isSophiaAddressed,
   parseSophiaCommand,
@@ -260,11 +269,40 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [restoringRememberedDevice, setRestoringRememberedDevice] =
     useState(true);
+  const [dmUnread, setDmUnread] = useState<DmUnreadMap>({});
   const me = useQuery({
     queryKey: ["me"],
     queryFn: api.me,
     retry: false,
   });
+
+  useEffect(() => {
+    const userId = me.data?.user.id;
+    if (!userId) {
+      setDmUnread({});
+      return;
+    }
+    const refresh = () => setDmUnread(loadDmUnread(userId));
+    refresh();
+    window.addEventListener("sophia-dm-unread", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("sophia-dm-unread", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, [me.data?.user.id]);
+
+  useEffect(() => {
+    const userId = me.data?.user.id;
+    if (!userId || !activeConversationId) return;
+    setDmUnread((previous) => {
+      const next = clearDmUnread(previous, activeConversationId);
+      if (next === previous) return previous;
+      saveDmUnread(userId, next);
+      return next;
+    });
+    sendReadReceipt(activeConversationId);
+  }, [activeConversationId, me.data?.user.id]);
   const identityMatchesAccount =
     Boolean(me.data && currentUserId() === me.data.user.id);
 
@@ -733,14 +771,21 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
                   ) : null}
                 </p>
               </span>
-              {conversation.type === "GROUP" && (conversation.unreadCount ?? 0) > 0 ? (
-                <span
-                  className="ms-auto shrink-0 rounded-full bg-cyan-300/20 px-2 py-0.5 text-[11px] font-medium text-cyan-50"
-                  aria-label={t("group.unread", { count: conversation.unreadCount ?? 0 })}
-                >
-                  {conversation.unreadCount}
-                </span>
-              ) : null}
+              {(() => {
+                const unread =
+                  conversation.type === "GROUP"
+                    ? conversation.unreadCount ?? 0
+                    : dmUnread[conversation.id] ?? 0;
+                if (unread < 1) return null;
+                return (
+                  <span
+                    className="ms-auto shrink-0 rounded-full bg-cyan-300/20 px-2 py-0.5 text-[11px] font-medium text-cyan-50"
+                    aria-label={t("chat.unread", { count: unread })}
+                  >
+                    {unread}
+                  </span>
+                );
+              })()}
             </Link>
             );
           })}
@@ -818,6 +863,9 @@ function ThreadConversation({
   const queryClient = useQueryClient();
   const reduceMotion = useReducedMotion();
   const calls = useCallControls();
+  const appearance = useAppearance();
+  const [peerTyping, setPeerTyping] = useState(false);
+  const [peerReadAt, setPeerReadAt] = useState<string | null>(null);
   const [olderMessages, setOlderMessages] = useState<LocalMessage[]>([]);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(true);
@@ -1780,6 +1828,10 @@ function ThreadConversation({
   });
   const composerBodyRegistration = form.register("body");
 
+  useEffect(() => {
+    if (composerBody?.trim()) sendTyping(conversationId);
+  }, [composerBody, conversationId]);
+
   const send = useMutation({
     mutationFn: async (body: string) => {
       if (!conversation?.peer) throw new Error("Missing peer");
@@ -2636,9 +2688,32 @@ function ThreadConversation({
     return briefing;
   }
 
+  useEffect(() => {
+    setPeerTyping(false);
+    setPeerReadAt(null);
+    return subscribeTyping((id, user) => {
+      if (id !== conversationId) return;
+      setPeerTyping(Boolean(user));
+    });
+  }, [conversationId]);
+
+  useEffect(() => {
+    return subscribePeerRead((id, at) => {
+      if (id !== conversationId) return;
+      setPeerReadAt(at);
+    });
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+    void Notification.requestPermission();
+  }, []);
+
   function proposeSophiaIntents(intents: SophiaIntent[]) {
     const runtime = agentRuntimeRef.current;
-    const actionable = intents.filter((intent) => intent.type !== "radar_answer");
+    const actionable = intents.filter(
+      (intent) => intent.type !== "radar_answer" && intent.type !== "set_theme",
+    );
     if (!actionable.length) {
       return;
     }
@@ -3135,6 +3210,57 @@ function ThreadConversation({
     setCompanionBusy(true);
     setCompanionProgress(null);
     setCompanionError(null);
+
+    if (!retry) {
+      const earlyTheme = parseSophiaCommand(input, {
+        voice: draftVoiceForUser(currentUserId()),
+      });
+      const themeIntent = earlyTheme.intents.find((intent) => intent.type === "set_theme");
+      if (themeIntent && themeIntent.type === "set_theme") {
+        try {
+          if (!appearance.enabled || !appearance.applyThemeRequest(themeIntent.request)) {
+            throw new Error(
+              appearance.enabled
+                ? "That theme could not be applied."
+                : "Adaptive appearance is required for themes.",
+            );
+          }
+          const reply = themeIntent.request.reply;
+          setCompanionTurns((turns) =>
+            turns.map((turn) =>
+              turn.id === assistantTurn.id ? { ...turn, content: reply } : turn,
+            ),
+          );
+          companionRuntime.dispatch({
+            type: "inference-completed",
+            outcome: "success",
+          });
+          setCompanionBusy(false);
+          setCompanionProgress(null);
+          if (
+            assistantSettings.companionMode === "active-voice" &&
+            !assistantSettings.voiceMuted
+          ) {
+            await speakSuggestion(
+              reply,
+              `sophia-theme:${conversationId}:${assistantTurn.id}`,
+              true,
+            );
+          }
+        } catch (error) {
+          companionRuntime.dispatch({
+            type: "inference-completed",
+            outcome: "error",
+          });
+          setCompanionError(
+            error instanceof Error ? error.message : "Theme could not be applied.",
+          );
+          setCompanionBusy(false);
+          setCompanionProgress(null);
+        }
+        return;
+      }
+    }
 
     if (!retry && assistantSettings.sophiaVoiceCommands) {
       const plan = parseSophiaCommand(input, {
@@ -5461,6 +5587,13 @@ function ThreadConversation({
               {locating ? "Reading location…" : "Current location"}
             </button>
           </div>
+        ) : null}
+        {peerTyping || (peerReadAt && visibleMessages.at(-1)?.fromMe) ? (
+          <p role="status" className="mb-1 px-1 text-[11px] text-white/45">
+            {peerTyping
+              ? t("chat.typing")
+              : t("chat.seen")}
+          </p>
         ) : null}
         <form
           className="composer-bar flex min-w-0 items-center gap-1 sm:gap-2"

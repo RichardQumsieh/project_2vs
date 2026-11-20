@@ -324,10 +324,10 @@ describe("draft voice", () => {
   it("leaves drafts alone while the feature flag is off", () => {
     const previous = process.env.NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED;
     try {
-      delete process.env.NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED;
+      process.env.NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED = "false";
       expect(adaptiveThemeEnabled()).toBe(false);
       expect(draftVoiceForUser("user-1")).toBeUndefined();
-      process.env.NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED = "true";
+      delete process.env.NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED;
       expect(adaptiveThemeEnabled()).toBe(true);
       expect(draftVoiceForUser("user-1")).toEqual(defaultVoice);
     } finally {

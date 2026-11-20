@@ -45,6 +45,7 @@ services:
       B2_BUCKET: ${B2_BUCKET-}
       B2_KEY_ID: ${B2_KEY_ID-}
       B2_APPLICATION_KEY: ${B2_APPLICATION_KEY-}
+      GROUP_E2EE_ENABLED: ${GROUP_E2EE_ENABLED:-true}
     volumes: []
 
   frontend:
@@ -55,5 +56,7 @@ services:
         # Optional default so API-only VM builds (`… build backend`) do not abort
         # when Compose still interpolates the frontend service block.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.sophia-build.com}
+        NEXT_PUBLIC_GROUP_E2EE_ENABLED: ${NEXT_PUBLIC_GROUP_E2EE_ENABLED:-true}
+        NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED: ${NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED:-true}
     environment: []
     volumes: []
