@@ -82,9 +82,11 @@ export type DailyBriefDocument = {
   actions: BriefSuggestedAction[];
 };
 
+export type BriefPendingReason = "before_brief_time" | "not_connected";
+
 export type DailyBriefResponse = {
   enabled: true;
   preference: BriefPreference;
   brief: DailyBriefDocument | null;
-  pendingReason: "before_brief_time" | null;
+  pendingReason: BriefPendingReason | null;
 };

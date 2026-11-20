@@ -213,11 +213,16 @@ Automatic speech is deliberately narrow: it requires the recent context and the 
 
 Future local-neural options were compared, but not added because native speech works for English in the inspected browser and neural Arabic quality/license/runtime have not been established. [Kokoro ONNX](https://huggingface.co/onnx-community/Kokoro-82M-ONNX) has browser-oriented JavaScript/ONNX support and Apache-2.0 metadata; its model card lists English voices and reports 86 MB for q8-f16 and 92.4 MB for q8, so it does not solve Arabic coverage. [Piper's Jordanian Arabic Kareem medium voice](https://huggingface.co/rhasspy/piper-voices/tree/main/ar/ar_JO/kareem/medium) is 63,201,294 bytes (~63.2 MB), 22.05 kHz, and marked medium quality; its model card points to the training dataset for licensing rather than establishing a clear redistributable voice license. Piper would also require an in-browser ONNX/phonemizer/audio pipeline. Neither candidate's naturalness, speed, memory use, or Jordanian pronunciation was tested here. Reconsider only after a license audit and local-device evaluation against native voices.
 
+### Safety numbers
+
+On unless `SAFETY_NUMBERS_ENABLED` or `NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED` is exactly `false`. Settings → Security shows a 60-digit safety number for each direct chat and each group, computed in the browser from the active device identity keys. The first time this browser sees a chat it is not a warning. A later change to those keys is. Marking a number verified stores that choice in this browser only. The API route returns public keys to conversation members and does not consume one-time prekeys. `GET /health` reports `safetyNumbers`. No database migration. Details: `docs/safety-numbers.md`.
+
 ## Security docs
 
 - [Vulnerability reporting](docs/SECURITY.md)
 - [Threat model and AI boundary](docs/THREAT_MODEL.md)
 - [Backup and new-device recovery drill](docs/RECOVERY.md)
+- [Safety numbers](docs/safety-numbers.md)
 
 ## Account security and recovery
 
@@ -279,4 +284,4 @@ To turn it back off, set `INTEGRATIONS_WRITE_ENABLED=false` and recreate the API
 
 ### Manager daily brief
 
-Behind `DAILY_BRIEF_ENABLED` and `NEXT_PUBLIC_DAILY_BRIEF_ENABLED` (both default off). After the time the person sets, Sophia prepares a short brief from connected mail and calendar only: today's meetings and prep notes, conflicts, emails that need a reply, overdue follow-ups, and suggested actions. A draft, a reschedule, and a decline each wait for the same explicit approval as any other mail or calendar write. Encrypted chats are not included. Without a Cloud Sophia consent and model key, the wording is deterministic and no model is called. Details: `docs/daily-brief.md`.
+On unless `DAILY_BRIEF_ENABLED` or `NEXT_PUBLIC_DAILY_BRIEF_ENABLED` is exactly `false`. After the time the person sets, Sophia prepares a short brief from connected mail and calendar only: today's meetings and prep notes, conflicts, emails that need a reply, overdue follow-ups, and suggested actions. If nothing is connected, the brief asks them to connect mail or a calendar and does not error. A draft, a reschedule, and a decline each wait for the same explicit approval as any other mail or calendar write. `INTEGRATIONS_WRITE_ENABLED` stays off until an operator turns it on. Encrypted chats are not included. Without a Cloud Sophia consent and model key, the wording is deterministic and no model is called. Details: `docs/daily-brief.md`.

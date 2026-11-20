@@ -7,7 +7,7 @@ import { approveBriefAction } from "@/lib/daily-brief/approve";
 import { briefCopy } from "@/lib/daily-brief/copy";
 import { dailyBriefEnabled } from "@/lib/daily-brief/flag";
 import { sampleDailyBrief } from "@/lib/daily-brief/sample";
-import type { BriefPreference, BriefSuggestedAction, DailyBriefDocument } from "@/lib/daily-brief/types";
+import type { BriefPendingReason, BriefPreference, BriefSuggestedAction, DailyBriefDocument } from "@/lib/daily-brief/types";
 import { useI18n } from "@/lib/i18n/locale";
 import Link from "next/link";
 
@@ -17,16 +17,24 @@ const fallbackPreference: BriefPreference = {
   timeZone: "Asia/Amman",
 };
 
-export function DailyBriefScreen({ mode }: { mode: "live" | "preview" }) {
+export function DailyBriefScreen({
+  mode,
+  disconnected = false,
+}: {
+  mode: "live" | "preview";
+  disconnected?: boolean;
+}) {
   const { locale } = useI18n();
   const enabled = dailyBriefEnabled();
   const [preference, setPreference] = useState<BriefPreference>(
     mode === "preview" ? { ...fallbackPreference, language: locale === "ar" ? "ar" : "en" } : fallbackPreference,
   );
   const [brief, setBrief] = useState<DailyBriefDocument | null>(
-    mode === "preview" ? sampleDailyBrief(locale === "ar" ? "ar" : "en") : null,
+    mode === "preview" && !disconnected ? sampleDailyBrief(locale === "ar" ? "ar" : "en") : null,
   );
-  const [pendingReason, setPendingReason] = useState<"before_brief_time" | null>(null);
+  const [pendingReason, setPendingReason] = useState<BriefPendingReason | null>(
+    mode === "preview" && disconnected ? "not_connected" : null,
+  );
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -40,11 +48,11 @@ export function DailyBriefScreen({ mode }: { mode: "live" | "preview" }) {
   }, []);
 
   useEffect(() => {
-    if (mode !== "preview" || touched) return;
+    if (mode !== "preview" || touched || disconnected) return;
     const language = locale === "ar" ? "ar" : "en";
     setPreference((current) => ({ ...current, language }));
     setBrief(sampleDailyBrief(language));
-  }, [locale, mode, touched]);
+  }, [disconnected, locale, mode, touched]);
 
   useEffect(() => {
     if (mode !== "live" || !enabled) return;
@@ -103,6 +111,13 @@ export function DailyBriefScreen({ mode }: { mode: "live" | "preview" }) {
         setError(null);
         if (mode === "preview") {
           setTouched(true);
+          if (disconnected) {
+            setPreference(next);
+            setBrief(null);
+            setPendingReason("not_connected");
+            setStatus(briefCopy(locale, "saved"));
+            return;
+          }
           applySample(next);
           setStatus(briefCopy(locale, "saved"));
           return;
@@ -123,6 +138,12 @@ export function DailyBriefScreen({ mode }: { mode: "live" | "preview" }) {
       onPrepare={async () => {
         setError(null);
         if (mode === "preview") {
+          if (disconnected) {
+            setBrief(null);
+            setPendingReason("not_connected");
+            setStatus(null);
+            return;
+          }
           applySample(preference);
           setStatus(briefCopy(locale, "saved"));
           return;

@@ -1,4 +1,7 @@
+import { existsSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+
+const artifactDir = "/opt/cursor/artifacts";
 
 const locales = [
   { id: "en" as const, dir: "ltr", signup: "Create your account.", settings: "Settings" },
@@ -119,6 +122,76 @@ for (const locale of locales) {
         fullPage: true,
       });
     }
+  });
+
+  test(`inbox hub opens activity and mail in ${locale.id}`, async ({ page }, testInfo) => {
+    const copy = locale.id === "ar"
+      ? {
+          nav: "أقسام الوارد",
+          chats: "المحادثات",
+          activity: "النشاط",
+          mail: "البريد والتقويم",
+          mailTitle: "البريد والتقويم",
+          approve: "الموافقة على المسودة",
+          exportLog: "تصدير JSON",
+        }
+      : {
+          nav: "Inbox sections",
+          chats: "Chats",
+          activity: "Activity",
+          mail: "Mail and calendar",
+          mailTitle: "Mail & calendar",
+          approve: "Approve draft",
+          exportLog: "Export JSON",
+        };
+
+    await openLocale(page, "/preview/mobile?surface=inbox", locale.id);
+    const nav = page.getByRole("navigation", { name: copy.nav });
+    await expect(nav.getByRole("link", { name: copy.chats })).toHaveAttribute("aria-current", "page");
+    await expect(nav.getByRole("link", { name: copy.activity })).toBeVisible();
+    await expect(nav.getByRole("link", { name: copy.mail })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    if (testInfo.project.name === "iphone" && existsSync(artifactDir)) {
+      await page.screenshot({
+        path: `${artifactDir}/inbox_hub_chats_${locale.id}_mobile.png`,
+      });
+    }
+
+    await nav.getByRole("link", { name: copy.activity }).click();
+    await expect(page).toHaveURL(/hub=activity/);
+    await expect(page.getByRole("heading", { name: copy.activity })).toBeVisible();
+    await expect(page.getByRole("button", { name: copy.exportLog })).toBeVisible();
+    await expect(page.getByText(locale.id === "ar" ? "تسجيل الدخول من هذا المتصفح." : "Signed in on this browser.")).toBeVisible();
+    const back = page.getByRole("link", { name: locale.id === "ar" ? "رجوع" : "Back" });
+    if (locale.id === "ar") {
+      const edge = await back.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return { start: rect.left, end: rect.right, width: document.documentElement.clientWidth };
+      });
+      expect(edge.end).toBeGreaterThan(edge.width / 2);
+    }
+    await expectNoHorizontalOverflow(page);
+    if (testInfo.project.name === "iphone" && existsSync(artifactDir)) {
+      await page.screenshot({
+        path: `${artifactDir}/inbox_hub_activity_${locale.id}_mobile.png`,
+      });
+    }
+
+    await nav.getByRole("link", { name: copy.mail }).click();
+    await expect(page).toHaveURL(/hub=mail/);
+    await expect(page.getByRole("heading", { name: copy.mailTitle })).toBeVisible();
+    await expect(page.getByRole("button", { name: copy.approve })).toBeVisible();
+    await expect(nav.getByRole("link", { name: copy.mail })).toHaveAttribute("aria-current", "page");
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test(`settings activity redirects to the inbox in ${locale.id}`, async ({ page }) => {
+    await openLocale(page, "/settings", locale.id);
+    await expect(page.locator('a[href="/settings/activity"]')).toHaveCount(0);
+    const response = await page.goto(`/settings/activity?lang=${locale.id}`);
+    const url = new URL(response?.url() ?? page.url());
+    expect(url.pathname).toBe("/inbox");
+    expect(url.searchParams.get("hub")).toBe("activity");
   });
 }
 

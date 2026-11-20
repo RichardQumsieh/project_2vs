@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 import { Writable } from "node:stream";
 import Fastify from "fastify";
 import { createLoggerOptions } from "../src/log-redaction.js";
+import { parseDailyBriefEnabled } from "../src/daily-brief-flag.js";
 import {
+  briefConnectionsMissing,
   briefIsDue,
   briefLogFields,
   composeDailyBrief,
@@ -130,6 +132,16 @@ function memoryRepo(facts: BriefSource = readIntegrationSnapshot(source)) {
   };
   return { repo, counters, prefs };
 }
+
+describe("daily brief flag", () => {
+  it("stays on unless the value is exactly false", () => {
+    assert.equal(parseDailyBriefEnabled(undefined), true);
+    assert.equal(parseDailyBriefEnabled(""), true);
+    assert.equal(parseDailyBriefEnabled("true"), true);
+    assert.equal(parseDailyBriefEnabled("TRUE"), true);
+    assert.equal(parseDailyBriefEnabled("false"), false);
+  });
+});
 
 describe("daily brief schedule", () => {
   it("uses the account time zone and does not repeat a brief the same local day", () => {
@@ -305,7 +317,7 @@ describe("daily brief service", () => {
       assert.equal(early.body.brief, null);
       assert.equal(early.body.pendingReason, "before_brief_time");
     }
-    assert.equal(counters.loads, 0);
+    assert.equal(counters.loads, 1);
 
     const activities: string[] = [];
     const morning = await readDailyBrief({
@@ -321,7 +333,7 @@ describe("daily brief service", () => {
     assert.equal(morning.ok, true);
     if (morning.ok) assert.equal(morning.body.brief?.meetings.length, 2);
     assert.equal(activities.includes("Prepared the daily brief"), true);
-    assert.equal(counters.loads, 1);
+    assert.equal(counters.loads, 2);
 
     await readDailyBrief({
       enabled: true,
@@ -330,7 +342,7 @@ describe("daily brief service", () => {
       repo,
       assistant: mockAssistant,
     });
-    assert.equal(counters.loads, 1);
+    assert.equal(counters.loads, 2);
 
     const again = await generateDailyBriefNow({
       enabled: true,
@@ -341,7 +353,69 @@ describe("daily brief service", () => {
     });
     assert.equal(again.ok, true);
     if (again.ok) assert.equal(again.body.brief?.source, "on_demand");
-    assert.equal(counters.loads, 2);
+    assert.equal(counters.loads, 3);
+  });
+
+  it("asks the person to connect mail or calendar instead of failing", async () => {
+    const disconnected = readIntegrationSnapshot({
+      plaintext: chat,
+      messages: [{ plaintext: chat }],
+      calendar: [],
+      mail: [],
+      connections: { mail: false, calendar: false, plaintext: chat },
+    });
+    assert.equal(briefConnectionsMissing(disconnected), true);
+    assert.equal(JSON.stringify(disconnected).includes(chat), false);
+    const { repo } = memoryRepo(disconnected);
+    let modelCalls = 0;
+    const assistant: BriefAssistant = {
+      mode: "live",
+      async complete() {
+        modelCalls += 1;
+        return "should not run";
+      },
+    };
+    const read = await readDailyBrief({
+      enabled: true,
+      userId: "user-a",
+      now,
+      repo,
+      assistant,
+    });
+    assert.equal(read.ok, true);
+    if (read.ok) {
+      assert.equal(read.status, 200);
+      assert.equal(read.body.brief, null);
+      assert.equal(read.body.pendingReason, "not_connected");
+    }
+    const prepared = await generateDailyBriefNow({
+      enabled: true,
+      userId: "user-a",
+      now,
+      repo,
+      assistant,
+    });
+    assert.equal(prepared.ok, true);
+    if (prepared.ok) assert.equal(prepared.body.pendingReason, "not_connected");
+    assert.equal(modelCalls, 0);
+
+    await saveDailyBriefPreference({
+      enabled: true,
+      userId: "user-a",
+      body: { briefTime: "07:00", language: "en", timeZone: "Asia/Amman" },
+      repo,
+    });
+    const pass = await runDueDailyBriefs({
+      enabled: true,
+      now,
+      repo,
+      assistantFor: async () => {
+        modelCalls += 1;
+        return assistant;
+      },
+    });
+    assert.deepEqual(pass, { prepared: 0, skipped: 1, failed: 0 });
+    assert.equal(modelCalls, 0);
   });
 
   it("prepares due briefs from the morning pass and skips the same day", async () => {

@@ -63,6 +63,8 @@ The browser is inside the trust boundary:
 
 WebRTC and geolocation need the page to be a secure context in production. Opening a shared location in OpenStreetMap sends coordinates to that provider. The app does not load map tiles by itself.
 
+Settings → Security loads the public identity and signing keys of devices in conversations this account belongs to and hashes them into a safety number on the device. The check stays on unless `SAFETY_NUMBERS_ENABLED` or `NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED` is exactly `false`. `GET /health` reports `safetyNumbers` for the API flag. The verified bit stays in this browser. The server does not learn whether a number was compared. A modified frontend can hide a key-change warning; the comparison only helps while the app is the honest client. See [Safety numbers](safety-numbers.md).
+
 ## AI boundary
 
 Two paths exist. They are not the same, and cloud is not a silent fallback for the local model.
@@ -86,7 +88,7 @@ Local inference can fail. There is no automatic cloud fallback when it does.
 
 Connected integrations do not by themselves grant the model access. Cloud consent does.
 
-- **Manager daily brief.** Off unless `DAILY_BRIEF_ENABLED` is exactly `true` and the web build was made with `NEXT_PUBLIC_DAILY_BRIEF_ENABLED=true`. The brief is built from that person's connected mail and calendar mirrors (subject, from, snippet, title, and time). It does not read E2EE chat plaintext or ciphertext. The stored brief document contains those integration fields and the unsent action drafts. Process logs redact that document. A hosted model is asked for the opening paragraph only when Cloud Sophia consent is active and the model key and HTTPS base URL are set; otherwise the paragraph is the local deterministic text and no model is called. Suggested sends, reschedules, and declines do nothing until the person approves them on the existing write-approval path, and that path still obeys `INTEGRATIONS_WRITE_ENABLED`. See [Manager daily brief](daily-brief.md).
+- **Manager daily brief.** On unless `DAILY_BRIEF_ENABLED` or `NEXT_PUBLIC_DAILY_BRIEF_ENABLED` is exactly `false`. Unset and empty leave it on. `GET /health` reports `dailyBrief`. The brief is built from that person's connected mail and calendar mirrors (subject, from, snippet, title, and time). It does not read E2EE chat plaintext or ciphertext. If neither mail nor a calendar is connected, the API returns a successful empty brief and the screen asks the person to connect one. No model is called in that case, and no brief row is stored. The stored brief document, when there is one, contains those integration fields and the unsent action drafts. Process logs redact that document. A hosted model is asked for the opening paragraph only when Cloud Sophia consent is active and the model key and HTTPS base URL are set; otherwise the paragraph is the local deterministic text and no model is called. Suggested sends, reschedules, and declines do nothing until the person approves them on the existing write-approval path, and that path still obeys `INTEGRATIONS_WRITE_ENABLED`, which stays off unless set. See [Manager daily brief](daily-brief.md).
 
 ## Transport, cookies, and logs
 

@@ -21,7 +21,6 @@ export default function SettingsPage() {
         <ModuleCard href="/settings/sophia" title={t("settings.sophia.title")} body={t("settings.sophia.body")} />
         <ModuleCard href="/settings/integrations" title={t("settings.integrations.title")} body={t("settings.integrations.body")} />
         <ModuleCard href="/settings/privacy" title={t("settings.privacy.title")} body={t("settings.privacy.body")} />
-        <ModuleCard href="/settings/activity" title={t("settings.activity.title")} body={t("settings.activity.body")} />
         <ModuleCard href="/settings/security" title={t("settings.security.title")} body={t("settings.security.body")} />
         <ModuleCard href="/settings/devices" title={t("settings.devices.title")} body={t("settings.devices.body")} />
         <ModuleCard

@@ -1,14 +1,19 @@
 "use client";
 
+import { useMemo } from "react";
 import { ExperimentalBadge } from "@/components/experimental-badge";
+import { InboxActivityLog } from "@/components/inbox-activity-log";
+import { InboxHubNav } from "@/components/inbox-hub-nav";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { SophiaMark } from "@/components/sophia-mark";
 import { SophiaProposalCard } from "@/components/sophia-proposal-card";
 import { ThreadMessageList } from "@/components/thread-message-list";
+import type { ActivityLogSnapshot } from "@/components/activity-log-panel";
 import type { AgentProposal } from "@/lib/ai/agent-runtime";
 import type { LocalMessage } from "@/lib/crypto/types";
 import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
 import { useI18n } from "@/lib/i18n/locale";
+import type { InboxHub } from "@/lib/inbox-hub";
 
 const messages: LocalMessage[] = [
   {
@@ -61,14 +66,16 @@ const eventProposal: AgentProposal = {
 
 export function MobileFlowPreview({
   surface,
+  hub = "chats",
 }: {
   surface: "inbox" | "chat" | "approvals";
+  hub?: InboxHub;
 }) {
   const { t } = useI18n();
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col bg-[#070b12] text-white">
-      <div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
+    <main className="mx-auto flex h-dvh max-h-dvh w-full max-w-lg flex-col overflow-hidden bg-[#070b12] text-white">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <SophiaMark />
           <span className="text-sm font-semibold">Sophia</span>
@@ -76,7 +83,7 @@ export function MobileFlowPreview({
         </div>
         <LanguageSwitcher />
       </div>
-      {surface === "inbox" ? <InboxSurface /> : null}
+      {surface === "inbox" ? <InboxSurface hub={hub} /> : null}
       {surface === "chat" ? <ChatSurface /> : null}
       {surface === "approvals" ? (
         <section className="min-w-0 space-y-3 p-3" aria-label={t("approval.region")}>
@@ -90,7 +97,62 @@ export function MobileFlowPreview({
   );
 }
 
-function InboxSurface() {
+function previewHubHref(locale: "en" | "ar", hub: InboxHub) {
+  return `/preview/mobile?surface=inbox&hub=${hub}&lang=${locale}`;
+}
+
+function InboxSurface({ hub }: { hub: InboxHub }) {
+  const { locale, t } = useI18n();
+  const activityPage = useMemo<ActivityLogSnapshot>(() => ({
+    events: [
+      {
+        id: "preview-login",
+        actorUserId: "preview",
+        actor: t("inbox.hub.sampleActor"),
+        occurredAt: "2026-11-19T08:12:00.000Z",
+        action: "LOGIN",
+        summary: t("inbox.hub.sampleLogin"),
+        subjectKind: null,
+        subjectId: null,
+      },
+      {
+        id: "preview-email",
+        actorUserId: "preview",
+        actor: t("inbox.hub.sampleActor"),
+        occurredAt: "2026-11-19T09:04:00.000Z",
+        action: "EMAIL_SENT",
+        summary: t("inbox.hub.sampleEmail"),
+        subjectKind: "email",
+        subjectId: null,
+      },
+    ],
+    recorded: ["Sign-in", "Approved email sends"],
+    notRecorded: ["Private message bodies", "Tokens, passwords, and prompt text"],
+    truncated: false,
+  }), [t]);
+
+  return (
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+        {hub === "activity" ? (
+          <InboxActivityLog
+            initialPage={activityPage}
+            backHref={previewHubHref(locale, "chats")}
+          />
+        ) : null}
+        {hub === "mail" ? <MailSurface /> : null}
+        {hub === "chats" ? <ChatList /> : null}
+      </div>
+      <InboxHubNav
+        hub={hub}
+        hrefFor={(next) => previewHubHref(locale, next)}
+        className="inbox-hub-nav inbox-hub-nav--bottom"
+      />
+    </section>
+  );
+}
+
+function ChatList() {
   const { t } = useI18n();
   const threads = [
     { name: "سارة حداد", handle: "sara", preview: "البورد ديك لازم الخميس" },
@@ -98,7 +160,7 @@ function InboxSurface() {
     { name: "خالد ناصر", handle: "khaled", preview: "منقدر نأجل لبكرة؟" },
   ];
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
       <header className="space-y-3 border-b border-white/10 p-3">
         <div className="flex items-center justify-between gap-2">
           <h1 className="text-base font-semibold">{t("inbox.title")}</h1>
@@ -114,7 +176,7 @@ function InboxSurface() {
         </div>
         <p className="text-xs text-white/55">{t("inbox.recent")}</p>
       </header>
-      <nav aria-label={t("inbox.conversations")} className="min-w-0 flex-1 space-y-2 p-3">
+      <nav aria-label={t("inbox.conversations")} className="min-w-0 flex-1 space-y-2 overflow-y-auto p-3">
         <p className="text-xs leading-5 text-white/45">{t("preview.inboxHint")}</p>
         {threads.map((thread) => (
           <article key={thread.handle} className="flex min-w-0 items-center gap-3 rounded-2xl border border-white/10 px-3 py-2.5">
@@ -132,6 +194,17 @@ function InboxSurface() {
           </article>
         ))}
       </nav>
+    </div>
+  );
+}
+
+function MailSurface() {
+  const { t } = useI18n();
+  return (
+    <section className="h-full min-w-0 space-y-3 overflow-y-auto p-3" aria-label={t("mail.aria")}>
+      <h2 className="text-base font-semibold">{t("mail.title")}</h2>
+      <p className="text-sm leading-6 text-white/55">{t("mail.subtitle")}</p>
+      <SophiaProposalCard proposal={emailProposal} onApprove={() => {}} onCancel={() => {}} />
     </section>
   );
 }

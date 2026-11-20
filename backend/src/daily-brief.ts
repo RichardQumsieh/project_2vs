@@ -39,9 +39,20 @@ export type BriefMailMessage = {
   receivedAt: string;
 };
 
+export type BriefConnections = {
+  mail: boolean;
+  calendar: boolean;
+};
+
 export type BriefSource = {
   calendar: BriefCalendarEvent[];
   mail: BriefMailMessage[];
+  /**
+   * Set when the caller checked live connections.
+   * Both false means mail and calendar are disconnected.
+   * Omitted means the caller already supplied the facts to brief.
+   */
+  connections?: BriefConnections;
 };
 
 export type BriefMeeting = {
@@ -325,6 +336,17 @@ function readMail(value: unknown): BriefMailMessage | null {
   };
 }
 
+function readConnections(value: unknown): BriefConnections | undefined {
+  const row = asRecord(value);
+  if (!row || typeof row.mail !== "boolean" || typeof row.calendar !== "boolean") return undefined;
+  return { mail: row.mail, calendar: row.calendar };
+}
+
+/** True only when the caller checked and neither mail nor calendar is connected. */
+export function briefConnectionsMissing(source: BriefSource): boolean {
+  return source.connections?.mail === false && source.connections?.calendar === false;
+}
+
 /** Copies calendar and mail fields only. Chat keys are ignored. */
 export function readIntegrationSnapshot(input: unknown): BriefSource {
   const row = asRecord(input) ?? {};
@@ -336,9 +358,11 @@ export function readIntegrationSnapshot(input: unknown): BriefSource {
     const message = readMail(item);
     return message ? [message] : [];
   }) : [];
+  const connections = readConnections(row.connections);
   return {
     calendar: calendar.slice(0, 40),
     mail: mail.slice(0, 40),
+    ...(connections ? { connections } : {}),
   };
 }
 

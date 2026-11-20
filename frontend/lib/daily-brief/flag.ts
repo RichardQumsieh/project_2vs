@@ -1,4 +1,4 @@
-/** Product switch for the manager daily brief. The API flag is the real gate. */
+/** On unless NEXT_PUBLIC_DAILY_BRIEF_ENABLED is exactly "false". */
 export function dailyBriefEnabled() {
-  return process.env.NEXT_PUBLIC_DAILY_BRIEF_ENABLED === "true";
+  return process.env.NEXT_PUBLIC_DAILY_BRIEF_ENABLED !== "false";
 }

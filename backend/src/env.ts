@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { parseDailyBriefEnabled } from "./daily-brief-flag.js";
+import { parseSafetyNumbersEnabled } from "./safety-numbers.js";
 import { assertProductionCookieSecure, parseTrustProxy } from "./security-config.js";
 
 const optionalEnvironmentValue = z.preprocess(
@@ -65,14 +67,24 @@ const envSchema = z.object({
     .default("false")
     .transform((value) => value === "true"),
   /**
-   * Manager daily brief. Default OFF. Reads connected mail and calendar
-   * mirrors only. Suggested sends and calendar changes still require the
-   * existing approval path. See docs/daily-brief.md.
+   * Manager daily brief. On unless the value is exactly "false".
+   * Reads connected mail and calendar mirrors only. Suggested sends and
+   * calendar changes still require the existing approval path.
+   * See docs/daily-brief.md.
    */
-  DAILY_BRIEF_ENABLED: z
-    .enum(["true", "false"])
-    .default("false")
-    .transform((value) => value === "true"),
+  DAILY_BRIEF_ENABLED: z.preprocess(
+    (value) => parseDailyBriefEnabled(value),
+    z.boolean(),
+  ),
+  /**
+   * Public identity-key directory used for safety numbers. On unless the
+   * value is exactly "false". The route returns no private keys and does
+   * not consume one-time prekeys.
+   */
+  SAFETY_NUMBERS_ENABLED: z.preprocess(
+    (value) => parseSafetyNumbersEnabled(value),
+    z.boolean(),
+  ),
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   /** Hosted Sophia model. Both key and HTTPS base URL are required before any call. */
   SOPHIA_MODEL_API_KEY: optionalEnvironmentValue,
@@ -339,5 +351,8 @@ export const integrationsWriteAllowlist = env.INTEGRATIONS_WRITE_ALLOWLIST
 /** Small-group MLS delivery. Default false. See docs/group-e2ee.md. */
 export const groupE2eeEnabled = env.GROUP_E2EE_ENABLED;
 
-/** Manager daily brief. Default false. See docs/daily-brief.md. */
+/** Manager daily brief. On unless DAILY_BRIEF_ENABLED is exactly "false". */
 export const dailyBriefEnabled = env.DAILY_BRIEF_ENABLED;
+
+/** Safety-number identity directory. On unless SAFETY_NUMBERS_ENABLED is "false". */
+export const safetyNumbersEnabled = env.SAFETY_NUMBERS_ENABLED;

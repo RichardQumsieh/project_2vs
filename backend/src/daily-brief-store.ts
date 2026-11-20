@@ -133,13 +133,13 @@ export function createPrismaDailyBriefRepository(): DailyBriefRepository {
       const local = zonedParts(now, preference.timeZone);
       const bounds = localDayBounds(local.date, preference.timeZone);
       const since = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-      const [events, messages] = await Promise.all([
+      const [events, messages, connected] = await Promise.all([
         prisma.calendarEventMirror.findMany({
           where: {
             ownerUserId: userId,
             startsAt: { lt: bounds.end },
             endsAt: { gt: bounds.start },
-            connection: { provider: { in: calendarProviders } },
+            connection: { status: "CONNECTED", provider: { in: calendarProviders } },
           },
           include: { connection: { select: { provider: true } } },
           orderBy: { startsAt: "asc" },
@@ -149,15 +149,28 @@ export function createPrismaDailyBriefRepository(): DailyBriefRepository {
           where: {
             ownerUserId: userId,
             receivedAt: { gte: since },
-            connection: { provider: { in: mailProviders } },
+            connection: { status: "CONNECTED", provider: { in: mailProviders } },
           },
           include: { connection: { select: { provider: true } } },
           orderBy: { receivedAt: "desc" },
           take: 40,
         }),
+        prisma.integrationConnection.findMany({
+          where: {
+            ownerUserId: userId,
+            status: "CONNECTED",
+            provider: { in: [...calendarProviders, ...mailProviders] },
+          },
+          select: { provider: true },
+        }),
       ]);
+      const connections = {
+        mail: connected.some((row) => mailProvider(row.provider) !== null),
+        calendar: connected.some((row) => calendarProvider(row.provider) !== null),
+      };
       return {
-        calendar: events.flatMap((event) => {
+        connections,
+        calendar: connections.calendar ? events.flatMap((event) => {
           const provider = calendarProvider(event.connection.provider);
           if (!provider) return [];
           return [{
@@ -170,8 +183,8 @@ export function createPrismaDailyBriefRepository(): DailyBriefRepository {
             allDay: event.allDay,
             busy: event.busy,
           }];
-        }),
-        mail: messages.flatMap((message) => {
+        }) : [],
+        mail: connections.mail ? messages.flatMap((message) => {
           const provider = mailProvider(message.connection.provider);
           if (!provider) return [];
           return [{
@@ -182,7 +195,7 @@ export function createPrismaDailyBriefRepository(): DailyBriefRepository {
             snippet: message.snippet,
             receivedAt: message.receivedAt.toISOString(),
           }];
-        }),
+        }) : [],
       };
     },
   };

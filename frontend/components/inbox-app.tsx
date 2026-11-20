@@ -103,6 +103,8 @@ import {
 import { SophiaCommandHints } from "@/components/sophia-command-hints";
 import { ThreadMessageList } from "@/components/thread-message-list";
 import { emailApiPayload, type InboxActivityView } from "@/lib/inbox-activity";
+import { inboxHubHref, type InboxHub } from "@/lib/inbox-hub";
+import { InboxHubNav } from "@/components/inbox-hub-nav";
 import {
   SophiaApproveSuccess,
   SophiaProposalCard,
@@ -215,23 +217,38 @@ import { CallProvider, useCallControls } from "@/components/call-provider";
 
 const emptyLocalMessages: LocalMessage[] = [];
 
-export function InboxShell({ children }: { children?: React.ReactNode }) {
+export function InboxShell({
+  children,
+  hub = "chats",
+  mailView = "agenda",
+}: {
+  children?: React.ReactNode;
+  hub?: InboxHub;
+  mailView?: InboxActivityView;
+}) {
   const router = useRouter();
   const { t } = useI18n();
   const activeConversationId = useParams<{ id?: string }>().id;
-  const [homeView, setHomeView] = useState<InboxActivityView>("agenda");
-  const [homeActivityOpen, setHomeActivityOpen] = useState(false);
+  const [homeView, setHomeView] = useState<InboxActivityView>(mailView);
+  const [mailViewSeen, setMailViewSeen] = useState(mailView);
+  if (mailView !== mailViewSeen) {
+    setMailViewSeen(mailView);
+    setHomeView(mailView);
+  }
   const [composeRequest, setComposeRequest] = useState(0);
   const setHomeActivityView = useCallback((view: InboxActivityView) => {
     setHomeView(view);
-    setHomeActivityOpen(true);
     if (view === "email") {
       setComposeRequest((current) => current + 1);
     }
-  }, []);
+    const href = inboxHubHref("mail", view);
+    if (`${window.location.pathname}${window.location.search}` !== href) {
+      router.replace(href);
+    }
+  }, [router]);
   const closeHomeActivity = useCallback(() => {
-    setHomeActivityOpen(false);
-  }, []);
+    router.push(inboxHubHref("chats"));
+  }, [router]);
   const queryClient = useQueryClient();
   const [unlockedUserId, setUnlockedUserId] = useState<string | null>(() =>
     isUnlocked() ? currentUserId() : null,
@@ -504,13 +521,14 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
     <InboxActivityState
       view={homeView}
       setView={setHomeActivityView}
-      mobileOpen={homeActivityOpen}
+      mobileOpen={hub === "mail"}
       closeMobile={closeHomeActivity}
       composeRequest={composeRequest}
     >
     <main
       className="inbox-shell inbox-shell--pro"
-      data-pane={activeConversationId || homeActivityOpen ? "detail" : "list"}
+      data-hub={hub}
+      data-pane={activeConversationId || hub !== "chats" ? "detail" : "list"}
     >
       {pendingHistoryRecoveryCode ? (
         <div
@@ -645,35 +663,45 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
           </Link>
         </div>
 
+        <InboxHubNav hub={activeConversationId ? "chats" : hub} className="inbox-hub-nav inbox-hub-nav--sidebar" />
+
         <div className="grid grid-cols-2 gap-2">
           <Button
-            type="button"
+            asChild
             size="sm"
-            variant={homeActivityOpen && homeView === "email" ? "default" : "outline"}
+            variant={hub === "mail" && homeView === "email" ? "default" : "outline"}
             className="gap-1.5"
-            onClick={() => setHomeActivityView("email")}
           >
-            <Mail aria-hidden="true" className="size-3.5" />
-            {t("inbox.compose")}
+            <Link
+              href={inboxHubHref("mail", "email")}
+              onClick={() => {
+                setHomeView("email");
+                setComposeRequest((current) => current + 1);
+              }}
+            >
+              <Mail aria-hidden="true" className="size-3.5" />
+              {t("inbox.compose")}
+            </Link>
           </Button>
           <Button
-            type="button"
+            asChild
             size="sm"
-            variant={homeActivityOpen && homeView === "event" ? "default" : "outline"}
+            variant={hub === "mail" && homeView === "event" ? "default" : "outline"}
             className="gap-1.5"
-            onClick={() => setHomeActivityView("event")}
           >
-            <Calendar aria-hidden="true" className="size-3.5" />
-            {t("inbox.schedule")}
+            <Link href={inboxHubHref("mail", "event")} onClick={() => setHomeView("event")}>
+              <Calendar aria-hidden="true" className="size-3.5" />
+              {t("inbox.schedule")}
+            </Link>
           </Button>
         </div>
-        <button
-          type="button"
+        <Link
+          href={inboxHubHref("mail")}
           className="text-start text-xs text-white/55 underline underline-offset-2 hover:text-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
-          onClick={() => setHomeActivityView("agenda")}
+          onClick={() => setHomeView("agenda")}
         >
           {t("inbox.recent")}
-        </button>
+        </Link>
 
         <form
           className="flex gap-2"
@@ -775,6 +803,10 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
       <section className="inbox-stage">
         {children}
       </section>
+      <InboxHubNav
+        hub={activeConversationId ? "chats" : hub}
+        className="inbox-hub-nav inbox-hub-nav--bottom"
+      />
     </main>
     </InboxActivityState>
     </CallProvider>

@@ -1,6 +1,8 @@
 import { resolveApiUrl } from "./api-url";
-import type { DailyBriefDocument } from "./daily-brief/types";
+import type { DailyBriefResponse } from "./daily-brief/types";
 import { assertGroupE2eeEnabled } from "./group-e2ee-flag";
+import { assertSafetyNumbersEnabled } from "./safety-numbers-flag";
+import type { IdentityDirectory } from "./crypto/safety-view";
 import type { OutboundEmailAttachment } from "./email-attachments";
 
 const API_URL = resolveApiUrl();
@@ -493,6 +495,13 @@ export const api = {
     request<{
       conversations: Conversation[];
     }>("/conversations"),
+
+  identityKeys: (conversationId: string) => {
+    assertSafetyNumbersEnabled();
+    return request<IdentityDirectory>(
+      `/conversations/${encodeURIComponent(conversationId)}/identity-keys`,
+    );
+  },
 
   createDirect: (
     username: string,
@@ -1374,45 +1383,17 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  dailyBrief: () =>
-    request<{
-      enabled: true;
-      preference: {
-        briefTime: string;
-        language: "en" | "ar";
-        timeZone: string;
-      };
-      brief: DailyBriefDocument | null;
-      pendingReason: "before_brief_time" | null;
-    }>("/daily-brief"),
+  dailyBrief: () => request<DailyBriefResponse>("/daily-brief"),
 
   generateDailyBrief: () =>
-    request<{
-      enabled: true;
-      preference: {
-        briefTime: string;
-        language: "en" | "ar";
-        timeZone: string;
-      };
-      brief: DailyBriefDocument | null;
-      pendingReason: "before_brief_time" | null;
-    }>("/daily-brief", { method: "POST" }),
+    request<DailyBriefResponse>("/daily-brief", { method: "POST" }),
 
   saveDailyBriefPreference: (body: {
     briefTime: string;
     language: "en" | "ar";
     timeZone: string;
   }) =>
-    request<{
-      enabled: true;
-      preference: {
-        briefTime: string;
-        language: "en" | "ar";
-        timeZone: string;
-      };
-      brief: DailyBriefDocument | null;
-      pendingReason: "before_brief_time" | null;
-    }>("/daily-brief/preferences", {
+    request<DailyBriefResponse>("/daily-brief/preferences", {
       method: "PUT",
       body: JSON.stringify(body),
     }),

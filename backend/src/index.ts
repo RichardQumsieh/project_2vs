@@ -13,6 +13,7 @@ import { authRoutes } from "./routes/auth.js";
 import { deviceRoutes } from "./routes/devices.js";
 import { conversationRoutes } from "./routes/conversations.js";
 import { groupRoutes } from "./routes/groups.js";
+import { safetyNumberRoutes } from "./routes/safety-numbers.js";
 import { researchRoutes } from "./routes/research.js";
 import { urlSafetyRoutes } from "./routes/url-safety.js";
 import { registerCallIceServerRoute } from "./call-signaling.js";
@@ -79,7 +80,10 @@ app.get("/health", async (request) => ({
   cookieHttpOnly: true,
   cookieSameSite: authCookieSameSite(),
   groupE2ee: env.GROUP_E2EE_ENABLED,
+  // true unless DAILY_BRIEF_ENABLED is exactly "false".
   dailyBrief: env.DAILY_BRIEF_ENABLED,
+  // true unless SAFETY_NUMBERS_ENABLED is exactly "false".
+  safetyNumbers: env.SAFETY_NUMBERS_ENABLED,
   trustProxy: trustProxy === false ? "disabled" : "restricted",
   hsts: request.protocol === "https" ? "enabled" : "off",
 }));
@@ -104,6 +108,7 @@ await app.register(authRoutes);
 await app.register(deviceRoutes);
 await app.register(conversationRoutes);
 await app.register(groupRoutes);
+await app.register(safetyNumberRoutes);
 await app.register(mediaRoutes);
 await app.register(discoveryRoutes);
 await app.register(researchRoutes);

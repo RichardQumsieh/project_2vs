@@ -95,6 +95,17 @@ for (const locale of locales) {
     expect(writes).toEqual([]);
     await expectNoHorizontalOverflow(page);
   });
+
+  test(`an empty inbox asks to connect mail in ${locale.id}`, async ({ page }) => {
+    await openLocale(page, "/preview/brief?disconnected=1", locale.id);
+    const title = locale.id === "ar" ? "وصّل البريد والتقويم" : "Connect mail and calendar";
+    const link = locale.id === "ar" ? "فتح الربط" : "Open integrations";
+    await expect(page.getByRole("region", { name: title })).toBeVisible();
+    await expect(page.getByRole("link", { name: link })).toHaveAttribute("href", "/settings/integrations");
+    await expect(page.getByText(locale.id === "ar" ? "ما قدرنا نحمّل الموجز." : "The brief could not be loaded.")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: locale.meetings })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+  });
 }
 
 test("the signed-in brief route asks for login when the session is missing", async ({ page }) => {

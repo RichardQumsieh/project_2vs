@@ -1,4 +1,5 @@
 import {
+  briefConnectionsMissing,
   briefIsDue,
   briefLogFields,
   composeDailyBrief,
@@ -10,6 +11,8 @@ import {
   type BriefSource,
   type DailyBriefDocument,
 } from "./daily-brief.js";
+
+export type BriefPendingReason = "before_brief_time" | "not_connected";
 
 export type StoredBrief = {
   id: string;
@@ -48,7 +51,7 @@ export type BriefServiceSuccess = {
     enabled: true;
     preference: BriefPreference;
     brief: DailyBriefDocument | null;
-    pendingReason: "before_brief_time" | null;
+    pendingReason: BriefPendingReason | null;
   };
 };
 
@@ -79,9 +82,11 @@ async function generate(input: {
   preference: BriefPreference;
   assistant: BriefAssistant;
   sourceKind: "morning" | "on_demand";
+  source?: BriefSource;
   recordActivity?: BriefActivity;
-}) {
-  const source = await input.repo.loadSources(input.userId, input.now, input.preference);
+}): Promise<DailyBriefDocument | "not_connected"> {
+  const source = input.source ?? await input.repo.loadSources(input.userId, input.now, input.preference);
+  if (briefConnectionsMissing(source)) return "not_connected";
   const document = await composeDailyBrief({
     now: input.now,
     preference: input.preference,
@@ -122,6 +127,19 @@ export async function readDailyBrief(input: {
       },
     };
   }
+  const source = await input.repo.loadSources(input.userId, input.now, preference);
+  if (briefConnectionsMissing(source)) {
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        enabled: true,
+        preference,
+        brief: null,
+        pendingReason: "not_connected",
+      },
+    };
+  }
   if (!briefIsDue({
     now: input.now,
     timeZone: preference.timeZone,
@@ -146,8 +164,21 @@ export async function readDailyBrief(input: {
     preference,
     assistant: input.assistant,
     sourceKind: "morning",
+    source,
     recordActivity: input.recordActivity,
   });
+  if (brief === "not_connected") {
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        enabled: true,
+        preference,
+        brief: null,
+        pendingReason: "not_connected",
+      },
+    };
+  }
   return {
     ok: true,
     status: 200,
@@ -174,6 +205,18 @@ export async function generateDailyBriefNow(input: {
     sourceKind: "on_demand",
     recordActivity: input.recordActivity,
   });
+  if (brief === "not_connected") {
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        enabled: true,
+        preference,
+        brief: null,
+        pendingReason: "not_connected",
+      },
+    };
+  }
   return {
     ok: true,
     status: 200,
@@ -195,8 +238,15 @@ export async function saveDailyBriefPreference(input: {
   }
   const preference = await input.repo.savePreference(input.userId, parsed.preference);
   await input.recordActivity?.("Updated the daily brief schedule", "SETTING_CHANGED");
-  const local = zonedParts(new Date(), preference.timeZone);
+  const now = new Date();
+  const local = zonedParts(now, preference.timeZone);
   const existing = await input.repo.findBrief(input.userId, local.date);
+  const source = existing ? null : await input.repo.loadSources(input.userId, now, preference);
+  const pendingReason = existing
+    ? null
+    : source && briefConnectionsMissing(source)
+      ? "not_connected"
+      : "before_brief_time";
   return {
     ok: true,
     status: 200,
@@ -204,7 +254,7 @@ export async function saveDailyBriefPreference(input: {
       enabled: true,
       preference,
       brief: existing?.document ?? null,
-      pendingReason: existing ? null : "before_brief_time",
+      pendingReason,
     },
   };
 }
@@ -235,15 +285,25 @@ export async function runDueDailyBriefs(input: {
         skipped += 1;
         continue;
       }
+      const source = await input.repo.loadSources(candidate.userId, input.now, candidate.preference);
+      if (briefConnectionsMissing(source)) {
+        skipped += 1;
+        continue;
+      }
       const assistant = await input.assistantFor(candidate.userId);
-      await generate({
+      const brief = await generate({
         repo: input.repo,
         userId: candidate.userId,
         now: input.now,
         preference: candidate.preference,
         assistant,
         sourceKind: "morning",
+        source,
       });
+      if (brief === "not_connected") {
+        skipped += 1;
+        continue;
+      }
       await input.recordActivity?.(candidate.userId);
       prepared += 1;
     } catch {

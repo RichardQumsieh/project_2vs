@@ -137,7 +137,10 @@ export async function dailyBriefRoutes(app: FastifyInstance) {
       if (result.ok && result.body.brief) {
         request.log.info(publicBriefLog(result.body.brief), "daily brief");
       } else {
-        request.log.info({ dailyBrief: true, outcome: result.ok ? "empty" : result.code }, "daily brief");
+        request.log.info({
+          dailyBrief: true,
+          outcome: result.ok ? (result.body.pendingReason ?? "empty") : result.code,
+        }, "daily brief");
       }
       return sendResult(reply, result);
     } catch {
@@ -169,6 +172,11 @@ export async function dailyBriefRoutes(app: FastifyInstance) {
         });
         if (result.ok && result.body.brief) {
           request.log.info(publicBriefLog(result.body.brief), "daily brief");
+        } else {
+          request.log.info({
+            dailyBrief: true,
+            outcome: result.ok ? (result.body.pendingReason ?? "empty") : result.code,
+          }, "daily brief");
         }
         return sendResult(reply, result);
       } catch {

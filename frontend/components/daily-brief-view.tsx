@@ -5,7 +5,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { briefCopy } from "@/lib/daily-brief/copy";
 import { formatBriefWhen } from "@/lib/daily-brief/format";
-import type { BriefPreference, BriefSuggestedAction, DailyBriefDocument } from "@/lib/daily-brief/types";
+import type { BriefPendingReason, BriefPreference, BriefSuggestedAction, DailyBriefDocument } from "@/lib/daily-brief/types";
 import { LtrIsolate } from "@/lib/i18n/bidi";
 import { useI18n } from "@/lib/i18n/locale";
 
@@ -29,7 +29,7 @@ export function DailyBriefView({
 }: {
   preference: BriefPreference;
   brief: DailyBriefDocument | null;
-  pendingReason: "before_brief_time" | null;
+  pendingReason: BriefPendingReason | null;
   status: string | null;
   error: string | null;
   busy: boolean;
@@ -69,7 +69,7 @@ export function DailyBriefView({
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col gap-4 px-4 py-4 pb-10">
       <header className="flex flex-wrap items-center gap-2">
-        <Link href="/inbox" className="min-h-11 rounded-full px-1 text-sm text-(--muted)">
+        <Link href="/inbox?hub=mail" className="min-h-11 rounded-full px-1 text-sm text-(--muted)">
           {text("back")}
         </Link>
         <h1 className="min-w-0 flex-1 text-2xl font-semibold tracking-tight">{text("title")}</h1>
@@ -216,6 +216,14 @@ export function DailyBriefView({
             )}
           </section>
         </article>
+      ) : pendingReason === "not_connected" ? (
+        <section className={card} aria-labelledby="brief-connect">
+          <h2 id="brief-connect" className="text-base font-semibold">{text("connectTitle")}</h2>
+          <p className="mt-2 text-sm leading-6">{text("connectBody")}</p>
+          <Link href="/settings/integrations" className={`${button} mt-4`}>
+            {text("connectLink")}
+          </Link>
+        </section>
       ) : (
         <p className={`${card} text-sm leading-6`}>
           {pendingReason === "before_brief_time"

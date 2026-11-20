@@ -9,12 +9,14 @@ describe("daily brief flag", () => {
     else process.env.NEXT_PUBLIC_DAILY_BRIEF_ENABLED = previous;
   });
 
-  it("stays off unless the public flag is exactly true", () => {
+  it("stays on unless the public flag is exactly false", () => {
     delete process.env.NEXT_PUBLIC_DAILY_BRIEF_ENABLED;
-    expect(dailyBriefEnabled()).toBe(false);
-    process.env.NEXT_PUBLIC_DAILY_BRIEF_ENABLED = "false";
-    expect(dailyBriefEnabled()).toBe(false);
+    expect(dailyBriefEnabled()).toBe(true);
+    process.env.NEXT_PUBLIC_DAILY_BRIEF_ENABLED = "";
+    expect(dailyBriefEnabled()).toBe(true);
     process.env.NEXT_PUBLIC_DAILY_BRIEF_ENABLED = "true";
     expect(dailyBriefEnabled()).toBe(true);
+    process.env.NEXT_PUBLIC_DAILY_BRIEF_ENABLED = "false";
+    expect(dailyBriefEnabled()).toBe(false);
   });
 });
