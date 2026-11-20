@@ -4,14 +4,14 @@ Sophia encrypts each direct message to every active device, and each device has 
 
 This is the check a family or a company can actually do before they trust a new laptop. It does not fix a stalled MLS group, and it does not make a modified copy of the app honest. Those limits are below.
 
-The feature is off unless both flags are exactly `true`.
+The feature is on unless a flag is exactly `false`. Unset, empty, and `true` all leave it on.
 
-| Variable | Where | Effect |
+| Variable | Where | Effect when exactly `false` |
 | --- | --- | --- |
 | `SAFETY_NUMBERS_ENABLED` | API | `503 safety_numbers_disabled` on `GET /conversations/:id/identity-keys` |
 | `NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED` | Web client | Settings → Security hides the panel. The client does not call the directory. |
 
-`GET /health` reports `safetyNumbers` so an operator can see the API switch. Production Compose and the production image default both flags to false. Turning the client flag on requires restarting `next dev` or rebuilding the image, because Next inlines `NEXT_PUBLIC_*` at start.
+`GET /health` reports `safetyNumbers`. That value is `true` unless the API flag is exactly `false`. Production Compose and the production image default both flags to on. Changing the client flag requires restarting `next dev` or rebuilding the image, because Next inlines `NEXT_PUBLIC_*` at start.
 
 No database migration. The route reads devices and membership that already exist.
 
@@ -40,14 +40,15 @@ The QR payload is `sophia-safety-number/v1:` plus the 60 digits. It is not a key
 - It is not a backup and it does not recover history. A new device still needs the history recovery code for old archive messages, and that new device changes the safety number.
 - Lost verification state in this browser does not delete messages. The next visit starts from Not checked again only if the saved record is gone. If the record is still there and the keys match, verified stays.
 
-## Enable it for a design partner
+## Turn it off
 
-1. In the API environment (`backend/.env`, or the repo-root `.env` that Compose interpolates), set `SAFETY_NUMBERS_ENABLED=true`.
-2. In the environment that starts Next, set `NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED=true`. For Compose, that is the repo-root `.env`. For `npm run dev` inside `frontend/`, put it in `frontend/.env.local`.
+Safety numbers are already on. To hide them:
+
+1. Set `SAFETY_NUMBERS_ENABLED=false` in the API environment (`backend/.env`, or the repo-root `.env` that Compose interpolates).
+2. Set `NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED=false` where Next starts. For Compose, that is the repo-root `.env`. For `npm run dev` inside `frontend/`, put it in `frontend/.env.local`.
 3. Restart the API and the Next process. Recreate the containers if you use Compose. A production image has to be rebuilt so the client flag is inlined.
-4. Sign in, open Settings → Security, and compare a number with the other account. `GET /health` should show `"safetyNumbers": true`.
 
-To turn it off, set both flags back to `false` and restart. The API then returns 503 and does not list the directory. Pending local verified bits stay in the browser and are unused until the flags are on again.
+`GET /health` then shows `"safetyNumbers": false`, and the API returns 503 without listing the directory. Pending local verified bits stay in the browser and are unused until the flags are on again. Delete the variables, or set them to anything other than `false`, to turn the check back on. Sign in and open Settings → Security to compare a number.
 
 ## Tests
 

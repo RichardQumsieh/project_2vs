@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   buildIdentityDirectory,
   gateSafetyNumbers,
+  parseSafetyNumbersEnabled,
   type SafetyDirectoryDevice,
   type SafetyDirectoryMember,
 } from "../src/safety-numbers.js";
@@ -41,6 +42,13 @@ function device(userId: string, id: string, byte: number): SafetyDirectoryDevice
 }
 
 describe("safety number directory", () => {
+  it("stays on unless the flag is exactly false", () => {
+    assert.equal(parseSafetyNumbersEnabled(undefined), true);
+    assert.equal(parseSafetyNumbersEnabled(""), true);
+    assert.equal(parseSafetyNumbersEnabled("true"), true);
+    assert.equal(parseSafetyNumbersEnabled("false"), false);
+  });
+
   it("stays disabled unless the feature flag is on", () => {
     const disabled = gateSafetyNumbers(false);
     assert.equal(disabled.ok, false);

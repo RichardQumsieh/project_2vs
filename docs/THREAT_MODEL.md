@@ -63,7 +63,7 @@ The browser is inside the trust boundary:
 
 WebRTC and geolocation need the page to be a secure context in production. Opening a shared location in OpenStreetMap sends coordinates to that provider. The app does not load map tiles by itself.
 
-When `SAFETY_NUMBERS_ENABLED` and `NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED` are both exactly `true`, Settings → Security loads the public identity and signing keys of devices in conversations this account belongs to and hashes them into a safety number on the device. The verified bit stays in this browser. The server does not learn whether a number was compared. A modified frontend can hide a key-change warning; the comparison only helps while the app is the honest client. The flags are unset or false in production, so the directory route stays closed. See [Safety numbers](safety-numbers.md).
+Settings → Security loads the public identity and signing keys of devices in conversations this account belongs to and hashes them into a safety number on the device. The check stays on unless `SAFETY_NUMBERS_ENABLED` or `NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED` is exactly `false`. `GET /health` reports `safetyNumbers` for the API flag. The verified bit stays in this browser. The server does not learn whether a number was compared. A modified frontend can hide a key-change warning; the comparison only helps while the app is the honest client. See [Safety numbers](safety-numbers.md).
 
 ## AI boundary
 

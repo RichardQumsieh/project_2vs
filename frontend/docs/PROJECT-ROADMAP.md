@@ -76,7 +76,7 @@ Status: IN PROGRESS
 - [ ] Session establishment
 - [ ] Ratchet state
 - [ ] Per-message encryption
-- [ ] Key verification — safety numbers and key-change review exist behind `SAFETY_NUMBERS_ENABLED` (default off; see `docs/safety-numbers.md`)
+- [ ] Key verification — safety numbers and key-change review are on unless `SAFETY_NUMBERS_ENABLED` is exactly `false` (see `docs/safety-numbers.md`)
 - [ ] Encrypted persistence
 - [ ] Security testing
 - [ ] Threat model review

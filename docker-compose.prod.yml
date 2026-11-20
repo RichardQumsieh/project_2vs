@@ -28,7 +28,7 @@ services:
       # (user id, username, or email) further limits that opt-in to one account.
       # The allowlist does nothing while the flag is false.
       INTEGRATIONS_WRITE_ENABLED: ${INTEGRATIONS_WRITE_ENABLED:-false}
-      SAFETY_NUMBERS_ENABLED: ${SAFETY_NUMBERS_ENABLED:-false}
+      SAFETY_NUMBERS_ENABLED: ${SAFETY_NUMBERS_ENABLED:-true}
       INTEGRATIONS_WRITE_ALLOWLIST: ${INTEGRATIONS_WRITE_ALLOWLIST:-}
       GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID-}
       GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET-}
@@ -56,6 +56,6 @@ services:
         # Optional default so API-only VM builds (`… build backend`) do not abort
         # when Compose still interpolates the frontend service block.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.sophia-build.com}
-        NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED: ${NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED:-false}
+        NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED: ${NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED:-true}
     environment: []
     volumes: []

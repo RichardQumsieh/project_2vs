@@ -51,7 +51,7 @@ services:
       COOKIE_NAME: messenger_session
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       GROUP_E2EE_ENABLED: ${GROUP_E2EE_ENABLED:-false}
-      SAFETY_NUMBERS_ENABLED: ${SAFETY_NUMBERS_ENABLED:-false}
+      SAFETY_NUMBERS_ENABLED: ${SAFETY_NUMBERS_ENABLED:-true}
     ports:
       - "127.0.0.1:3001:3001"
     volumes:
@@ -82,8 +82,8 @@ services:
       NEXT_PUBLIC_GROUP_E2EE_ENABLED: ${NEXT_PUBLIC_GROUP_E2EE_ENABLED:-false}
       # Adaptive appearance stays off unless this is exactly true.
       NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED: ${NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED:-false}
-      # Safety numbers stay off unless this is exactly true.
-      NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED: ${NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED:-false}
+      # Safety numbers stay on unless this is exactly false.
+      NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED: ${NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED:-true}
       WATCHPACK_POLLING: "true"
     ports:
       - "127.0.0.1:3000:3000"

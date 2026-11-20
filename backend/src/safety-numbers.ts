@@ -11,6 +11,14 @@ export type SafetyGateFailure = {
   code: "safety_numbers_disabled";
 };
 
+/**
+ * Safety numbers stay on unless the operator set the flag to the exact string "false".
+ * Unset, empty, and "true" all leave the directory available.
+ */
+export function parseSafetyNumbersEnabled(value: unknown): boolean {
+  return value !== "false";
+}
+
 export function gateSafetyNumbers(enabled: boolean): { ok: true } | SafetyGateFailure {
   if (!enabled) {
     return {

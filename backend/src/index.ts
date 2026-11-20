@@ -79,6 +79,7 @@ app.get("/health", async (request) => ({
   cookieHttpOnly: true,
   cookieSameSite: authCookieSameSite(),
   groupE2ee: env.GROUP_E2EE_ENABLED,
+  // true unless SAFETY_NUMBERS_ENABLED is exactly "false".
   safetyNumbers: env.SAFETY_NUMBERS_ENABLED,
   trustProxy: trustProxy === false ? "disabled" : "restricted",
   hsts: request.protocol === "https" ? "enabled" : "off",

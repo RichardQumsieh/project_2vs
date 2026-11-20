@@ -215,7 +215,7 @@ Future local-neural options were compared, but not added because native speech w
 
 ### Safety numbers
 
-Behind `SAFETY_NUMBERS_ENABLED` and `NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED` (both default off). Settings → Security can show a 60-digit safety number for each direct chat and each group, computed in the browser from the active device identity keys. The first time this browser sees a chat it is not a warning. A later change to those keys is. Marking a number verified stores that choice in this browser only. The API route returns public keys to conversation members and does not consume one-time prekeys. No database migration. Details: `docs/safety-numbers.md`.
+On unless `SAFETY_NUMBERS_ENABLED` or `NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED` is exactly `false`. Settings → Security shows a 60-digit safety number for each direct chat and each group, computed in the browser from the active device identity keys. The first time this browser sees a chat it is not a warning. A later change to those keys is. Marking a number verified stores that choice in this browser only. The API route returns public keys to conversation members and does not consume one-time prekeys. `GET /health` reports `safetyNumbers`. No database migration. Details: `docs/safety-numbers.md`.
 
 ## Security docs
 
