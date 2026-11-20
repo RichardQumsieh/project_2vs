@@ -12,6 +12,8 @@ import { ExperimentalBadge } from "@/components/experimental-badge";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { GroupThread, GroupUnavailable, NewGroupForm } from "@/components/group-thread";
+import { groupE2eeEnabled } from "@/lib/group-e2ee-flag";
 import { api } from "@/lib/api";
 import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
 import { localizedRuntimeMessage } from "@/lib/i18n/action-summary";
@@ -693,12 +695,15 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
           </Button>
         </form>
         {startError ? <p className="text-sm text-red-300">{startError}</p> : null}
+        {groupE2eeEnabled() ? <NewGroupForm /> : null}
         </div>
 
         <nav aria-label={t("inbox.conversations")} className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-3">
           {(conversations.data ?? []).map((conversation) => {
-            const label =
-              conversation.peer?.displayName ?? conversation.peer?.username ?? "Unknown";
+            const memberCount = conversation.members?.length ?? conversation.memberUserIds?.length ?? 0;
+            const label = conversation.type === "GROUP"
+              ? conversation.title?.trim() || t("group.fallbackTitle")
+              : conversation.peer?.displayName ?? conversation.peer?.username ?? t("inbox.unknown");
             const selected = conversation.id === activeConversationId;
             return (
             <Link
@@ -719,7 +724,13 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
               </span>
               <span className="min-w-0">
                 <p className="truncate text-sm font-medium tracking-tight"><BidiText>{label}</BidiText></p>
-                <p className="mt-0.5 truncate text-xs text-white/40"><LtrIsolate>@{conversation.peer?.username}</LtrIsolate></p>
+                <p className="mt-0.5 truncate text-xs text-white/40">
+                  {conversation.type === "GROUP" ? (
+                    <BidiText>{t("group.memberCount", { count: memberCount })}</BidiText>
+                  ) : conversation.peer?.username ? (
+                    <LtrIsolate>@{conversation.peer.username}</LtrIsolate>
+                  ) : null}
+                </p>
               </span>
             </Link>
             );
@@ -763,6 +774,24 @@ export function InboxShell({ children }: { children?: React.ReactNode }) {
 
 export function Thread() {
   const conversationId = useParams<{ id: string }>().id;
+  const { t } = useI18n();
+  const userId = currentUserId();
+  const conversations = useQuery({
+    queryKey: ["conversations", userId],
+    queryFn: async () => (await api.conversations()).conversations,
+    enabled: Boolean(userId),
+  });
+  if (userId && !conversations.data) {
+    return <p className="p-6 text-sm text-white/60">{t("group.loading")}</p>;
+  }
+  const conversation = conversations.data?.find((item) => item.id === conversationId);
+  if (conversation?.type === "GROUP") {
+    return (
+      <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
+        {groupE2eeEnabled() ? <GroupThread conversation={conversation} /> : <GroupUnavailable />}
+      </div>
+    );
+  }
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
       <ThreadConversation conversationId={conversationId} />

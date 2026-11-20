@@ -1,4 +1,5 @@
 import { resolveApiUrl } from "./api-url";
+import { assertGroupE2eeEnabled } from "./group-e2ee-flag";
 import type { OutboundEmailAttachment } from "./email-attachments";
 
 const API_URL = resolveApiUrl();
@@ -139,6 +140,14 @@ export type TotpSetup = {
 export type Conversation = {
   id: string;
   type: "DIRECT" | "GROUP";
+  title?: string | null;
+  memberUserIds?: string[];
+  members?: {
+    userId: string;
+    username: string;
+    displayName: string | null;
+    role: "ADMIN" | "MEMBER";
+  }[];
   updatedAt: string;
   peer: PublicUser | null;
   lastMessageAt: string | null;
@@ -489,6 +498,87 @@ export const api = {
         }),
       },
     ),
+
+  createGroup: (body: { memberUserIds?: string[]; memberUsernames?: string[]; title?: string }) => {
+    assertGroupE2eeEnabled();
+    return request<Conversation>("/conversations/group", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  addGroupMember: (
+    conversationId: string,
+    body: { userId?: string; username?: string; role?: "ADMIN" | "MEMBER" },
+  ) => {
+    assertGroupE2eeEnabled();
+    return request<{ ok: true; members: { userId: string; role: "ADMIN" | "MEMBER" }[] }>(
+      `/conversations/${encodeURIComponent(conversationId)}/members`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  },
+
+  removeGroupMember: (conversationId: string, userId: string) => {
+    assertGroupE2eeEnabled();
+    return request<{ ok: true; members: { userId: string; role: "ADMIN" | "MEMBER" }[] }>(
+      `/conversations/${encodeURIComponent(conversationId)}/members/${encodeURIComponent(userId)}`,
+      { method: "DELETE" },
+    );
+  },
+
+  groupDevices: (conversationId: string) => {
+    assertGroupE2eeEnabled();
+    return request<{
+      devices: {
+        userId: string;
+        deviceId: string;
+        signingPublicKey: string;
+        role: "admin" | "member";
+        username: string;
+        displayName: string | null;
+      }[];
+    }>(`/conversations/${encodeURIComponent(conversationId)}/group-devices`);
+  },
+
+  postGroupMls: (
+    conversationId: string,
+    body: {
+      senderDeviceId: string;
+      clientId?: string;
+      kind: "key_package" | "welcome" | "commit" | "proposal" | "application";
+      payload: string;
+      recipientDeviceId?: string;
+      bindingSignature?: string;
+    },
+  ) => {
+    assertGroupE2eeEnabled();
+    return request<{ id: string; kind: string; payload: string }>(
+      `/conversations/${encodeURIComponent(conversationId)}/mls`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  },
+
+  groupMls: (conversationId: string, deviceId: string, after?: string) => {
+    assertGroupE2eeEnabled();
+    return request<{
+      blobs: {
+        id: string;
+        clientId: string | null;
+        kind: "key_package" | "welcome" | "commit" | "proposal" | "application";
+        senderDeviceId: string;
+        recipientDeviceId: string | null;
+        payload: string;
+        bindingSignature: string | null;
+        createdAt: string;
+      }[];
+    }>(
+      `/conversations/${encodeURIComponent(conversationId)}/mls?${new URLSearchParams({
+        deviceId,
+        limit: "100",
+        ...(after ? { after } : {}),
+      })}`,
+    );
+  },
 
   messages: (
     conversationId: string,

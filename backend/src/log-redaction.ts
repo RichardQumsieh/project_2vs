@@ -53,6 +53,8 @@ function isSensitiveKey(key: string) {
     normalized === "query" ||
     normalized.includes("plaintext") ||
     normalized.includes("ciphertext") ||
+    normalized === "payload" ||
+    normalized.includes("keypackage") ||
     normalized.includes("password") ||
     normalized.includes("secret") ||
     normalized.includes("token") ||

@@ -12,6 +12,11 @@ enum ConversationType {
   GROUP
 }
 
+enum GroupMemberRole {
+  ADMIN
+  MEMBER
+}
+
 enum TaskStatus {
   OPEN
   DONE
@@ -202,6 +207,8 @@ model Device {
   sentMessages     Message[]
   receivedMessages Message[]       @relation("MessageRecipientDevice")
   backups          DeviceBackup[]
+  groupMlsBlobsSent     GroupMlsBlob[] @relation("GroupMlsBlobSender")
+  groupMlsBlobsReceived GroupMlsBlob[] @relation("GroupMlsBlobRecipient")
 
   @@index([userId])
 }
@@ -277,6 +284,8 @@ model Conversation {
 
   directKey         String? @unique
   initiatedByUserId String?
+  /// Display label for a GROUP. Not message contents.
+  title             String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -286,11 +295,36 @@ model Conversation {
   messageDeletions MessageDeletion[]
   archiveMessages AccountArchiveMessage[]
   media           MediaObject[]
+  groupMlsBlobs   GroupMlsBlob[]
+}
+
+/// Opaque MLS (RFC 9420) wire bytes for a small group.
+/// payload is ciphertext or a public key package. Never store plaintext here.
+model GroupMlsBlob {
+  id                String   @id @default(uuid())
+  conversationId    String
+  senderDeviceId    String
+  kind              String
+  recipientDeviceId String?
+  payload           Bytes
+  bindingSignature  Bytes?
+  /// Client idempotency key. A retry of the same upload returns the original row.
+  clientId          String?
+  createdAt         DateTime @default(now())
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderDevice    Device       @relation("GroupMlsBlobSender", fields: [senderDeviceId], references: [id])
+  recipientDevice Device?      @relation("GroupMlsBlobRecipient", fields: [recipientDeviceId], references: [id], onDelete: SetNull)
+
+  @@unique([conversationId, clientId])
+  @@index([conversationId, createdAt])
 }
 
 model ConversationMember {
   conversationId String
   userId         String
+  /// Used by GROUP conversations. DIRECT membership ignores it.
+  role           GroupMemberRole @default(MEMBER)
 
   joinedAt DateTime @default(now())
 

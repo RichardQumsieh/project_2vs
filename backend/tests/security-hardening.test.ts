@@ -204,6 +204,37 @@ test("decrypted chat plaintext does not reach server logs", async () => {
   assert.equal(output.includes(`token=${canary}`), false, output);
 });
 
+test("group MLS payload and plaintext do not reach server logs", async () => {
+  const { lines, stream } = captureStream();
+  const app = Fastify({
+    logger: { ...createLoggerOptions(), stream },
+    trustProxy: false,
+  });
+  const groupPlain = `group-plaintext-${canary}`;
+  const groupPayload = `mls-payload-${canary}`;
+  app.post("/conversations/:id/mls", async (request) => {
+    const body = request.body as { payload?: string; plaintext?: string };
+    request.log.info(
+      { accepted: true, payload: body.payload, plaintext: body.plaintext, body },
+      `stored group ${body.plaintext ?? ""} ${body.payload ?? ""}`,
+    );
+    return { ok: true };
+  });
+  const response = await app.inject({
+    method: "POST",
+    url: "/conversations/c/mls",
+    headers: { "content-type": "application/json" },
+    payload: { payload: groupPayload, plaintext: groupPlain },
+  });
+  assert.equal(response.statusCode, 200);
+  await app.close();
+  const output = lines.join("\n");
+  assert.ok(output.includes("\"accepted\":true"), output);
+  assert.equal(output.includes(canary), false, output);
+  assert.equal(output.includes("mls-payload-"), false, output);
+  assert.equal(output.includes("group-plaintext-"), false, output);
+});
+
 test("message submissions cannot carry a decrypted plaintext field", () => {
   const senderDeviceId = "11111111-1111-4111-8111-111111111111";
   const legacy = sendMessageSchema.safeParse({

@@ -205,6 +205,37 @@ export const createDirectSchema = z.object({
   username: z.string().min(3).max(24),
 });
 
+const groupUsernameSchema = z.string().trim().min(3).max(24).regex(/^[a-zA-Z0-9_]+$/).toLowerCase();
+
+export const createGroupSchema = z.object({
+  memberUserIds: z.array(z.string().uuid()).max(8).optional(),
+  memberUsernames: z.array(groupUsernameSchema).max(8).optional(),
+  title: z.string().trim().min(1).max(80).optional(),
+}).strict();
+
+export const addGroupMemberSchema = z.object({
+  userId: z.string().uuid().optional(),
+  username: groupUsernameSchema.optional(),
+  role: z.enum(["ADMIN", "MEMBER"]).optional(),
+}).strict().refine((body) => Boolean(body.userId) !== Boolean(body.username), {
+  message: "Provide a user id or a username",
+});
+
+export const postGroupMlsBlobSchema = z.object({
+  senderDeviceId: z.string().uuid(),
+  clientId: z.string().uuid().optional(),
+  kind: z.enum(["key_package", "welcome", "commit", "proposal", "application"]),
+  payload: z.string().min(1).max(350_000),
+  recipientDeviceId: z.string().uuid().optional(),
+  bindingSignature: z.string().min(1).max(128).optional(),
+}).strict();
+
+export const listGroupMlsQuery = z.object({
+  deviceId: z.string().uuid(),
+  after: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+}).strict();
+
 export const updateProfileSchema = z.object({
   interests: z.array(
     z.string().trim().min(1).max(40).transform((interest) =>

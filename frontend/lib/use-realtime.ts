@@ -30,7 +30,8 @@ export function useRealtime(unlocked: boolean, userId: string | null) {
               conversationId: string;
               logicalMessageId: string;
               messageRecordIds: string[];
-            };
+            }
+          | { type: "group_mls"; conversationId: string };
         if (payload.type === "message_deleted") {
           await applyRemoteMessageDeletion(
             payload.conversationId,
@@ -48,6 +49,12 @@ export function useRealtime(unlocked: boolean, userId: string | null) {
               queryKey: ["local-messages", userId, payload.conversationId],
             }),
           ]);
+          return;
+        }
+        if (payload.type === "group_mls") {
+          await queryClient.invalidateQueries({
+            queryKey: ["group-sync", payload.conversationId],
+          });
           return;
         }
         if (payload.type !== "message") return;

@@ -13,6 +13,8 @@ describe("locale catalog", () => {
     expect(translate("ar", "inbox.title")).not.toBe(en["inbox.title"]);
     expect(translate("ar", "approval.required")).not.toBe(en["approval.required"]);
     expect(translate("ar", "settings.title")).toBe("الإعدادات");
+    expect(translate("ar", "group.leave")).toMatch(/\p{Script=Arabic}/u);
+    expect(translate("ar", "group.memberCount", { count: 3 })).toBe("3 أعضاء");
     expect(translate("en", "auth.stepOf", { step: 2, total: 4 })).toBe("Step 2 of 4");
     expect(translate("ar", "auth.stepOf", { step: 1, total: 4 })).toContain("1");
   });
