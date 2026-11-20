@@ -462,6 +462,51 @@ export const recordActivitySchema = z.object({
   subjectId: z.string().trim().min(1).max(80).optional(),
 }).strict();
 
+export const createWorkspaceSchema = z.object({
+  name: z.string().trim().min(2).max(60),
+  kind: z.enum(["FAMILY", "TEAM"]),
+}).strict();
+
+export const createWorkspaceInviteSchema = z.object({
+  expiresInHours: z.number().int().min(1).max(24 * 14).optional(),
+}).strict();
+
+export const redeemWorkspaceInviteSchema = z.object({
+  code: z.string().trim().min(8).max(32),
+}).strict();
+
+export const previewWorkspaceInviteQuery = z.object({
+  code: z.string().trim().min(8).max(64),
+}).strict();
+
+export const updateWorkspaceRoleSchema = z.object({
+  role: z.enum(["OWNER", "ADMIN", "MEMBER"]),
+}).strict();
+
+export const workspaceDirectoryQuery = z.object({
+  q: z.string().trim().max(40).optional(),
+}).strict();
+
+export const workspaceDirectSchema = z.object({
+  username: z.string().trim().min(3).max(24).regex(/^[a-zA-Z0-9_]+$/).toLowerCase(),
+}).strict();
+
+export const workspaceGroupSchema = z.object({
+  title: z.string().trim().min(1).max(80).optional(),
+  memberUserIds: z.array(z.string().uuid()).max(8).default([]),
+}).strict();
+
+export const workspaceCheckoutSchema = z.object({
+  planId: z.enum(["FREE_FAMILY", "FAMILY_PLUS", "TEAM"]),
+  seatQuantity: z.number().int().min(1).max(50).optional(),
+}).strict();
+
+export const designPartnerSchema = z.object({
+  email: z.string().trim().email().max(200),
+  locale: z.enum(["en", "ar"]).optional(),
+  note: z.string().trim().max(280).optional(),
+}).strict();
+
 export const createAiConsentSchema = z.object({
   scope: z.enum(["CLOUD_AI", "CONVERSATION_ANALYSIS"]),
   conversationId: z.string().uuid().optional(),

@@ -21,6 +21,8 @@ The model, when it is used, receives the brief facts (titles, subjects, and sugg
 
 The brief is on unless a flag is exactly `false`. Unset, empty, and `true` all leave it on. `GET /health` reports `dailyBrief` the same way.
 
+A person who has not joined a workspace keeps that default. After they belong to a workspace, the brief is included only on an entitled Team plan. Family plans do not include it. See [workspaces.md](workspaces.md). `GET /daily-brief` then returns 402 `daily_brief_plan` and does not call a model.
+
 | Variable | Where | Effect when exactly `false` |
 | --- | --- | --- |
 | `DAILY_BRIEF_ENABLED` | API | `GET /daily-brief`, `POST /daily-brief`, and `PUT /daily-brief/preferences` stay closed. The morning pass does not run. |

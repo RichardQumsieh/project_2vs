@@ -1,6 +1,7 @@
 import type { AccountActivityAction } from "@prisma/client";
 import { sanitizeActivityWrite } from "./account-activity.js";
 import { prisma } from "./db.js";
+import { workspaceAuditEvents } from "./workspace-activity.js";
 
 export async function tryRecordAccountActivity(input: {
   ownerUserId: string;
@@ -27,5 +28,16 @@ export async function tryRecordAccountActivity(input: {
     });
   } catch {
     // A failed activity write must not block sign-in or an already approved action.
+  }
+}
+
+/** Server-only workspace audit. The actor can differ from the log owner. */
+export async function tryRecordWorkspaceActivity(input: Parameters<typeof workspaceAuditEvents>[0]) {
+  const built = workspaceAuditEvents(input);
+  if (!built.ok) return;
+  try {
+    await prisma.accountActivityEvent.createMany({ data: built.events });
+  } catch {
+    // A failed activity write must not undo a workspace change that already happened.
   }
 }

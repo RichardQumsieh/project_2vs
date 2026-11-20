@@ -19,6 +19,7 @@ import {
 } from "../daily-brief-service.js";
 import type { BriefAssistant } from "../daily-brief.js";
 import { dailyBriefEnabled, env } from "../env.js";
+import { dailyBriefEntitled } from "../workspace-entitlement.js";
 
 const repo = createPrismaDailyBriefRepository();
 
@@ -76,6 +77,28 @@ function activityFor(userId: string, actorLabel: string): BriefActivity {
   };
 }
 
+async function briefPlanAllows(
+  userId: string,
+  reply: { code: (status: number) => { send: (body: unknown) => unknown }; header: (name: string, value: string) => void },
+) {
+  try {
+    if (await dailyBriefEntitled(userId)) return true;
+  } catch {
+    reply.header("Cache-Control", "no-store");
+    reply.code(503).send({
+      error: "The daily brief could not be prepared.",
+      code: "daily_brief_unavailable",
+    });
+    return false;
+  }
+  reply.header("Cache-Control", "no-store");
+  reply.code(402).send({
+    error: "The manager daily brief is included on the Team plan.",
+    code: "daily_brief_plan",
+  });
+  return false;
+}
+
 function sendResult(
   reply: { code: (status: number) => { send: (body: unknown) => unknown }; header: (name: string, value: string) => void },
   result: { ok: true; status: number; body: unknown } | { ok: false; status: number; error: string; code: string },
@@ -99,6 +122,13 @@ export function startDailyBriefScheduler(log: (fields: object) => void) {
       now: new Date(),
       repo,
       assistantFor: (userId) => assistantFor(userId, log),
+      allowUser: async (userId) => {
+        try {
+          return await dailyBriefEntitled(userId);
+        } catch {
+          return false;
+        }
+      },
       recordActivity: async (userId) => {
         await tryRecordAccountActivity({
           ownerUserId: userId,
@@ -123,6 +153,7 @@ export async function dailyBriefRoutes(app: FastifyInstance) {
   app.get("/daily-brief", async (request, reply) => {
     const session = await requireUser(request, reply);
     if (!session) return;
+    if (!(await briefPlanAllows(session.sub, reply))) return;
     try {
       const result = await readDailyBrief({
         enabled: dailyBriefEnabled,
@@ -159,6 +190,7 @@ export async function dailyBriefRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const session = await requireUser(request, reply);
       if (!session) return;
+      if (!(await briefPlanAllows(session.sub, reply))) return;
       try {
         const result = await generateDailyBriefNow({
           enabled: dailyBriefEnabled,
@@ -196,6 +228,7 @@ export async function dailyBriefRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const session = await requireUser(request, reply);
       if (!session) return;
+      if (!(await briefPlanAllows(session.sub, reply))) return;
       const result = await saveDailyBriefPreference({
         enabled: dailyBriefEnabled,
         userId: session.sub,

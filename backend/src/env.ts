@@ -85,6 +85,20 @@ const envSchema = z.object({
     (value) => parseSafetyNumbersEnabled(value),
     z.boolean(),
   ),
+  /**
+   * Workspace billing. Default off: no checkout and no charge.
+   * mock never calls a provider. stripe calls Stripe only when the secret
+   * and price ids below are set. See docs/billing.md.
+   */
+  BILLING_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
+  BILLING_PROVIDER: z.enum(["mock", "stripe"]).default("mock"),
+  STRIPE_SECRET_KEY: optionalEnvironmentValue,
+  STRIPE_WEBHOOK_SECRET: optionalEnvironmentValue,
+  STRIPE_PRICE_FAMILY_PLUS: optionalEnvironmentValue,
+  STRIPE_PRICE_TEAM_SEAT: optionalEnvironmentValue,
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   /** Hosted Sophia model. Both key and HTTPS base URL are required before any call. */
   SOPHIA_MODEL_API_KEY: optionalEnvironmentValue,
@@ -356,3 +370,6 @@ export const dailyBriefEnabled = env.DAILY_BRIEF_ENABLED;
 
 /** Safety-number identity directory. On unless SAFETY_NUMBERS_ENABLED is "false". */
 export const safetyNumbersEnabled = env.SAFETY_NUMBERS_ENABLED;
+
+/** Workspace charges. Off unless BILLING_ENABLED is exactly "true". */
+export const billingEnabled = env.BILLING_ENABLED;

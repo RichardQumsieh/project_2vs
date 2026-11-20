@@ -1,54 +1,36 @@
 "use client";
 
+import Link from "next/link";
 import { ProductShell } from "@/components/product-shell";
+import { LtrIsolate } from "@/lib/i18n/bidi";
 import { useI18n, type MessageKey } from "@/lib/i18n/locale";
 
-const tiers: Array<{
-  name: MessageKey;
-  price: MessageKey;
-  body: MessageKey;
-  current?: boolean;
-}> = [
-  {
-    name: "plans.personal",
-    price: "plans.included",
-    body: "plans.personalBody",
-    current: true,
-  },
-  {
-    name: "plans.studio",
-    price: "plans.coming",
-    body: "plans.studioBody",
-  },
-  {
-    name: "plans.org",
-    price: "plans.coming",
-    body: "plans.orgBody",
-  },
+const tiers: Array<{ name: MessageKey; price: MessageKey; body: MessageKey; brief: boolean }> = [
+  { name: "pricing.freeName", price: "pricing.freePrice", body: "pricing.freeBody", brief: false },
+  { name: "pricing.plusName", price: "pricing.plusPrice", body: "pricing.plusBody", brief: false },
+  { name: "pricing.teamName", price: "pricing.teamPrice", body: "pricing.teamBody", brief: true },
 ];
 
 export default function SubscriptionPage() {
   const { t } = useI18n();
   return (
-    <ProductShell title={t("plans.title")} subtitle={t("plans.subtitle")}>
-      <div className="grid gap-4 lg:grid-cols-3">
+    <ProductShell title={t("plans.title")} subtitle={t("pricing.subtitle")}>
+      <div className="grid gap-4">
         {tiers.map((tier) => (
-          <article
-            key={tier.name}
-            className={`rounded-3xl border p-5 sm:p-6 ${
-              tier.current
-                ? "border-cyan-300/30 bg-cyan-300/[0.06]"
-                : "border-white/10 bg-white/[0.035]"
-            }`}
-          >
-            <p className="text-[10px] text-white/45">
-              {tier.current ? t("plans.current") : t("plans.future")}
+          <article key={tier.name} className="rounded-3xl border border-(--line) bg-(--glass) p-5">
+            <h2 className="text-lg font-medium text-(--foreground)">{t(tier.name)}</h2>
+            <p className="mt-1 text-sm text-(--foreground)"><LtrIsolate>{t(tier.price)}</LtrIsolate></p>
+            <p className="mt-3 text-sm leading-6 text-(--muted)">{t(tier.body)}</p>
+            <p className="mt-2 text-xs text-(--muted)">
+              {tier.brief ? t("pricing.briefIncluded") : t("pricing.briefExcluded")}
             </p>
-            <h2 className="mt-2 text-lg font-medium text-white">{t(tier.name)}</h2>
-            <p className="mt-1 text-sm text-cyan-100/80">{t(tier.price)}</p>
-            <p className="mt-3 text-sm leading-relaxed text-white/60">{t(tier.body)}</p>
           </article>
         ))}
+      </div>
+      <p className="mt-4 text-sm text-(--muted)">{t("pricing.noCharge")}</p>
+      <div className="mt-4 flex flex-col gap-2 text-sm">
+        <Link href="/settings/workspace" className="underline-offset-4 hover:underline">{t("settings.workspace.title")}</Link>
+        <Link href="/pricing#design-partner" className="underline-offset-4 hover:underline">{t("home.designPartner")}</Link>
       </div>
     </ProductShell>
   );

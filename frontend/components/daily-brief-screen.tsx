@@ -24,7 +24,7 @@ export function DailyBriefScreen({
   mode: "live" | "preview";
   disconnected?: boolean;
 }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const enabled = dailyBriefEnabled();
   const [preference, setPreference] = useState<BriefPreference>(
     mode === "preview" ? { ...fallbackPreference, language: locale === "ar" ? "ar" : "en" } : fallbackPreference,
@@ -40,6 +40,11 @@ export function DailyBriefScreen({
   const [busy, setBusy] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
   const [touched, setTouched] = useState(false);
+
+  function explain(caught: unknown) {
+    if (caught instanceof ApiError && caught.code === "daily_brief_plan") return t("activity.briefPlan");
+    return caught instanceof Error ? caught.message : briefCopy(locale, "error");
+  }
 
   const applySample = useCallback((next: BriefPreference) => {
     setPreference(next);
@@ -69,14 +74,14 @@ export function DailyBriefScreen({
         setSignedOut(true);
         return;
       }
-      setError(caught instanceof Error ? caught.message : briefCopy(locale, "error"));
+      setError(explain(caught));
     }).finally(() => {
       if (!cancel) setBusy(false);
     });
     return () => {
       cancel = true;
     };
-  }, [enabled, locale, mode]);
+  }, [enabled, locale, mode, t]);
 
   if (!enabled) {
     return (
@@ -130,7 +135,7 @@ export function DailyBriefScreen({
           setPendingReason(result.pendingReason);
           setStatus(briefCopy(locale, "saved"));
         } catch (caught) {
-          setError(caught instanceof Error ? caught.message : briefCopy(locale, "error"));
+          setError(explain(caught));
         } finally {
           setBusy(false);
         }
@@ -156,7 +161,7 @@ export function DailyBriefScreen({
           setPendingReason(result.pendingReason);
           setStatus(null);
         } catch (caught) {
-          setError(caught instanceof Error ? caught.message : briefCopy(locale, "error"));
+          setError(explain(caught));
         } finally {
           setBusy(false);
         }

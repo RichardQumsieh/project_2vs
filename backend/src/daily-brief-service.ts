@@ -265,6 +265,8 @@ export async function runDueDailyBriefs(input: {
   repo: DailyBriefRepository;
   assistantFor: (userId: string) => Promise<BriefAssistant>;
   recordActivity?: (userId: string) => Promise<void>;
+  /** When set, skip accounts whose workspace plan does not include the brief. */
+  allowUser?: (userId: string) => Promise<boolean>;
 }) {
   if (!input.enabled) return { prepared: 0, skipped: 0 };
   const candidates = await input.repo.listCandidates();
@@ -273,6 +275,10 @@ export async function runDueDailyBriefs(input: {
   let failed = 0;
   for (const candidate of candidates.slice(0, 500)) {
     try {
+      if (input.allowUser && !(await input.allowUser(candidate.userId))) {
+        skipped += 1;
+        continue;
+      }
       const local = zonedParts(input.now, candidate.preference.timeZone);
       const existing = await input.repo.findBrief(candidate.userId, local.date);
       const due = briefIsDue({

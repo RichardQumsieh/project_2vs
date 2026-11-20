@@ -217,6 +217,17 @@ Future local-neural options were compared, but not added because native speech w
 
 On unless `SAFETY_NUMBERS_ENABLED` or `NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED` is exactly `false`. Settings → Security shows a 60-digit safety number for each direct chat and each group, computed in the browser from the active device identity keys. The first time this browser sees a chat it is not a warning. A later change to those keys is. Marking a number verified stores that choice in this browser only. The API route returns public keys to conversation members and does not consume one-time prekeys. `GET /health` reports `safetyNumbers`. No database migration. Details: `docs/safety-numbers.md`.
 
+## Workspaces and plans
+
+Families and teams live in a workspace with an owner, admins, and members. Members find each other there and open the same end-to-end encrypted chats; the API still stores ciphertext only. Invites are single-use expiring links. The code is hashed at rest and is not emailed. Seat limits and the manager daily brief are enforced from `backend/src/plans.ts`. Billing is off unless `BILLING_ENABLED=true`. Details: [docs/workspaces.md](docs/workspaces.md) and [docs/billing.md](docs/billing.md).
+
+After pulling this change, create the new tables once:
+
+```bash
+cd backend
+npx prisma db push
+```
+
 ## Security docs
 
 - [Vulnerability reporting](docs/SECURITY.md)

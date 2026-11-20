@@ -24,10 +24,14 @@ export default function SettingsPage() {
         <ModuleCard href="/settings/security" title={t("settings.security.title")} body={t("settings.security.body")} />
         <ModuleCard href="/settings/devices" title={t("settings.devices.title")} body={t("settings.devices.body")} />
         <ModuleCard
+          href="/settings/workspace"
+          title={t("settings.workspace.title")}
+          body={t("settings.workspace.body")}
+        />
+        <ModuleCard
           href="/settings/subscription"
           title={t("settings.plans.title")}
           body={t("settings.plans.body")}
-          badge={t("shell.soon")}
         />
         <ModuleCard href="/sophia" title={t("settings.studio.title")} body={t("settings.studio.body")} />
       </div>
