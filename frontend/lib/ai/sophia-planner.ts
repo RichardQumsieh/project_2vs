@@ -8,6 +8,7 @@ import { composeMeetingDraft, type VoicePreferences } from "../appearance/voice"
 import type { MemoryFact } from "./personal-memory";
 import { answerRadarQuestion } from "./radar-briefing";
 import type { RadarStoreState } from "./radar-store";
+import { parseThemeRequest, type ThemeRequest } from "../appearance/theme-requests";
 import {
   defaultEventWindow,
   parseDurationMinutes,
@@ -18,6 +19,10 @@ import {
 } from "./sophia-job-tools";
 
 export type SophiaIntent =
+  | {
+      type: "set_theme";
+      request: ThemeRequest;
+    }
   | {
       type: "create_document";
       document: SophiaDocument;
@@ -112,7 +117,7 @@ const weekdays = [
 ] as const;
 
 const commandCue =
-  /\b(prepare|create|draft|write|make|research|look up|search|organize|schedule|set up|book|file|open|post|remind|follow[\s-]?up|reschedule|push|remember|forget|outstanding|promise[d]?|briefing|what's left|what is left|linear|github|slack|email|calendar)\b/i;
+  /\b(prepare|create|draft|write|make|research|look up|search|organize|schedule|set up|book|file|open|post|remind|follow[\s-]?up|reschedule|push|remember|forget|outstanding|promise[d]?|briefing|what's left|what is left|linear|github|slack|email|calendar|theme|appearance|spiderman|spider[\s-]?man|nature scenes?)\b/i;
 
 export function stripSophiaWakeWord(input: string) {
   return input
@@ -225,6 +230,14 @@ export function parseSophiaCommand(
   const defaults = options.jobDefaults ?? {};
   const intents: SophiaIntent[] = [];
   const summaries: string[] = [];
+  const themeRequest = parseThemeRequest(raw);
+  if (themeRequest) {
+    return {
+      addressedToSophia,
+      intents: [{ type: "set_theme", request: themeRequest }],
+      spokenReply: themeRequest.reply,
+    };
+  }
   const due = resolveRelativeDate(text, now);
   const recipient = options.recipientUsername
     ? `@${options.recipientUsername}`
@@ -560,8 +573,18 @@ export function parseSophiaCommand(
     };
   }
 
-  const actionable = unique.filter((intent) => intent.type !== "radar_answer");
+  const actionable = unique.filter(
+    (intent) => intent.type !== "radar_answer" && intent.type !== "set_theme",
+  );
   if (!actionable.length) {
+    const theme = unique.find((intent) => intent.type === "set_theme");
+    if (theme && theme.type === "set_theme") {
+      return {
+        addressedToSophia,
+        intents: unique,
+        spokenReply: theme.request.reply,
+      };
+    }
     const answer = unique.find((intent) => intent.type === "radar_answer");
     return {
       addressedToSophia,

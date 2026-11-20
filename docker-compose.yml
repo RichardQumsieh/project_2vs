@@ -50,7 +50,7 @@ services:
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       COOKIE_NAME: messenger_session
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
-      GROUP_E2EE_ENABLED: ${GROUP_E2EE_ENABLED:-false}
+      GROUP_E2EE_ENABLED: ${GROUP_E2EE_ENABLED:-true}
     ports:
       - "127.0.0.1:3001:3001"
     volumes:
@@ -78,9 +78,9 @@ services:
         required: false
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:3001
-      NEXT_PUBLIC_GROUP_E2EE_ENABLED: ${NEXT_PUBLIC_GROUP_E2EE_ENABLED:-false}
+      NEXT_PUBLIC_GROUP_E2EE_ENABLED: ${NEXT_PUBLIC_GROUP_E2EE_ENABLED:-true}
       # Adaptive appearance stays off unless this is exactly true.
-      NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED: ${NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED:-false}
+      NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED: ${NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED:-true}
       WATCHPACK_POLLING: "true"
     ports:
       - "127.0.0.1:3000:3000"

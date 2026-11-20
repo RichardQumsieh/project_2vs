@@ -57,12 +57,13 @@ const envSchema = z.object({
    */
   INTEGRATIONS_WRITE_ALLOWLIST: z.string().optional().default(""),
   /**
-   * Small-group MLS (RFC 9420). Default OFF. The API stores opaque MLS
+   * Small-group MLS (RFC 9420). Default ON. The API stores opaque MLS
    * messages only; it cannot decrypt them. See docs/group-e2ee.md.
+   * Set GROUP_E2EE_ENABLED=false to disable.
    */
   GROUP_E2EE_ENABLED: z
     .enum(["true", "false"])
-    .default("false")
+    .default("true")
     .transform((value) => value === "true"),
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
   /** Hosted Sophia model. Both key and HTTPS base URL are required before any call. */

@@ -215,6 +215,11 @@ describe("fast Sophia command planner", () => {
       teamId: "team_abc",
     });
 
+    const theme = parseSophiaCommand("I want a spiderman theme");
+    expect(theme.intents).toEqual([
+      expect.objectContaining({ type: "set_theme" }),
+    ]);
+
     const reschedule = parseSophiaCommand("Sophia reschedule the proposal to Friday", {
       radarStore: radarFixture(),
       now: new Date("2026-11-13T12:00:00.000Z"),

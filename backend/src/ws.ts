@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "@fastify/websocket";
 import { getSession } from "./auth.js";
 import { attachCallSignaling } from "./call-signaling.js";
+import { attachPresenceSignaling } from "./typing.js";
 import { env } from "./env.js";
 import { redisSub } from "./redis.js";
 
@@ -85,6 +86,7 @@ export async function registerRealtime(app: FastifyInstance) {
 
     addSocket(session.sub, entry);
     attachCallSignaling(socket, session.sub);
+    attachPresenceSignaling(socket, session.sub);
     socket.send(JSON.stringify({ type: "hello", userId: session.sub }));
 
     socket.on("close", () => {

@@ -60,12 +60,12 @@ The ACL is not the cryptographic membership. A user who is in the database but h
 
 ## Feature flag
 
-Both switches default to off.
+Both switches default to **on**. Set either to `false` to disable.
 
 | Variable | Where | Effect |
 | --- | --- | --- |
 | `GROUP_E2EE_ENABLED` | API | `503 group_e2ee_disabled` on `/conversations/group`, member and role changes, the group read cursor, and `/conversations/:id/mls` |
-| `NEXT_PUBLIC_GROUP_E2EE_ENABLED` | Web client | `api.createGroup` and the other group helpers throw before any request |
+| `NEXT_PUBLIC_GROUP_E2EE_ENABLED` | Web client | `api.createGroup` and the other group helpers throw before any request when set to `false` |
 
 `GET /health` reports `groupE2ee` so an operator can see the API switch. The client flag is a product switch on a machine the user already controls. The API flag is what keeps group delivery off in production.
 

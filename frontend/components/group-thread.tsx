@@ -2,7 +2,9 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { sendReadReceipt, sendTyping } from "@/lib/realtime-socket";
+import { subscribeTyping } from "@/lib/typing-state";
 import { EncryptedFileAttachment } from "@/components/encrypted-file-attachment";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -112,10 +114,24 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
   const [username, setUsername] = useState("");
   const [actionError, setActionError] = useState<MessageKey | null>(null);
   const [notice, setNotice] = useState<MessageKey | null>(null);
+  const [peerTyping, setPeerTyping] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const userId = currentUserId();
   const me = conversation.members?.find((member) => member.userId === userId);
   const isAdmin = me?.role === "ADMIN";
+
+  useEffect(() => {
+    sendReadReceipt(conversation.id);
+    setPeerTyping(false);
+    return subscribeTyping((id, user) => {
+      if (id !== conversation.id) return;
+      setPeerTyping(Boolean(user));
+    });
+  }, [conversation.id]);
+
+  useEffect(() => {
+    if (draft.trim()) sendTyping(conversation.id);
+  }, [conversation.id, draft]);
 
   const sync = useQuery({
     queryKey: ["group-sync", conversation.id, userId],
@@ -369,7 +385,7 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
               </article>
             ))}
           </div>
-          <form className="flex gap-2 border-t border-white/10 p-3" onSubmit={(event) => void sendMessage(event)}>
+          <form className="flex flex-wrap gap-2 border-t border-white/10 p-3" onSubmit={(event) => void sendMessage(event)}>
             <input
               ref={fileInput}
               type="file"
@@ -391,6 +407,11 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
             >
               {t("group.attach")}
             </Button>
+            {peerTyping ? (
+              <p role="status" className="basis-full text-[11px] text-white/45">
+                {t("chat.typing")}
+              </p>
+            ) : null}
             <Input
               aria-label={t("group.messageLabel")}
               placeholder={joined ? t("group.messagePlaceholder") : t("group.waitingJoin")}

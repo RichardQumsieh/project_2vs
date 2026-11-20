@@ -13,6 +13,7 @@ import { usePathname } from "next/navigation";
 import { applyAppearance } from "@/lib/appearance/apply";
 import { panelForPath, type LocalSignals, type PanelId } from "@/lib/appearance/engine";
 import { adaptiveThemeEnabled } from "@/lib/appearance/flag";
+import { loadThemeMotion, saveThemeMotion } from "@/lib/appearance/motion-store";
 import type { AppearanceTokens } from "@/lib/appearance/schema";
 import {
   activeTokens,
@@ -33,6 +34,7 @@ import {
   undoAppearance,
   type AppearanceRecord,
 } from "@/lib/appearance/store";
+import type { ThemeMotion, ThemeRequest } from "@/lib/appearance/theme-requests";
 import { idbUploads } from "@/lib/appearance/upload-store";
 import { uploadObjectUrl, validateUpload } from "@/lib/appearance/uploads";
 import type { VoicePreferences } from "@/lib/appearance/voice";
@@ -50,8 +52,10 @@ export type AppearanceContextValue = {
   preview: PreviewState;
   persistenceError: boolean;
   issue: AppearanceIssue;
+  motion: ThemeMotion;
   setPreview: (preview: PreviewState) => void;
   update: (tokens: AppearanceTokens, voice: VoicePreferences) => boolean;
+  applyThemeRequest: (request: ThemeRequest) => boolean;
   approve: () => void;
   dismiss: () => void;
   undo: () => void;
@@ -82,12 +86,16 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
   const [preview, setPreview] = useState<PreviewState>(null);
   const [persistenceError, setPersistenceError] = useState(false);
   const [issue, setIssue] = useState<AppearanceIssue>(null);
+  const [motion, setMotion] = useState<ThemeMotion>({ kind: "none" });
+  const [motionFrame, setMotionFrame] = useState(0);
   const blobRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
     setRecord(loadAppearance(userId));
     setPanelUses(loadPanelUses(userId));
+    setMotion(loadThemeMotion(userId));
+    setMotionFrame(0);
     setPreview(null);
     setIssue(null);
     setPersistenceError(false);
@@ -126,6 +134,19 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
     [persist, record],
   );
 
+  const applyThemeRequest = useCallback(
+    (request: ThemeRequest) => {
+      if (!enabled) return false;
+      const ok = update(request.tokens, request.voice);
+      if (!ok) return false;
+      saveThemeMotion(userId, request.motion);
+      setMotion(request.motion);
+      setMotionFrame(0);
+      return true;
+    },
+    [enabled, update, userId],
+  );
+
   const approve = useCallback(() => {
     const next = approveProposal(record);
     if (!persist(next)) return;
@@ -154,7 +175,10 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
     setRecord(next);
     setPreview(null);
     setIssue(null);
-  }, [persist, record]);
+    saveThemeMotion(userId, { kind: "none" });
+    setMotion({ kind: "none" });
+    setMotionFrame(0);
+  }, [persist, record, userId]);
 
   const setRole = useCallback(
     (role: "manager" | "family") => {
@@ -201,11 +225,24 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
   );
 
   useEffect(() => {
+    if (!enabled || motion.kind !== "rotate") return;
+    const timer = window.setInterval(() => {
+      setMotionFrame((frame) => frame + 1);
+    }, motion.intervalMs);
+    return () => window.clearInterval(timer);
+  }, [enabled, motion]);
+
+  useEffect(() => {
     if (!enabled) {
       applyAppearance(null);
       return;
     }
-    const tokens = preview?.tokens ?? (isCustomized(record) ? activeTokens(record) : null);
+    const rotating =
+      motion.kind === "rotate" ? motion.frames[motionFrame % motion.frames.length] : null;
+    const tokens =
+      preview?.tokens ??
+      rotating ??
+      (isCustomized(record) ? activeTokens(record) : null);
     let cancelled = false;
     void (async () => {
       let uploadUrl: string | null = null;
@@ -224,7 +261,7 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
     return () => {
       cancelled = true;
     };
-  }, [enabled, preview, record, userId]);
+  }, [enabled, motion, motionFrame, preview, record, userId]);
 
   useEffect(() => {
     return () => {
@@ -241,8 +278,10 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
       preview,
       persistenceError,
       issue,
+      motion,
       setPreview,
       update,
+      applyThemeRequest,
       approve,
       dismiss,
       undo,
@@ -252,10 +291,12 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
       uploadBackground,
     }),
     [
+      applyThemeRequest,
       approve,
       dismiss,
       enabled,
       issue,
+      motion,
       panelUses,
       persistenceError,
       preview,
