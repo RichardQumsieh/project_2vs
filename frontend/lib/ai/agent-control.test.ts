@@ -5,12 +5,24 @@ import {
   decideToolRun,
   mockToolCallForCommand,
   stripWithheldChats,
-} from "../../../backend/src/agent-control";
+} from "./agent-control";
 import { agentEvaluationCases } from "./agent-evaluation";
 import { ASSISTANT_EXPERIMENTAL } from "./assistant-quality";
 import { resolveEvalMode } from "./assistant-eval";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 describe("sophia agent tools", () => {
+  it("stays byte-identical to backend/src/agent-control.ts when that file is present", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const backendCopy = join(here, "../../../backend/src/agent-control.ts");
+    if (!existsSync(backendCopy)) return;
+    const local = readFileSync(join(here, "agent-control.ts"), "utf8");
+    const backend = readFileSync(backendCopy, "utf8");
+    expect(local).toBe(backend);
+  });
+
   it("exposes every app capability and keeps safety verification off the list", () => {
     expect(AGENT_TOOL_NAMES).toEqual(expect.arrayContaining([
       "chat_create",

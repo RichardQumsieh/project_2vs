@@ -17,7 +17,7 @@ import { inspectAndEncryptFileAttachment } from "@/lib/crypto/file-attachment";
 import { readSafetyStore } from "@/lib/crypto/safety-store";
 import { applyDocumentLocale, LOCALE_STORAGE_KEY, type Locale } from "@/lib/i18n/locale";
 import { encryptOutgoing, currentUserId, isUnlocked, storeSentMessage } from "@/lib/session";
-import type { UndoAction, ValidatedToolCall } from "../../../backend/src/agent-control";
+import type { UndoAction, ValidatedToolCall } from "./agent-control";
 
 const themes: Record<string, AppearanceTokens> = {
   night: eveningTokens,

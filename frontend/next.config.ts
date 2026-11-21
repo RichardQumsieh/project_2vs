@@ -1,16 +1,10 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 import { LEGACY_ACTIVITY_PATH, legacyActivityRedirect } from "./lib/inbox-hub";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-
 const nextConfig: NextConfig = {
-  // The inbox agent shares backend/src/agent-control.ts. Turbopack only
-  // resolves files inside this root, so the root is the repo, not frontend/.
-  turbopack: {
-    root: repoRoot,
-  },
+  // Agent policy lives in frontend/lib/ai/agent-control.ts (kept in sync with
+  // backend/src/agent-control.ts) so Cursor publish of project_dir=frontend
+  // does not need the rest of the monorepo on disk.
   devIndicators: false,
   experimental: {
     agentUpgrade: "security",
