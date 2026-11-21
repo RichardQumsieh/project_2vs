@@ -30,7 +30,7 @@ async function openPreview(page: Page, locale: "en" | "ar") {
   await page.addInitScript((value) => {
     localStorage.setItem("sophia-locale", value);
   }, locale);
-  await page.goto(`/preview/mobile?surface=inbox&lang=${locale}`);
+  await page.goto(`/preview/mobile?surface=inbox&hub=assistant&lang=${locale}`);
   await expect(page.locator("html")).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
   await expect(page.locator("html")).toHaveAttribute("lang", locale);
 }
