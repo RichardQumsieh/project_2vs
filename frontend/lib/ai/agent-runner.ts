@@ -13,7 +13,7 @@ import {
   type AgentStep,
   type Autonomy,
   type ProvenanceSource,
-} from "../../../backend/src/agent-control";
+} from "./agent-control";
 
 export type AgentRunnerMode = "live" | "preview";
 
