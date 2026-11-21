@@ -9,14 +9,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ExperimentalBadge } from "@/components/experimental-badge";
-import { SophiaCommandBar } from "@/components/sophia-command-bar";
+import { outgoingTextDestination } from "@/lib/ai/chat-route";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { GroupThread, GroupUnavailable, NewGroupForm } from "@/components/group-thread";
 import { groupE2eeEnabled } from "@/lib/group-e2ee-flag";
 import { api } from "@/lib/api";
-import { listLocalMessages } from "@/lib/idb";
 import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
 import { localizedRuntimeMessage } from "@/lib/i18n/action-summary";
 import { useI18n } from "@/lib/i18n/locale";
@@ -113,7 +112,6 @@ import {
 } from "@/components/sophia-proposal-card";
 import { draftVoiceForUser } from "@/lib/appearance/store";
 import {
-  isSophiaAddressed,
   parseSophiaCommand,
   type SophiaIntent,
 } from "@/lib/ai/sophia-planner";
@@ -553,6 +551,8 @@ export function InboxShell({
               type="button"
               variant="outline"
               className="w-full"
+              title={t("inbox.copyCode")}
+              aria-label={t("inbox.copyCode")}
               onClick={() => {
                 setHistoryRecoveryCodeCopyError(false);
                 if (!navigator.clipboard) {
@@ -584,6 +584,8 @@ export function InboxShell({
             <Button
               type="button"
               className="w-full"
+              title={t("auth.continue")}
+              aria-label={t("auth.continue")}
               disabled={!historyRecoveryCodeSaved}
               onClick={() => {
                 setHistoryRecoveryCodeAckError(false);
@@ -608,6 +610,7 @@ export function InboxShell({
           <button
             type="button"
             className="shrink-0 text-amber-100/70 hover:text-white"
+            title={t("inbox.dismissRecovery")}
             aria-label={t("inbox.dismissRecovery")}
             onClick={() => setHistoryRecoveryNotice(false)}
           >
@@ -626,6 +629,8 @@ export function InboxShell({
           <button
             type="button"
             className="shrink-0 underline underline-offset-2"
+            title={t("inbox.retry")}
+            aria-label={t("inbox.retry")}
             onClick={retryRecoverySync}
           >
             {t("inbox.retry")}
@@ -658,6 +663,7 @@ export function InboxShell({
           </div>
           <Link
             href="/settings"
+            title={t("inbox.settings")}
             aria-label={t("inbox.settings")}
             className="inline-flex size-9 items-center justify-center rounded-full border border-white/10 text-white/75 hover:bg-white/[0.07] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
           >
@@ -666,17 +672,6 @@ export function InboxShell({
         </div>
 
         <InboxHubNav hub={activeConversationId ? "chats" : hub} className="inbox-hub-nav inbox-hub-nav--sidebar" />
-
-        <div className="max-h-[42vh] min-w-0 overflow-y-auto">
-          <SophiaCommandBar
-            mode="live"
-            loadChatExcerpt={async () => {
-              if (!activeConversationId || !isUnlocked()) return null;
-              const messages = await listLocalMessages(activeConversationId, 6);
-              return messages.map((message) => message.plaintext).join("\n");
-            }}
-          />
-        </div>
 
         <div className="grid grid-cols-2 gap-2">
           <Button
@@ -687,6 +682,8 @@ export function InboxShell({
           >
             <Link
               href={inboxHubHref("mail", "email")}
+              title={t("inbox.compose")}
+              aria-label={t("inbox.compose")}
               onClick={() => {
                 setHomeView("email");
                 setComposeRequest((current) => current + 1);
@@ -702,7 +699,7 @@ export function InboxShell({
             variant={hub === "mail" && homeView === "event" ? "default" : "outline"}
             className="gap-1.5"
           >
-            <Link href={inboxHubHref("mail", "event")} onClick={() => setHomeView("event")}>
+            <Link href={inboxHubHref("mail", "event")} title={t("inbox.schedule")} aria-label={t("inbox.schedule")} onClick={() => setHomeView("event")}>
               <Calendar aria-hidden="true" className="size-3.5" />
               {t("inbox.schedule")}
             </Link>
@@ -710,6 +707,8 @@ export function InboxShell({
         </div>
         <Link
           href={inboxHubHref("mail")}
+          title={t("inbox.recent")}
+          aria-label={t("inbox.recent")}
           className="text-start text-xs text-white/55 underline underline-offset-2 hover:text-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
           onClick={() => setHomeView("agenda")}
         >
@@ -730,8 +729,8 @@ export function InboxShell({
             }
           })}
         >
-          <Input dir="ltr" placeholder={t("inbox.username")} {...start.register("username")} />
-          <Button type="submit" size="sm" className="gap-1.5">
+          <Input dir="ltr" placeholder={t("inbox.username")} title={t("inbox.username")} aria-label={t("inbox.username")} {...start.register("username")} />
+          <Button type="submit" size="sm" className="gap-1.5" title={t("inbox.chat")} aria-label={t("inbox.chat")}>
             <UserRound aria-hidden="true" className="size-3.5" />
             {t("inbox.chat")}
           </Button>
@@ -751,6 +750,8 @@ export function InboxShell({
             <Link
               key={conversation.id}
               href={`/inbox/${conversation.id}`}
+              title={label}
+              aria-label={label}
               aria-current={selected ? "page" : undefined}
               className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent) ${
                 selected
@@ -793,7 +794,9 @@ export function InboxShell({
         </nav>
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-white/10 px-3 py-2">
           <Link
-            href="/sophia"
+            href="/inbox?hub=assistant"
+            title={t("inbox.hub.assistant")}
+            aria-label={t("inbox.hub.assistant")}
             className="rounded-full px-2 py-1 text-xs text-cyan-100/80 hover:bg-cyan-300/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
           >
             <span className="inline-flex items-center gap-2">
@@ -805,6 +808,8 @@ export function InboxShell({
           <Button
             variant="ghost"
             size="sm"
+            title={loggingOut ? t("inbox.loggingOut") : t("inbox.logout")}
+            aria-label={loggingOut ? t("inbox.loggingOut") : t("inbox.logout")}
             disabled={loggingOut}
             onClick={() => void logOut()}
           >
@@ -889,7 +894,6 @@ function ThreadConversation({
   const [recordingVoiceNote, setRecordingVoiceNote] = useState(false);
   const [photoEditorOpen, setPhotoEditorOpen] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [assistantSettings, setAssistantSettings] =
     useState<AssistantSettings | null>(null);
   const [assistantSettingsError, setAssistantSettingsError] =
@@ -2406,22 +2410,7 @@ function ThreadConversation({
       if (!valid) return;
       setAgentActionError(null);
       const bodyText = form.getValues("body").trim();
-      if (
-        assistantSettings?.enabled &&
-        assistantSettings.sophiaVoiceCommands &&
-        isSophiaAddressed(bodyText) &&
-        selectedReplyIds.length === 0
-      ) {
-        form.setValue("body", "", {
-          shouldDirty: false,
-          shouldTouch: false,
-          shouldValidate: true,
-        });
-        setCompanionOpen(true);
-        setCompanionInput(bodyText);
-        void sendCompanionMessage(bodyText);
-        return;
-      }
+      if (outgoingTextDestination("composer") !== "chat") return;
       if (selectedReplyIds.length > 0) {
         const refs = selectedReplyIds
           .map((id) => visibleMessages.find((message) => message.id === id))
@@ -3571,6 +3560,7 @@ function ThreadConversation({
         <Link
           href="/settings"
           className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-2 text-xs text-white/75 transition-colors hover:bg-white/5"
+          title={t("chat.openSettings")}
           aria-label={t("chat.openSettings")}
         >
           <Settings aria-hidden="true" className="size-3.5" />
@@ -3581,6 +3571,8 @@ function ThreadConversation({
           size="sm"
           variant={replySelectMode ? "default" : "outline"}
           className="gap-1.5"
+          title={replySelectMode ? t("chat.cancelReply") : t("chat.reply")}
+          aria-label={replySelectMode ? t("chat.cancelReply") : t("chat.reply")}
           aria-pressed={replySelectMode}
           onClick={() => {
             setReplySelectMode((open) => !open);
@@ -3595,6 +3587,8 @@ function ThreadConversation({
           size="sm"
           variant={activitySheet === "email" ? "default" : "outline"}
           className="gap-1.5"
+          title={t("chat.compose")}
+          aria-label={t("chat.compose")}
           aria-pressed={activitySheet === "email"}
           onClick={() =>
             setActivitySheet((current) => (current === "email" ? null : "email"))
@@ -3608,6 +3602,8 @@ function ThreadConversation({
           size="sm"
           variant={activitySheet === "event" ? "default" : "outline"}
           className="gap-1.5"
+          title={t("chat.calendar")}
+          aria-label={t("chat.calendar")}
           aria-pressed={activitySheet === "event"}
           onClick={() =>
             setActivitySheet((current) => (current === "event" ? null : "event"))
@@ -3616,678 +3612,15 @@ function ThreadConversation({
           <Calendar aria-hidden="true" className="size-3.5" />
           {t("chat.calendar")}
         </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={companionOpen ? "default" : "outline"}
-          className={`relative gap-2 overflow-visible transition-[border-color,background-color,box-shadow,color] duration-200 ${
-            aiIsThinking ? "ai-thinking-glow border-(--accent)/40" : ""
-          }`}
-          aria-label={
-            assistantSettings?.enabled
-              ? `Sophia ${aiIsThinking ? aiWorkLabel : companionPresence.replace("-", " ")}`
-              : companionOpen
-                ? t("chat.closeSophia")
-                : t("chat.talkSophia")
-          }
-          onClick={() => {
-            if (companionOpen) {
-              stopCompanion(false);
-            }
-            setCompanionOpen((open) => !open);
-          }}
-        >
-          {assistantSettings?.enabled ? (
-            <span
-              aria-hidden="true"
-              className={`companion-orb ${
-                companionPresence === "error"
-                  ? "companion-orb--error"
-                  : companionPresence === "muted"
-                    ? "companion-orb--muted"
-                    : companionPresence === "speaking"
-                      ? "companion-orb--speaking"
-                      : companionPresence === "listening"
-                        ? "companion-orb--listening"
-                        : aiIsThinking
-                          ? "companion-orb--thinking"
-                          : ""
-              }`}
-            />
-          ) : null}
-          {companionOpen
-            ? t("chat.closeSophia")
-            : assistantSettings?.enabled
-              ? `Sophia · ${aiIsThinking ? aiWorkLabel : companionPresence.replace("-", " ")}`
-              : t("chat.talkSophia")}
-        </Button>
-        <div className="relative">
-          <button
-            type="button"
-            aria-expanded={settingsOpen}
-            aria-controls="assistant-settings-panel"
-            onClick={() => setSettingsOpen((open) => !open)}
-            className="cursor-pointer list-none rounded-full border border-cyan-300/20 px-4 py-2 text-xs text-cyan-100/80 transition-colors hover:bg-cyan-300/10"
+        <Button asChild size="sm" variant="outline" className="gap-2">
+          <Link
+            href="/inbox?hub=assistant"
+            title="Open the Sophia assistant. This stays separate from this chat."
+            aria-label="Open the Sophia assistant. This stays separate from this chat."
           >
-            {t("chat.controls")}
-          </button>
-          <AnimatePresence>
-            {settingsOpen ? (
-              <motion.div
-                id="assistant-settings-panel"
-                key="assistant-settings-panel"
-                initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
-                transition={{ duration: reduceMotion ? 0 : 0.16, ease: "easeOut" }}
-                className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+5.75rem)] z-50 max-h-[calc(100dvh-6.5rem-env(safe-area-inset-bottom))] space-y-4 overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-[#111] p-4 shadow-2xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-[min(92vw,26rem)] sm:max-h-[min(82dvh,48rem)]"
-              >
-            <label className="flex cursor-pointer items-start gap-3 text-sm">
-              <input
-                type="checkbox"
-                checked={assistantSettings?.enabled ?? false}
-                disabled={!assistantSettings}
-                onChange={(event) =>
-                  updateAssistantSettings({ enabled: event.target.checked })
-                }
-              />
-              <span>
-                <span className="block font-medium">Suggest replies on this device</span>
-                <span className="mt-1 block text-xs text-white/50">
-                  Suggestions are generated after incoming messages. Nothing is sent automatically.
-                </span>
-              </span>
-            </label>
-            <label className="block space-y-1 text-xs text-white/60">
-              Companion presence
-              <select
-                className="h-9 w-full rounded-lg border border-white/10 bg-[#1b1b1b] px-2 text-white"
-                value={assistantSettings?.companionMode ?? "interactive"}
-                disabled={!assistantSettings}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (
-                    value === "quiet" ||
-                    value === "interactive" ||
-                    value === "active-voice"
-                  ) {
-                    updateAssistantSettings({ companionMode: value });
-                  }
-                }}
-              >
-                <option value="quiet">Quiet presence · no proactive observations</option>
-                <option value="interactive">Interactive · private visual observations</option>
-                <option value="active-voice">Active voice · speak companion replies</option>
-              </select>
-            </label>
-            <label className="flex cursor-pointer items-start gap-3 text-sm">
-              <input
-                type="checkbox"
-                checked={assistantSettings?.proactiveObservations ?? false}
-                disabled={!assistantSettings}
-                onChange={(event) =>
-                  updateAssistantSettings({
-                    proactiveObservations: event.target.checked,
-                  })
-                }
-              />
-              <span>
-                <span className="block font-medium">Allow private event observations</span>
-                <span className="mt-1 block text-xs text-white/50">
-                  Lightweight on-device filters react only to questions, coordination, or likely sensitive moments; routine messages stay quiet.
-                </span>
-              </span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-3 text-sm">
-              <input
-                type="checkbox"
-                checked={assistantSettings?.sophiaVoiceCommands ?? false}
-                disabled={!assistantSettings}
-                onChange={(event) =>
-                  updateAssistantSettings({
-                    sophiaVoiceCommands: event.target.checked,
-                  })
-                }
-              />
-              <span>
-                <span className="block font-medium">Fast Sophia commands</span>
-                <span className="mt-1 block text-xs text-white/50">
-                  Compound requests like presentations, research, meetings, and notes are staged immediately for approval without waiting on the local model.
-                </span>
-              </span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-3 text-sm">
-              <input
-                type="checkbox"
-                checked={assistantSettings?.personalMemory ?? false}
-                disabled={!assistantSettings}
-                onChange={(event) =>
-                  updateAssistantSettings({
-                    personalMemory: event.target.checked,
-                  })
-                }
-              />
-              <span>
-                <span className="block font-medium">Personal memory on this device</span>
-                <span className="mt-1 block text-xs text-white/50">
-                  Approved notes stay in this browser and can shape Sophia replies. They are never uploaded for AI.
-                </span>
-              </span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-3 text-sm">
-              <input
-                type="checkbox"
-                checked={assistantSettings?.radarAnalysisEnabled ?? false}
-                disabled={!assistantSettings}
-                onChange={(event) =>
-                  updateAssistantSettings({
-                    radarAnalysisEnabled: event.target.checked,
-                  })
-                }
-              />
-              <span>
-                <span className="block font-medium">
-                  Analyze authorized conversations on this device
-                </span>
-                <span className="mt-1 block text-xs text-white/50">
-                  Commitment & Deadline Radar scans decrypted history locally after you allow a thread. Nothing is uploaded for AI.
-                </span>
-              </span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-3 text-sm">
-              <input
-                type="checkbox"
-                checked={conversationRadarAllowed}
-                disabled={
-                  !assistantSettings ||
-                  !activeUserId ||
-                  !assistantSettings.radarAnalysisEnabled
-                }
-                onChange={(event) => {
-                  void persistRadarStore(
-                    setConversationAllowed(
-                      radarStoreRef.current,
-                      conversationId,
-                      event.target.checked,
-                    ),
-                  );
-                }}
-              />
-              <span>
-                <span className="block font-medium">
-                  Allow Radar on this thread
-                </span>
-                <span className="mt-1 block text-xs text-white/50">
-                  Required in addition to the device-wide analysis toggle. Findings stay pending until you approve, edit, or dismiss them.
-                  {!assistantSettings?.radarAnalysisEnabled
-                    ? " Enable analysis above first."
-                    : ""}
-                </span>
-              </span>
-            </label>
-            {assistantSettings?.personalMemory && personalMemory.length > 0 ? (
-              <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.025] p-3">
-                <p className="text-[10px] uppercase tracking-wide text-white/45">
-                  Personal notes ({personalMemory.length})
-                </p>
-                <ul className="max-h-28 space-y-1 overflow-y-auto text-xs text-white/70">
-                  {personalMemory.slice(0, 8).map((fact) => (
-                    <li key={fact.id} className="flex items-start justify-between gap-2">
-                      <span className="min-w-0 break-words">{fact.text}</span>
-                      <button
-                        type="button"
-                        className="shrink-0 text-[10px] text-white/45 underline underline-offset-2"
-                        onClick={() => {
-                          if (!activeUserId) return;
-                          setPersonalMemory((facts) => {
-                            const next = removeMemoryFact(facts, { id: fact.id });
-                            savePersonalMemory(activeUserId, next);
-                            return next;
-                          });
-                        }}
-                      >
-                        Forget
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            <div className="grid grid-cols-2 gap-2">
-              <label className="space-y-1 text-xs text-white/60">
-                Reply language
-                <select
-                  className="h-9 w-full rounded-lg border border-white/10 bg-[#1b1b1b] px-2 text-white"
-                  value={assistantSettings?.language ?? "auto"}
-                  disabled={!assistantSettings}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (value === "auto" || value === "english" || value === "arabic") {
-                      updateAssistantSettings({ language: value });
-                    }
-                  }}
-                >
-                  <option value="auto">Match conversation</option>
-                  <option value="english">English</option>
-                  <option value="arabic">Arabic</option>
-                </select>
-              </label>
-              <label className="space-y-1 text-xs text-white/60">
-                Tone
-                <select
-                  className="h-9 w-full rounded-lg border border-white/10 bg-[#1b1b1b] px-2 text-white"
-                  value={assistantSettings?.tone ?? "concise"}
-                  disabled={!assistantSettings}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (
-                      value === "concise" ||
-                      value === "professional" ||
-                      value === "warm" ||
-                      value === "playful"
-                    ) {
-                      updateAssistantSettings({ tone: value });
-                    }
-                  }}
-                >
-                  <option value="concise">Natural</option>
-                  <option value="warm">Warm</option>
-                  <option value="professional">Professional</option>
-                  <option value="playful">Playful when appropriate</option>
-                </select>
-              </label>
-            </div>
-            <label className="block space-y-1 text-xs text-white/60">
-              Voice companion
-              <select
-                className="h-9 w-full rounded-lg border border-white/10 bg-[#1b1b1b] px-2 text-white"
-                value={assistantSettings?.voiceMode ?? "silent"}
-                disabled={!assistantSettings}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (
-                    value === "silent" ||
-                    value === "selected" ||
-                    value === "automatic"
-                  ) {
-                    updateAssistantSettings({ voiceMode: value });
-                  }
-                }}
-              >
-                <option value="silent">Silent suggestions</option>
-                <option value="selected">Speak when I tap Listen</option>
-                <option value="automatic">Automatically speak one safe reply</option>
-              </select>
-            </label>
-            {assistantSettings?.voiceMode !== "silent" ? (
-              <>
-                <label className="block space-y-1 text-xs text-white/60">
-                  Local voice
-                  <select
-                    className="h-9 w-full rounded-lg border border-white/10 bg-[#1b1b1b] px-2 text-white"
-                    value={assistantSettings?.voiceURI ?? ""}
-                    disabled={!assistantSettings}
-                    onChange={(event) =>
-                      updateAssistantSettings({ voiceURI: event.target.value })
-                    }
-                  >
-                    <option value="">Automatic language match</option>
-                    {speechVoices
-                      .filter((voice) => voice.localService)
-                      .map((voice) => (
-                        <option key={voice.voiceURI} value={voice.voiceURI}>
-                          {voice.name} ({voice.lang})
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <label className="flex items-center justify-between gap-3 text-xs text-white/60">
-                  Speech rate
-                  <input
-                    aria-label="Speech rate"
-                    type="range"
-                    min="0.7"
-                    max="1.3"
-                    step="0.1"
-                    value={assistantSettings?.speechRate ?? 1}
-                    disabled={!assistantSettings}
-                    onChange={(event) =>
-                      updateAssistantSettings({
-                        speechRate: Number(event.target.value),
-                      })
-                    }
-                  />
-                  <span>{(assistantSettings?.speechRate ?? 1).toFixed(1)}×</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={!assistantSettings}
-                    onClick={() =>
-                      updateAssistantSettings({
-                        voiceMuted: !assistantSettings?.voiceMuted,
-                      })
-                    }
-                  >
-                    {assistantSettings?.voiceMuted ? "Unmute voice" : "Mute voice"}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      getSpeechQueue().cancel();
-                      setSpeechNotice("Speech stopped.");
-                    }}
-                  >
-                    Stop speaking
-                  </Button>
-                </div>
-                {speechVoices.filter((voice) => voice.localService).length === 0 ? (
-                  <p role="status" className="text-xs text-amber-200/80">
-                    No local browser voices are available. Voice playback is unavailable; suggestions still work.
-                  </p>
-                ) : !speechVoices.some(
-                    (voice) =>
-                      voice.localService &&
-                      /^ar(?:-|$)/i.test(voice.lang),
-                  ) ? (
-                  <p role="status" className="text-xs text-amber-200/80">
-                    No local Arabic voice is available here. Arabic suggestions will not be spoken with a mismatched English voice.
-                  </p>
-                ) : null}
-                <p className="text-xs leading-relaxed text-white/40">
-                  Only browser voices marked as local are used. Automatic mode is limited to allowlisted small talk, skips likely sensitive content, inactive tabs, and competing audio, and speaks at most one reply per newly received message.
-                </p>
-              </>
-            ) : null}
-            <details className="rounded-xl border border-white/10 bg-white/[0.025]">
-              <summary className="cursor-pointer px-3 py-3 text-xs font-medium text-white/75">
-                Companion & research controls
-              </summary>
-              <div className="space-y-3 border-t border-white/10 p-3">
-                <label className="flex cursor-pointer items-start gap-2 text-xs text-white/65">
-                  <input
-                    type="checkbox"
-                    checked={companionUsesChatContext}
-                    onChange={(event) => {
-                      const useContext = event.target.checked;
-                      companionController.current?.abort();
-                      companionController.current = null;
-                      speechQueueRef.current?.cancel();
-                      setCompanionBusy(false);
-                      setCompanionProgress(null);
-                      if (!useContext) {
-                        setCompanionTurns([]);
-                        setCompanionObservation(null);
-                      }
-                      setCompanionUsesChatContext(useContext);
-                      companionRuntime.dispatch({ type: "cancel" });
-                    }}
-                  />
-                  <span>Include recent messages from this chat in companion dialogue</span>
-                </label>
-                <label className="flex cursor-pointer items-start gap-2 text-xs text-white/65">
-                  <input
-                    type="checkbox"
-                    checked={speakCompanionReplies}
-                    onChange={(event) =>
-                      setSpeakCompanionReplies(event.target.checked)
-                    }
-                  />
-                  <span>Speak companion replies</span>
-                </label>
-                <label className="flex cursor-pointer items-start gap-2 text-xs text-white/65">
-                  <input
-                    type="checkbox"
-                    checked={microphoneEnabled}
-                    onChange={(event) => {
-                      const enabled = event.target.checked;
-                      setMicrophoneEnabled(enabled);
-                      if (!enabled) {
-                        speechInputController.current?.abort();
-                        speechInputController.current = null;
-                        speechInputProvider.current.cancel();
-                        setListeningForCompanion(false);
-                        companionRuntime.dispatch({
-                          type: "activity-updated",
-                          state: "idle",
-                        });
-                      }
-                    }}
-                  />
-                  <span>Enable microphone controls</span>
-                </label>
-                {!selectedSpeechInputAvailable && browserSpeechSupported ? (
-                  <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-relaxed text-amber-100/70">
-                    <input
-                      type="checkbox"
-                      checked={allowBrowserSpeech}
-                      onChange={(event) =>
-                        setAllowBrowserSpeech(event.target.checked)
-                      }
-                    />
-                    <span>
-                      Allow browser speech service. The browser may send microphone audio and its transcript to its provider.
-                    </span>
-                  </label>
-                ) : null}
-                {!selectedSpeechInputAvailable && !browserSpeechSupported ? (
-                  <p className="text-[11px] leading-relaxed text-white/40">
-                    No speech recognition provider is available in this browser. You can still type to the companion.
-                  </p>
-                ) : null}
-                <div className="border-t border-white/10 pt-3">
-                  <label className="flex cursor-pointer items-start gap-2 text-xs text-white/65">
-                    <input
-                      type="checkbox"
-                      checked={assistantSettings?.automaticOnlineResearch ?? false}
-                      disabled={!assistantSettings}
-                      onChange={(event) => {
-                        const enabled = event.target.checked;
-                        if (!enabled && researching) {
-                          companionController.current?.abort();
-                          setCompanionError(
-                            "Research stopped. If the request had already started, the search provider may have received the question.",
-                          );
-                        }
-                        updateAssistantSettings({
-                          automaticOnlineResearch: enabled,
-                        });
-                      }}
-                    />
-                    <span>
-                      Automatic web research
-                      <span className="mt-1 block text-[10px] leading-relaxed text-white/40">
-                        Only a standalone question is sent to the app backend and Brave Search, never chat context or dialogue history.
-                      </span>
-                    </span>
-                  </label>
-                  <form
-                    className="mt-3 flex gap-2"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      proposeResearch(researchQuery);
-                    }}
-                  >
-                    <Input
-                      aria-label="Exact web search query"
-                      maxLength={300}
-                      placeholder="Review a search query…"
-                      value={researchQuery}
-                      onChange={(event) => setResearchQuery(event.target.value)}
-                    />
-                    <Button
-                      type="submit"
-                      size="sm"
-                      variant="outline"
-                      disabled={!researchQuery.trim()}
-                    >
-                      Review
-                    </Button>
-                  </form>
-                  {agentProposals
-                    .filter((proposal) => proposal.action.type === "web_search")
-                    .map((proposal) => {
-                      if (proposal.action.type !== "web_search") {
-                        return null;
-                      }
-                      return (
-                        <div
-                          key={proposal.id}
-                          className="mt-2 space-y-2 rounded-lg bg-white/[0.04] p-3"
-                        >
-                          <p className="text-[10px] uppercase tracking-wide text-amber-100/70">
-                            Approval required · duckduckgo.com
-                          </p>
-                          <p className="break-words text-xs text-white/80">
-                            {proposal.action.query}
-                          </p>
-                          <div className="flex gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => void approveAgentProposal(proposal)}
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => cancelAgentProposal(proposal)}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  {approvedSearchUrl ? (
-                    <p role="status" className="mt-2 text-[10px] text-white/45">
-                      Search opened.{" "}
-                      <a
-                        href={approvedSearchUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline"
-                      >
-                        Open results
-                      </a>
-                    </p>
-                  ) : null}
-              </div>
-              </div>
-            </details>
-            <details className="rounded-xl border border-white/10 bg-white/[0.025]">
-              <summary className="cursor-pointer px-3 py-3 text-xs font-medium text-white/75">
-                Conversation summary
-              </summary>
-              <div className="space-y-3 border-t border-white/10 p-3">
-                <p className="text-[11px] leading-relaxed text-white/45">
-                  Optional on-device summary. First use downloads about 570 MB of local model files; message text stays in this browser.
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="space-y-1 text-[10px] text-white/50">
-                    Language
-                    <select
-                      id="summary-language"
-                      className="h-9 w-full rounded-lg border border-white/10 bg-[#151515] px-2 text-xs text-white"
-                      value={summaryLanguage}
-                      disabled={summarizing}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        if (value === "auto" || value === "english" || value === "arabic") {
-                          setSummaryLanguage(value);
-                        }
-                      }}
-                    >
-                      <option value="auto">Auto</option>
-                      <option value="english">English</option>
-                      <option value="arabic">Arabic</option>
-                    </select>
-                  </label>
-                  <label className="space-y-1 text-[10px] text-white/50">
-                    Tone
-                    <select
-                      id="summary-tone"
-                      className="h-9 w-full rounded-lg border border-white/10 bg-[#151515] px-2 text-xs text-white"
-                      value={summaryTone}
-                      disabled={summarizing}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        if (
-                          value === "concise" ||
-                          value === "professional" ||
-                          value === "warm" ||
-                          value === "playful"
-                        ) {
-                          setSummaryTone(value);
-                        }
-                      }}
-                    >
-                      <option value="concise">Concise</option>
-                      <option value="professional">Professional</option>
-                      <option value="warm">Warm</option>
-                      <option value="playful">Playful</option>
-                    </select>
-                  </label>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={summarizing ? "outline" : "default"}
-                  disabled={!localMessages.length && !summarizing}
-                  onClick={() => {
-                    if (summarizing) {
-                      summaryController.current?.abort();
-                    } else {
-                      void createLocalSummary();
-                    }
-                  }}
-                >
-                  {summarizing ? "Cancel summary" : "Summarize this chat"}
-                </Button>
-                {summarizing ? (
-                  <p role="status" className="text-xs text-(--accent)">
-                    {summaryProgress?.phase === "loading"
-                      ? `Loading local model${typeof summaryProgress.percent === "number"
-                        ? ` (${Math.round(summaryProgress.percent)}%)`
-                        : "…"}`
-                      : "Summarizing on this device…"}
-                  </p>
-                ) : null}
-                {summaryError?.conversationId === conversationId ? (
-                  <p role="alert" className="text-xs text-red-300">
-                    {summaryError.message}
-                  </p>
-                ) : null}
-                {summary?.conversationId === conversationId ? (
-                  <div className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-xl bg-white/[0.04] p-3 text-xs leading-relaxed text-white/80">
-                    {summary.text}
-                  </div>
-                ) : null}
-              </div>
-            </details>
-            <p className="text-xs leading-relaxed text-white/45">
-              First use downloads about 570 MB of local model files from Hugging Face. Message content stays in this browser and is never uploaded for AI.
-            </p>
-            {assistantSettingsError ? (
-              <p role="alert" className="text-xs text-red-300">
-                {assistantSettingsError}
-              </p>
-            ) : null}
-            {radarStoreError ? (
-              <p role="alert" className="text-xs text-red-300">
-                {radarStoreError}
-              </p>
-            ) : null}
-          </motion.div>
-            ) : null}
-          </AnimatePresence>
-        </div>
+            {t("inbox.hub.assistant")}
+          </Link>
+        </Button>
         </div>
       </header>
       <AnimatePresence>
@@ -4366,7 +3699,7 @@ function ThreadConversation({
           </p>
           {!assistantSettings?.enabled ? (
             <div className="m-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4 text-sm text-white/65">
-              Open Sophia controls to enable the assistant, or visit Settings for account modules. First use downloads about 570 MB of model files for free-form dialogue; compound voice commands can stage actions without waiting on the model.
+              The Sophia assistant is a separate inbox section. It does not read this chat unless you allow it there.
             </div>
           ) : (
             <>
@@ -4963,11 +4296,11 @@ function ThreadConversation({
       </AnimatePresence>
       {assistantSettings?.enabled ? (
         <div className="pointer-events-none absolute bottom-[7.5rem] left-3 z-20 sm:bottom-28 sm:left-6">
-          <button
-            type="button"
+          <Link
+            href="/inbox?hub=assistant"
             className="pointer-events-auto rounded-[1.75rem] border border-white/10 bg-[#0b1018] p-2 shadow-2xl transition-colors hover:border-cyan-300/30"
-            aria-label={companionOpen ? "Focus Sophia panel" : "Open Sophia"}
-            onClick={() => setCompanionOpen(true)}
+            title="Open the Sophia assistant. This stays separate from this chat."
+            aria-label="Open the Sophia assistant. This stays separate from this chat."
           >
             <SophiaRobot
               presence={companionPresence}
@@ -4976,7 +4309,7 @@ function ThreadConversation({
               thinking={aiIsThinking}
               size="md"
             />
-          </button>
+          </Link>
         </div>
       ) : null}
       <div className="relative min-h-0 min-w-0 flex-1">
@@ -5341,15 +4674,29 @@ function ThreadConversation({
             {selectedPhotos.length ? (
               <div className="flex max-w-[min(70vw,18rem)] gap-1 overflow-x-auto">
                 {selectedPhotos.map((file, index) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={`${file.name}-${file.size}-${index}`}
-                    ref={(element) => {
-                      selectedPhotoPreviewRefs.current[index] = element;
-                    }}
-                    alt=""
-                    className="size-14 shrink-0 rounded-lg object-cover"
-                  />
+                  <span key={`${file.name}-${file.size}-${index}`} className="relative shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      ref={(element) => {
+                        selectedPhotoPreviewRefs.current[index] = element;
+                      }}
+                      alt=""
+                      className="size-14 rounded-lg object-cover"
+                    />
+                    <button
+                      type="button"
+                      className="absolute -end-1 -top-1 rounded-full bg-black/80 px-1.5 text-[10px] text-white"
+                      title={`Remove ${file.name}`}
+                      aria-label={`Remove photo ${file.name}`}
+                      disabled={sendMedia.isPending || recordingVoiceNote || locating}
+                      onClick={() => {
+                        setSelectedPhotos((current) => current.filter((_, item) => item !== index));
+                        setPhotoEditorOpen(false);
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </span>
                 ))}
               </div>
             ) : selectedVideo ? (
@@ -5413,9 +4760,10 @@ function ThreadConversation({
             </div>
             <button
               type="button"
-              aria-label="Remove selected attachment"
+              title="Remove the attachment before sending"
+              aria-label="Remove the attachment before sending"
               disabled={sendMedia.isPending || recordingVoiceNote || locating}
-              className="rounded-full p-2 text-white/50 hover:bg-white/10 hover:text-white"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-2 text-xs text-white/70 hover:bg-white/10 hover:text-white"
               onClick={() => {
                 videoSelectionRequest.current += 1;
                 fileSelectionRequest.current += 1;
@@ -5429,6 +4777,7 @@ function ThreadConversation({
               }}
             >
               <X aria-hidden="true" className="size-4" />
+              Remove
             </button>
           </div>
         ) : null}
@@ -5470,6 +4819,8 @@ function ThreadConversation({
             <button
               type="button"
               className="rounded-lg px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10"
+              title="Attach one or more photos. You can remove each photo before sending."
+              aria-label="Attach one or more photos. You can remove each photo before sending."
               onClick={() => {
                 setAttachmentMenuOpen(false);
                 photoInputRef.current?.click();
@@ -5480,6 +4831,8 @@ function ThreadConversation({
             <button
               type="button"
               className="rounded-lg px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10"
+              title="Attach a video. You can remove it before sending."
+              aria-label="Attach a video. You can remove it before sending."
               onClick={() => {
                 setAttachmentMenuOpen(false);
                 videoInputRef.current?.click();
@@ -5490,6 +4843,8 @@ function ThreadConversation({
             <button
               type="button"
               className="rounded-lg px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10"
+              title="Attach a document. You can remove it before sending."
+              aria-label="Attach a document. You can remove it before sending."
               onClick={() => {
                 setAttachmentMenuOpen(false);
                 fileInputRef.current?.click();
@@ -5499,6 +4854,8 @@ function ThreadConversation({
             </button>
             <button
               type="button"
+              title="Share your current location in this chat"
+              aria-label="Share your current location in this chat"
               className="rounded-lg px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10 disabled:opacity-50"
               disabled={locating || send.isPending || sendMedia.isPending}
               onClick={() => void shareCurrentLocation()}
@@ -5517,7 +4874,8 @@ function ThreadConversation({
             accept="image/jpeg,image/png,image/webp,image/gif"
             multiple
             className="hidden"
-            aria-label="Choose one or more photos"
+            title="Attach one or more photos. You can remove each photo before sending."
+            aria-label="Attach one or more photos. You can remove each photo before sending."
             onChange={handlePhotoSelection}
           />
           <input
@@ -5525,7 +4883,8 @@ function ThreadConversation({
             type="file"
             accept="video/*"
             className="hidden"
-            aria-label="Choose a video"
+            title="Attach a video. You can remove it before sending."
+            aria-label="Attach a video. You can remove it before sending."
             onChange={(event) => void handleVideoSelection(event)}
           />
           <input
@@ -5533,7 +4892,8 @@ function ThreadConversation({
             type="file"
             accept=".pdf,.docx,.pptx,.xlsx,.txt,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv"
             className="hidden"
-            aria-label="Choose a document attachment"
+            title="Attach a document. You can remove it before sending."
+            aria-label="Attach a document. You can remove it before sending."
             onChange={(event) => void handleFileSelection(event)}
           />
           <Button
@@ -5555,7 +4915,8 @@ function ThreadConversation({
                   selectedLocation,
               )
             }
-            aria-label={attachmentMenuOpen ? "Close attachment options" : "Open attachment options"}
+            title={attachmentMenuOpen ? "Close attachment options" : "Attach a photo, video, or document"}
+            aria-label={attachmentMenuOpen ? "Close attachment options" : "Attach a photo, video, or document. You can remove it before sending."}
             aria-expanded={attachmentMenuOpen}
             aria-controls="message-attachment-menu"
             onClick={() => setAttachmentMenuOpen((open) => !open)}
@@ -5596,6 +4957,7 @@ function ThreadConversation({
             variant="ghost"
             size="icon"
             className="size-9 shrink-0 text-white/65 sm:size-10"
+            title={emojiPickerOpen ? "Close emoji picker" : "Open emoji picker"}
             aria-label={emojiPickerOpen ? "Close emoji picker" : "Open emoji picker"}
             aria-expanded={emojiPickerOpen}
             aria-controls="message-emoji-picker"
@@ -5605,6 +4967,8 @@ function ThreadConversation({
           </Button>
           <Input
             dir="auto"
+            title={t("chat.write")}
+            aria-label={t("chat.write")}
             placeholder={
               selectedPhotos.length || selectedVideo || selectedVoiceNote || selectedFile || selectedLocation
                 ? t("chat.caption")

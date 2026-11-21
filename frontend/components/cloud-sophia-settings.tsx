@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { ApiError, api } from "@/lib/api";
 import { logAccountActivity } from "@/lib/account-activity";
 import {
   CLOUD_SOPHIA_CONSENT_VERSION,
   CLOUD_SOPHIA_PURPOSE,
-  decideCloudSophiaPath,
 } from "@/lib/cloud-sophia";
 import { useI18n } from "@/lib/i18n/locale";
 
@@ -33,8 +33,6 @@ export function CloudSophiaSettings() {
   const { t } = useI18n();
   const [status, setStatus] = useState<ConsentStatus | null>(null);
   const [checked, setChecked] = useState(false);
-  const [prompt, setPrompt] = useState("");
-  const [reply, setReply] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -87,7 +85,6 @@ export function CloudSophiaSettings() {
     if (busy) return;
     setBusy(true);
     setError(null);
-    setReply(null);
     try {
       await api.withdrawCloudSophiaConsent();
       logAccountActivity({
@@ -99,33 +96,6 @@ export function CloudSophiaSettings() {
       await reload();
     } catch (withdrawError) {
       setError(messageFrom(withdrawError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function ask(event: FormEvent) {
-    event.preventDefault();
-    const question = prompt.trim();
-    if (!question || busy) return;
-    const decision = decideCloudSophiaPath({
-      consentActive: Boolean(status?.active),
-      hasPrivateMessagePlaintext: false,
-    });
-    if (decision !== "cloud") {
-      setReply(null);
-      setError("Cloud Sophia stays off until you consent. This question was not sent.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setReply(null);
-    try {
-      const result = await api.completeCloudSophia({ prompt: question });
-      setReply(result.reply);
-    } catch (askError) {
-      setReply(null);
-      setError(messageFrom(askError));
     } finally {
       setBusy(false);
     }
@@ -172,36 +142,22 @@ export function CloudSophiaSettings() {
           <button
             type="button"
             className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/80 hover:bg-white/5 disabled:opacity-40"
+            title={t("cloud.withdraw")}
+            aria-label={t("cloud.withdraw")}
             disabled={busy}
             onClick={() => void withdraw()}
           >
             {t("cloud.withdraw")}
           </button>
-          <form className="space-y-3" onSubmit={(event) => void ask(event)}>
-            <label className="block text-sm text-white/70" htmlFor="cloud-sophia-prompt">
-              {t("cloud.ask")}
-            </label>
-            <textarea
-              id="cloud-sophia-prompt"
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              maxLength={2000}
-              rows={4}
-              className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none"
-              dir="auto"
-              placeholder={t("cloud.placeholder")}
-            />
-            <button
-              type="submit"
-              className="rounded-full bg-white px-4 py-2 text-sm text-black disabled:opacity-40"
-              disabled={busy || prompt.trim().length === 0}
-            >
-              {busy ? t("cloud.sending") : t("cloud.send")}
-            </button>
-          </form>
-          {reply ? (
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/80">{reply}</p>
-          ) : null}
+          <p className="text-sm leading-6 text-white/70">{t("agent.separate")}</p>
+          <Link
+            href="/inbox?hub=assistant"
+            className="inline-flex min-h-11 items-center rounded-full bg-white px-4 text-sm text-black"
+            title={t("agent.separate")}
+            aria-label={t("inbox.hub.assistant")}
+          >
+            {t("inbox.hub.assistant")}
+          </Link>
         </div>
       ) : (
         <div className="space-y-3">
@@ -214,17 +170,30 @@ export function CloudSophiaSettings() {
               checked={checked}
               onChange={(event) => setChecked(event.target.checked)}
               className="mt-1 accent-white"
+            title={t("cloud.agree")}
+            aria-label={t("cloud.agree")}
             />
             {t("cloud.agree")}
           </label>
           <button
             type="button"
             className="rounded-full bg-white px-4 py-2 text-sm text-black disabled:opacity-40"
+            title={t("cloud.save")}
+            aria-label={t("cloud.save")}
             disabled={!checked || busy}
             onClick={() => void grant()}
           >
             {t("cloud.save")}
           </button>
+          <p className="text-sm leading-6 text-white/70">{t("agent.separate")}</p>
+          <Link
+            href="/inbox?hub=assistant"
+            className="inline-flex min-h-11 items-center rounded-full border border-white/15 px-4 text-sm text-white"
+            title={t("agent.separate")}
+            aria-label={t("inbox.hub.assistant")}
+          >
+            {t("inbox.hub.assistant")}
+          </Link>
         </div>
       )}
       {error ? <p role="alert" className="text-sm text-red-300">{error}</p> : null}

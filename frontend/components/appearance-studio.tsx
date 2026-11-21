@@ -115,13 +115,13 @@ export function AppearanceStudio({
         <article className="appearance-card appearance-proposal" aria-label={t("appearance.proposalLabel")}>
           <p className="appearance-proposal-copy">{t(proposalKeys[pending.ruleId])}</p>
           <div className="appearance-actions">
-            <button type="button" className="appearance-choice" onClick={() => appearance.setPreview({ tokens: pending.tokens, voice: pending.voice })}>
+            <button type="button" className="appearance-choice" title={t("appearance.preview")} aria-label={t("appearance.preview")} onClick={() => appearance.setPreview({ tokens: pending.tokens, voice: pending.voice })}>
               {t("appearance.preview")}
             </button>
-            <button type="button" className="appearance-choice appearance-choice-primary" onClick={appearance.approve}>
+            <button type="button" className="appearance-choice appearance-choice-primary" title={t("appearance.approve")} aria-label={t("appearance.approve")} onClick={appearance.approve}>
               {t("appearance.approve")}
             </button>
-            <button type="button" className="appearance-choice" onClick={appearance.dismiss}>
+            <button type="button" className="appearance-choice" title={t("appearance.dismiss")} aria-label={t("appearance.dismiss")} onClick={appearance.dismiss}>
               {t("appearance.dismiss")}
             </button>
           </div>
@@ -130,7 +130,7 @@ export function AppearanceStudio({
       {appearance.preview ? (
         <p className="appearance-status" role="status">
           {t("appearance.previewing")}{" "}
-          <button type="button" className="appearance-choice" onClick={() => appearance.setPreview(null)}>
+          <button type="button" className="appearance-choice" title={t("appearance.cancelPreview")} aria-label={t("appearance.cancelPreview")} onClick={() => appearance.setPreview(null)}>
             {t("appearance.cancelPreview")}
           </button>
         </p>
@@ -146,6 +146,8 @@ export function AppearanceStudio({
               key={mode}
               type="button"
               className="appearance-choice"
+              title={t(mode === "system" ? "appearance.system" : mode === "light" ? "appearance.light" : "appearance.dark")}
+              aria-label={t(mode === "system" ? "appearance.system" : mode === "light" ? "appearance.light" : "appearance.dark")}
               aria-pressed={tokens.colorMode === mode}
               onClick={() => commit({ ...tokens, colorMode: mode })}
             >
@@ -159,6 +161,8 @@ export function AppearanceStudio({
               key={density}
               type="button"
               className="appearance-choice"
+              title={t(density === "compact" ? "appearance.densityCompact" : density === "comfortable" ? "appearance.densityComfortable" : "appearance.densitySpacious")}
+              aria-label={t(density === "compact" ? "appearance.densityCompact" : density === "comfortable" ? "appearance.densityComfortable" : "appearance.densitySpacious")}
               aria-pressed={tokens.density === density}
               onClick={() => commit({ ...tokens, density })}
             >
@@ -245,11 +249,13 @@ export function AppearanceStudio({
             />
           ))}
         </div>
-        <label className="appearance-upload">
+        <label className="appearance-upload" title={t("appearance.upload")} aria-label={t("appearance.upload")}>
           {t("appearance.upload")}
           <input
             type="file"
             accept="image/png,image/jpeg,image/webp"
+            title={t("appearance.upload")}
+            aria-label={t("appearance.upload")}
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
               event.currentTarget.value = "";
@@ -259,7 +265,7 @@ export function AppearanceStudio({
         </label>
         <p className="appearance-hint">{t("appearance.uploadHint")}</p>
         {tokens.background.kind === "upload" ? (
-          <button type="button" className="appearance-choice" onClick={() => commit({ ...tokens, background: { kind: "none" } })}>
+          <button type="button" className="appearance-choice" title={t("appearance.removeUpload")} aria-label={t("appearance.removeUpload")} onClick={() => commit({ ...tokens, background: { kind: "none" } })}>
             {t("appearance.removeUpload")}
           </button>
         ) : null}
@@ -273,6 +279,8 @@ export function AppearanceStudio({
               key={item}
               type="button"
               className="appearance-choice"
+              title={t(item === "manager" ? "appearance.roleManager" : "appearance.roleFamily")}
+              aria-label={t(item === "manager" ? "appearance.roleManager" : "appearance.roleFamily")}
               aria-pressed={appearance.record.role === item}
               onClick={() => appearance.setRole(item)}
             >
@@ -286,6 +294,8 @@ export function AppearanceStudio({
               key={manner}
               type="button"
               className="appearance-choice"
+              title={t(manner === "formal" ? "appearance.mannerFormal" : "appearance.mannerFriendly")}
+              aria-label={t(manner === "formal" ? "appearance.mannerFormal" : "appearance.mannerFriendly")}
               aria-pressed={voice.manner === manner}
               onClick={() => commit(tokens, { ...voice, manner })}
             >
@@ -299,6 +309,8 @@ export function AppearanceStudio({
               key={verbosity}
               type="button"
               className="appearance-choice"
+              title={t(verbosity === "short" ? "appearance.verbosityShort" : "appearance.verbosityDetailed")}
+              aria-label={t(verbosity === "short" ? "appearance.verbosityShort" : "appearance.verbosityDetailed")}
               aria-pressed={voice.verbosity === verbosity}
               onClick={() => commit(tokens, { ...voice, verbosity })}
             >
@@ -312,6 +324,8 @@ export function AppearanceStudio({
               key={language}
               type="button"
               className="appearance-choice"
+              title={t(language === "english" ? "appearance.langEnglish" : language === "arabic" ? "appearance.langArabic" : "appearance.langMixed")}
+              aria-label={t(language === "english" ? "appearance.langEnglish" : language === "arabic" ? "appearance.langArabic" : "appearance.langMixed")}
               aria-pressed={voice.language === language}
               onClick={() => commit(tokens, { ...voice, language })}
             >
@@ -328,10 +342,10 @@ export function AppearanceStudio({
       </section>
       <section className="appearance-card">
         <div className="appearance-actions">
-          <button type="button" className="appearance-choice" onClick={appearance.undo} disabled={appearance.record.revisions.length < 2}>
+          <button type="button" className="appearance-choice" title={t("appearance.undo")} aria-label={t("appearance.undo")} onClick={appearance.undo} disabled={appearance.record.revisions.length < 2}>
             {t("appearance.undo")}
           </button>
-          <button type="button" className="appearance-choice" onClick={appearance.reset}>
+          <button type="button" className="appearance-choice" title={t("appearance.reset")} aria-label={t("appearance.reset")} onClick={appearance.reset}>
             {t("appearance.reset")}
           </button>
         </div>
@@ -377,7 +391,7 @@ function BackgroundButton({
   onClick: () => void;
 }) {
   return (
-    <button type="button" className="appearance-background" aria-pressed={pressed} onClick={onClick}>
+    <button type="button" className="appearance-background" title={label} aria-label={label} aria-pressed={pressed} onClick={onClick}>
       <span className="appearance-thumb" style={image ? { backgroundImage: image } : undefined} />
       <span>{label}</span>
     </button>

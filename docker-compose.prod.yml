@@ -18,6 +18,8 @@ services:
       # Defaults to the live Sophia SPA origin. Override via root `.env` if the
       # published frontend origin changes. `backend/.env` / env_file does NOT
       # supply this key when `environment:` sets it.
+      # Live SPA origin is always allowed by the API, plus this value.
+      # Set FRONTEND_ORIGIN in the repo-root .env when the published origin changes.
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-https://sophia.apps.grok.bot}
       COOKIE_NAME: messenger_session
       # Always Secure+SameSite=None in prod. Do NOT interpolate from root `.env`:
@@ -41,6 +43,8 @@ services:
       SOPHIA_MODEL_BASE_URL: ${SOPHIA_MODEL_BASE_URL-}
       SOPHIA_MODEL_NAME: ${SOPHIA_MODEL_NAME-}
       SOPHIA_AGENT_ENABLED: ${SOPHIA_AGENT_ENABLED:-true}
+      # Groups stay on unless this is exactly false.
+      GROUP_E2EE_ENABLED: ${GROUP_E2EE_ENABLED:-true}
       SAFE_BROWSING_API_KEY: ${SAFE_BROWSING_API_KEY-}
       TURN_URLS: ${TURN_URLS-}
       TURN_SHARED_SECRET: ${TURN_SHARED_SECRET-}
@@ -75,5 +79,7 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.sophia-build.com}
         NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED: ${NEXT_PUBLIC_SAFETY_NUMBERS_ENABLED:-true}
         NEXT_PUBLIC_DAILY_BRIEF_ENABLED: ${NEXT_PUBLIC_DAILY_BRIEF_ENABLED:-true}
+        NEXT_PUBLIC_GROUP_E2EE_ENABLED: ${NEXT_PUBLIC_GROUP_E2EE_ENABLED:-true}
+        NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED: ${NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED:-true}
     environment: []
     volumes: []

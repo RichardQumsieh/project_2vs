@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { requireUser } from "../auth.js";
 import { prisma } from "../db.js";
-import { updateProfileSchema } from "../schemas.js";
+import { personLikePattern, rankPeople } from "../people-lookup.js";
+import { updateProfileSchema, userLookupQuery } from "../schemas.js";
 import { publicUser } from "../util.js";
 
 type RecommendedUser = {
@@ -47,6 +48,46 @@ export async function discoveryRoutes(app: FastifyInstance) {
 
       reply.header("Cache-Control", "no-store");
       return { user };
+    },
+  );
+
+  app.get(
+    "/users/lookup",
+    {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: "1 minute",
+        },
+      },
+    },
+    async (request, reply) => {
+      const session = await requireUser(request, reply);
+      if (!session) return;
+      const parsed = userLookupQuery.safeParse(request.query);
+      if (!parsed.success) return reply.code(400).send({ error: "Invalid search" });
+      const pattern = personLikePattern(parsed.data.q);
+      if (!pattern) return reply.code(400).send({ error: "Invalid search" });
+      const rows = await prisma.$queryRaw<Array<{
+        id: string;
+        username: string;
+        displayName: string | null;
+        avatarUrl: string | null;
+      }>>`
+        SELECT "id", "username", "displayName", "avatarUrl"
+        FROM "User"
+        WHERE "id" <> ${session.sub}
+          AND (
+            lower("username") LIKE ${pattern} ESCAPE '\\'
+            OR lower(coalesce("displayName", '')) LIKE ${pattern} ESCAPE '\\'
+          )
+        ORDER BY "username" ASC
+        LIMIT 20
+      `;
+      reply.header("Cache-Control", "no-store");
+      return {
+        users: rankPeople(rows, parsed.data.q).slice(0, 8).map((user) => publicUser(user)),
+      };
     },
   );
 

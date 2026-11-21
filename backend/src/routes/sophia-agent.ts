@@ -8,12 +8,15 @@ import {
   stripWithheldChats,
   type AgentMessage,
 } from "../agent-control.js";
+import { agentTurnAllowed } from "../agent-availability.js";
 import { requireUser } from "../auth.js";
+import { allowedFrontendOrigins, credentialedCorsHeaders } from "../cors-allowlist.js";
 import { prisma } from "../db.js";
-import { env, sophiaAgentEnabled } from "../env.js";
+import { billingEnabled, env, sophiaAgentEnabled } from "../env.js";
 import { completeChat } from "../model-provider.js";
 
 const runs = new Map<string, AbortController>();
+const allowedOrigins = allowedFrontendOrigins(env.FRONTEND_ORIGIN);
 
 const roles = new Set(["system", "user", "assistant", "tool"]);
 
@@ -159,7 +162,7 @@ export async function sophiaAgentRoutes(app: FastifyInstance) {
       const session = await requireUser(request, reply);
       if (!session) return;
       reply.header("Cache-Control", "no-store");
-      if (!sophiaAgentEnabled) {
+      if (!agentTurnAllowed({ agentEnabled: sophiaAgentEnabled, billingEnabled })) {
         return reply.code(503).send({
           error: "Sophia is switched off for this server.",
           code: "agent_disabled",
@@ -212,10 +215,12 @@ export async function sophiaAgentRoutes(app: FastifyInstance) {
           };
         }
         reply.hijack();
+        const origin = typeof request.headers.origin === "string" ? request.headers.origin : undefined;
         reply.raw.writeHead(200, {
           "Content-Type": "text/event-stream; charset=utf-8",
           "Cache-Control": "no-store",
           Connection: "keep-alive",
+          ...credentialedCorsHeaders(origin, allowedOrigins),
         });
         const completion = await completeChat({
           messages,

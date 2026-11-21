@@ -23,8 +23,8 @@ export default function SophiaSettingsPage() {
             <li>• {t("sophiaSettings.li3")}</li>
           </ul>
           <div className="flex flex-wrap gap-2 pt-2">
-            <Link href="/inbox" className="inline-flex min-h-11 items-center rounded-full bg-white px-4 py-2 text-sm text-black">
-              {t("sophiaSettings.openInbox")}
+            <Link href="/inbox?hub=assistant" title={t("inbox.hub.assistant")} aria-label={t("inbox.hub.assistant")} className="inline-flex min-h-11 items-center rounded-full bg-white px-4 py-2 text-sm text-black">
+              {t("inbox.hub.assistant")}
             </Link>
             <Link href="/sophia" className="inline-flex min-h-11 items-center rounded-full border border-white/15 px-4 py-2 text-sm text-white/80">
               {t("sophiaSettings.openStudio")}

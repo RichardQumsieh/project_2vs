@@ -3,7 +3,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ApiError, api, type WorkspaceInviteRow, type WorkspaceMemberRow, type WorkspaceRole, type WorkspaceSummary } from "@/lib/api";
+import { ApiError, api, type PublicUser, type WorkspaceInviteRow, type WorkspaceMemberRow, type WorkspaceRole, type WorkspaceSummary } from "@/lib/api";
+import { memberSearchNeedle } from "@/lib/people";
 import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
 import { useI18n, type MessageKey } from "@/lib/i18n/locale";
 
@@ -22,6 +23,7 @@ export function WorkspaceAdmin() {
   const [invites, setInvites] = useState<WorkspaceInviteRow[]>([]);
   const [name, setName] = useState("");
   const [query, setQuery] = useState("");
+  const [found, setFound] = useState<PublicUser[]>([]);
   const [groupTitle, setGroupTitle] = useState("");
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [freshCode, setFreshCode] = useState<{ code: string; path: string } | null>(null);
@@ -95,13 +97,36 @@ export function WorkspaceAdmin() {
   }, [selectedId]);
 
   const visibleMembers = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = memberSearchNeedle(query);
     if (!needle) return members;
     return members.filter((member) => {
-      const display = member.displayName?.toLowerCase() ?? "";
-      return member.username.includes(needle) || display.includes(needle);
+      const display = (member.displayName ?? "").toLowerCase();
+      return member.username.toLowerCase().includes(needle) || display.includes(needle);
     });
   }, [members, query]);
+
+  useEffect(() => {
+    const needle = memberSearchNeedle(query);
+    if (needle.length < 2) {
+      setFound([]);
+      return;
+    }
+    let cancel = false;
+    const timer = window.setTimeout(() => {
+      void api.lookupPeople(needle).then((page) => {
+        if (!cancel) setFound(page.users);
+      }).catch(() => {
+        if (!cancel) setFound([]);
+      });
+    }, 200);
+    return () => {
+      cancel = true;
+      window.clearTimeout(timer);
+    };
+  }, [query]);
+
+  const knownMemberIds = new Set(members.map((member) => member.userId));
+  const outsidePeople = found.filter((person) => !knownMemberIds.has(person.id));
 
   async function create(kind: "FAMILY" | "TEAM", event: { preventDefault(): void }) {
     event.preventDefault();
@@ -166,7 +191,7 @@ export function WorkspaceAdmin() {
     setBusy(true);
     setError(null);
     try {
-      const conversation = await api.workspaceGroup(selected.id, {
+      const conversation = await api.createGroup({
         title: groupTitle.trim() || undefined,
         memberUserIds: groupIds,
       });
@@ -194,17 +219,21 @@ export function WorkspaceAdmin() {
             minLength={2}
             maxLength={60}
             onChange={(event) => setName(event.target.value)}
+            title={t("workspace.name")}
+            aria-label={t("workspace.name")}
             className="min-h-11 rounded-2xl border border-(--line) bg-(--control-bg) px-3 text-base"
           />
         </label>
         <p className="text-xs text-(--muted)">{t("workspace.nameRule")}</p>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <button type="submit" disabled={busy} className="min-h-11 rounded-full bg-(--foreground) px-4 text-sm font-medium text-(--background) disabled:opacity-50">
+          <button type="submit" disabled={busy} title={t("workspace.createFamily")} aria-label={t("workspace.createFamily")} className="min-h-11 rounded-full bg-(--foreground) px-4 text-sm font-medium text-(--background) disabled:opacity-50">
             {t("workspace.createFamily")}
           </button>
           <button
             type="button"
             disabled={busy}
+            title={t("workspace.createTeam")}
+            aria-label={t("workspace.createTeam")}
             onClick={(event) => void create("TEAM", event)}
             className="min-h-11 rounded-full border border-(--line) px-4 text-sm text-(--foreground) disabled:opacity-50"
           >
@@ -221,6 +250,8 @@ export function WorkspaceAdmin() {
             <button
               key={workspace.id}
               type="button"
+              title={workspace.name}
+              aria-label={workspace.name}
               aria-pressed={workspace.id === selectedId}
               onClick={() => {
                 setSelectedId(workspace.id);
@@ -267,10 +298,36 @@ export function WorkspaceAdmin() {
               id="workspace-member-search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("workspace.members")}
+              placeholder={t("workspace.find")}
+              title={t("workspace.find")}
+              aria-label={t("workspace.find")}
               className="min-h-11 rounded-2xl border border-(--line) bg-(--control-bg) px-3 text-base"
             />
             <ul className="flex flex-col gap-3">
+              {outsidePeople.map((person) => (
+                <li key={person.id} className="flex flex-col gap-2 border-t border-(--line) pt-3">
+                  <p className="text-sm text-(--foreground)">
+                    <BidiText>{person.displayName || person.username}</BidiText>
+                    {" "}
+                    <LtrIsolate>@{person.username}</LtrIsolate>
+                  </p>
+                  <p className="text-xs text-(--muted)">{t("workspace.outside")}</p>
+                  <label className="inline-flex min-h-11 items-center gap-2 text-xs text-(--muted)">
+                    <input
+                      type="checkbox"
+                      title={t("workspace.group")}
+                      aria-label={t("group.pick", { name: person.displayName || person.username })}
+                      checked={groupIds.includes(person.id)}
+                      onChange={(event) => {
+                        setGroupIds((current) => event.target.checked
+                          ? [...current, person.id]
+                          : current.filter((id) => id !== person.id));
+                      }}
+                    />
+                    {t("workspace.group")}
+                  </label>
+                </li>
+              ))}
               {visibleMembers.map((member) => (
                 <li key={member.userId} className="flex flex-col gap-2 border-t border-(--line) pt-3">
                   <p className="text-sm text-(--foreground)">
@@ -280,18 +337,18 @@ export function WorkspaceAdmin() {
                     <span className="ms-2 text-xs text-(--muted)">{t(roleKey[member.role])}</span>
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" className="min-h-11 rounded-full border border-(--line) px-3 text-xs" onClick={() => void message(member.username)}>
+                    <button type="button" title={t("workspace.message")} aria-label={`${t("workspace.message")} @${member.username}`} className="min-h-11 rounded-full border border-(--line) px-3 text-xs" onClick={() => void message(member.username)}>
                       {t("workspace.message")}
                     </button>
                     {isOwner && member.role !== "OWNER" ? (
                       <>
-                        <button type="button" className="min-h-11 rounded-full border border-(--line) px-3 text-xs" onClick={() => void api.setWorkspaceRole(selected.id, member.userId, "ADMIN").then(() => loadDetail(selected.id))}>
+                        <button type="button" title={t("workspace.makeAdmin")} aria-label={`${t("workspace.makeAdmin")} @${member.username}`} className="min-h-11 rounded-full border border-(--line) px-3 text-xs" onClick={() => void api.setWorkspaceRole(selected.id, member.userId, "ADMIN").then(() => loadDetail(selected.id))}>
                           {t("workspace.makeAdmin")}
                         </button>
-                        <button type="button" className="min-h-11 rounded-full border border-(--line) px-3 text-xs" onClick={() => void api.setWorkspaceRole(selected.id, member.userId, "MEMBER").then(() => loadDetail(selected.id))}>
+                        <button type="button" title={t("workspace.makeMember")} aria-label={`${t("workspace.makeMember")} @${member.username}`} className="min-h-11 rounded-full border border-(--line) px-3 text-xs" onClick={() => void api.setWorkspaceRole(selected.id, member.userId, "MEMBER").then(() => loadDetail(selected.id))}>
                           {t("workspace.makeMember")}
                         </button>
-                        <button type="button" className="min-h-11 rounded-full border border-(--line) px-3 text-xs" onClick={() => void api.setWorkspaceRole(selected.id, member.userId, "OWNER").then(() => loadDetail(selected.id))}>
+                        <button type="button" title={t("workspace.transferOwner")} aria-label={`${t("workspace.transferOwner")} @${member.username}`} className="min-h-11 rounded-full border border-(--line) px-3 text-xs" onClick={() => void api.setWorkspaceRole(selected.id, member.userId, "OWNER").then(() => loadDetail(selected.id))}>
                           {t("workspace.transferOwner")}
                         </button>
                       </>
@@ -299,6 +356,8 @@ export function WorkspaceAdmin() {
                     {(isOwner || (canInvite && member.role === "MEMBER")) && member.role !== "OWNER" ? (
                       <button
                         type="button"
+                        title={confirmUserId === member.userId ? t("workspace.confirmRemove") : t("workspace.remove")}
+                        aria-label={`${confirmUserId === member.userId ? t("workspace.confirmRemove") : t("workspace.remove")} @${member.username}`}
                         className="min-h-11 rounded-full border border-(--line) px-3 text-xs"
                         onClick={() => {
                           if (confirmUserId !== member.userId) {
@@ -318,6 +377,8 @@ export function WorkspaceAdmin() {
                       <label className="inline-flex min-h-11 items-center gap-2 text-xs text-(--muted)">
                         <input
                           type="checkbox"
+                          title={t("workspace.group")}
+                          aria-label={t("group.pick", { name: member.displayName || member.username })}
                           checked={groupIds.includes(member.userId)}
                           onChange={(event) => {
                             setGroupIds((current) => event.target.checked
@@ -344,7 +405,7 @@ export function WorkspaceAdmin() {
                 className="min-h-11 rounded-2xl border border-(--line) bg-(--control-bg) px-3 text-base"
               />
             </label>
-            <button type="submit" disabled={busy || groupIds.length === 0} className="min-h-11 rounded-full border border-(--line) px-4 text-sm disabled:opacity-50">
+            <button type="submit" disabled={busy || groupIds.length === 0} title={t("workspace.group")} aria-label={t("workspace.group")} className="min-h-11 rounded-full border border-(--line) px-4 text-sm disabled:opacity-50">
               {t("workspace.group")}
             </button>
           </form>
@@ -353,7 +414,7 @@ export function WorkspaceAdmin() {
             <div className="flex flex-col gap-3">
               <h3 className="text-sm font-medium text-(--foreground)">{t("workspace.invites")}</h3>
               <p className="text-sm leading-6 text-(--muted)">{t("workspace.inviteHelp")}</p>
-              <button type="button" disabled={busy} onClick={() => void createInvite()} className="min-h-11 rounded-full bg-(--foreground) px-4 text-sm font-medium text-(--background) disabled:opacity-50">
+              <button type="button" disabled={busy} title={t("workspace.createInvite")} aria-label={t("workspace.createInvite")} onClick={() => void createInvite()} className="min-h-11 rounded-full bg-(--foreground) px-4 text-sm font-medium text-(--background) disabled:opacity-50">
                 {t("workspace.createInvite")}
               </button>
               {freshCode ? (
@@ -361,7 +422,7 @@ export function WorkspaceAdmin() {
                   <p className="text-sm text-(--foreground)">{t("workspace.inviteOnce")}</p>
                   <p className="mt-2 text-sm" dir="ltr"><LtrIsolate>{freshCode.code}</LtrIsolate></p>
                   <p className="mt-1 text-xs" dir="ltr"><LtrIsolate>{freshCode.path}</LtrIsolate></p>
-                  <button type="button" onClick={() => void copyLink()} className="mt-3 min-h-11 rounded-full border border-(--line) px-3 text-xs">
+                  <button type="button" title={copied ? t("workspace.copied") : t("workspace.copy")} aria-label={copied ? t("workspace.copied") : t("workspace.copy")} onClick={() => void copyLink()} className="mt-3 min-h-11 rounded-full border border-(--line) px-3 text-xs">
                     {copied ? t("workspace.copied") : t("workspace.copy")}
                   </button>
                 </div>
@@ -382,6 +443,8 @@ export function WorkspaceAdmin() {
                     {!invite.revokedAt && !invite.consumedAt ? (
                       <button
                         type="button"
+                        title={t("workspace.revoke")}
+                        aria-label={t("workspace.revoke")}
                         className="min-h-11 rounded-full border border-(--line) px-3 text-xs"
                         onClick={() => void api.revokeWorkspaceInvite(selected.id, invite.id).then(() => loadDetail(selected.id))}
                       >

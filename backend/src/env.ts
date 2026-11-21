@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseDailyBriefEnabled } from "./daily-brief-flag.js";
+import { parseGroupE2eeEnabled } from "./group-e2ee-flag.js";
 import { parseSafetyNumbersEnabled } from "./safety-numbers.js";
 import { assertProductionCookieSecure, parseTrustProxy } from "./security-config.js";
 
@@ -59,13 +60,14 @@ const envSchema = z.object({
    */
   INTEGRATIONS_WRITE_ALLOWLIST: z.string().optional().default(""),
   /**
-   * Small-group MLS (RFC 9420). Default OFF. The API stores opaque MLS
-   * messages only; it cannot decrypt them. See docs/group-e2ee.md.
+   * Small-group MLS (RFC 9420). On unless the value is exactly "false".
+   * The API stores opaque MLS messages only; it cannot decrypt them.
+   * See docs/group-e2ee.md.
    */
-  GROUP_E2EE_ENABLED: z
-    .enum(["true", "false"])
-    .default("false")
-    .transform((value) => value === "true"),
+  GROUP_E2EE_ENABLED: z.preprocess(
+    (value) => (parseGroupE2eeEnabled(value) ? "true" : "false"),
+    z.enum(["true", "false"]).transform((value) => value === "true"),
+  ),
   /**
    * Manager daily brief. On unless the value is exactly "false".
    * Reads connected mail and calendar mirrors only. Suggested sends and
@@ -390,7 +392,7 @@ export const integrationsWriteAllowlist = env.INTEGRATIONS_WRITE_ALLOWLIST
   .map((entry) => entry.trim().toLowerCase())
   .filter((entry) => entry.length > 0);
 
-/** Small-group MLS delivery. Default false. See docs/group-e2ee.md. */
+/** Small-group MLS delivery. On unless GROUP_E2EE_ENABLED is exactly "false". */
 export const groupE2eeEnabled = env.GROUP_E2EE_ENABLED;
 
 /** Manager daily brief. On unless DAILY_BRIEF_ENABLED is exactly "false". */

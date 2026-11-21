@@ -20,9 +20,11 @@ const fallbackPreference: BriefPreference = {
 export function DailyBriefScreen({
   mode,
   disconnected = false,
+  onClose,
 }: {
   mode: "live" | "preview";
   disconnected?: boolean;
+  onClose?: () => void;
 }) {
   const { locale, t } = useI18n();
   const enabled = dailyBriefEnabled();
@@ -106,6 +108,7 @@ export function DailyBriefScreen({
 
   return (
     <DailyBriefView
+      onClose={onClose}
       preference={preference}
       brief={brief}
       pendingReason={pendingReason}

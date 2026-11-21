@@ -17,6 +17,7 @@ const quiet =
   "inline-flex min-h-11 items-center justify-center rounded-full border border-(--line) px-4 text-sm text-(--foreground) disabled:opacity-50";
 
 export function DailyBriefView({
+  onClose,
   preference,
   brief,
   pendingReason,
@@ -27,6 +28,7 @@ export function DailyBriefView({
   onPrepare,
   onApprove,
 }: {
+  onClose?: () => void;
   preference: BriefPreference;
   brief: DailyBriefDocument | null;
   pendingReason: BriefPendingReason | null;
@@ -69,9 +71,21 @@ export function DailyBriefView({
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col gap-4 px-4 py-4 pb-10">
       <header className="flex flex-wrap items-center gap-2">
-        <Link href="/inbox?hub=mail" className="min-h-11 rounded-full px-1 text-sm text-(--muted)">
-          {text("back")}
-        </Link>
+        {onClose ? (
+          <button
+            type="button"
+            className="min-h-11 rounded-full px-1 text-sm text-(--muted)"
+            title={text("back")}
+            aria-label={text("back")}
+            onClick={onClose}
+          >
+            {text("back")}
+          </button>
+        ) : (
+          <Link href="/inbox?hub=mail" className="min-h-11 rounded-full px-1 text-sm text-(--muted)" title={text("back")} aria-label={text("back")}>
+            {text("back")}
+          </Link>
+        )}
         <h1 className="min-w-0 flex-1 text-2xl font-semibold tracking-tight">{text("title")}</h1>
         <LanguageSwitcher />
       </header>
@@ -84,6 +98,8 @@ export function DailyBriefView({
               className={field}
               dir="ltr"
               type="time"
+              title={text("time")}
+              aria-label={text("time")}
               value={time}
               onChange={(event) => setTime(event.target.value)}
               required
@@ -93,6 +109,8 @@ export function DailyBriefView({
             {text("briefLanguage")}
             <select
               className={field}
+              title={text("briefLanguage")}
+              aria-label={text("briefLanguage")}
               value={language}
               onChange={(event) => setLanguage(event.target.value === "ar" ? "ar" : "en")}
             >
@@ -106,13 +124,15 @@ export function DailyBriefView({
           <input
             className={field}
             dir="ltr"
+            title={text("zone")}
+            aria-label={text("zone")}
             value={zone}
             onChange={(event) => setZone(event.target.value)}
           />
         </label>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button className={button} type="submit" disabled={busy}>{text("save")}</button>
-          <button className={quiet} type="button" disabled={busy} onClick={() => void onPrepare()}>
+          <button className={button} type="submit" disabled={busy} title={text("save")} aria-label={text("save")}>{text("save")}</button>
+          <button className={quiet} type="button" disabled={busy} title={text("prepare")} aria-label={text("prepare")} onClick={() => void onPrepare()}>
             {busy ? text("preparing") : text("prepare")}
           </button>
         </div>
@@ -204,6 +224,8 @@ export function DailyBriefView({
                       <button
                         type="button"
                         className={`${button} mt-3 w-full`}
+                        title={done ? text("approved") : label}
+                        aria-label={done ? text("approved") : label}
                         disabled={busy || working === action.id || Boolean(done)}
                         onClick={() => void approve(action)}
                       >

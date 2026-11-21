@@ -20,11 +20,13 @@ describe("inbox hub", () => {
   it("accepts only the sections the inbox renders", () => {
     expect(parseInboxHub("activity")).toBe("activity");
     expect(parseInboxHub("mail")).toBe("mail");
+    expect(parseInboxHub("assistant")).toBe("assistant");
     expect(parseInboxHub("chats")).toBe("chats");
   });
 
   it("builds stable hrefs for bookmarks", () => {
     expect(inboxHubHref("chats")).toBe("/inbox");
+    expect(inboxHubHref("assistant")).toBe("/inbox?hub=assistant");
     expect(inboxHubHref("activity")).toBe("/inbox?hub=activity");
     expect(inboxHubHref("mail")).toBe("/inbox?hub=mail");
     expect(inboxHubHref("mail", "agenda")).toBe("/inbox?hub=mail");

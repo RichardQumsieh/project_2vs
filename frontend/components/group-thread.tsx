@@ -2,11 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { EncryptedFileAttachment } from "@/components/encrypted-file-attachment";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ApiError, api, type Conversation } from "@/lib/api";
+import { ApiError, api, type Conversation, type PublicUser } from "@/lib/api";
 import { encodeFilePayload, parseChatPayload } from "@/lib/chat-payload";
 import { b64ToBytes } from "@/lib/crypto/bytes";
 import { inspectAndEncryptFileAttachment } from "@/lib/crypto/file-attachment";
@@ -14,6 +14,7 @@ import { openGroupRecord, sealGroupRecord } from "@/lib/crypto/group-store";
 import { listMembers, listRoster, type GroupRole } from "@/lib/crypto/group-mls";
 import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
 import { useI18n, type MessageKey } from "@/lib/i18n/locale";
+import { memberSearchNeedle } from "@/lib/people";
 import {
   queueGroupMessage,
   queueMemberRemoval,
@@ -44,22 +45,22 @@ export function NewGroupForm() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
   const [title, setTitle] = useState("");
-  const [usernames, setUsernames] = useState("");
+  const [query, setQuery] = useState("");
+  const [people, setPeople] = useState<PublicUser[]>([]);
+  const [matches, setMatches] = useState<PublicUser[]>([]);
   const [error, setError] = useState<MessageKey | null>(null);
   const create = useMutation({
     mutationFn: async () => {
-      const memberUsernames = usernames
-        .split(/[\s,]+/)
-        .map((name) => name.trim().replace(/^@/, ""))
-        .filter(Boolean);
       return api.createGroup({
         title: title.trim() || undefined,
-        ...(memberUsernames.length > 0 ? { memberUsernames } : {}),
+        ...(people.length > 0 ? { memberUserIds: people.map((person) => person.id) } : {}),
       });
     },
     onSuccess: async (conversation) => {
       setTitle("");
-      setUsernames("");
+      setQuery("");
+      setPeople([]);
+      setMatches([]);
       setError(null);
       await queryClient.invalidateQueries({ queryKey: ["conversations"] });
       router.push(`/inbox/${conversation.id}`);
@@ -69,6 +70,27 @@ export function NewGroupForm() {
       console.warn("Could not create the group", cause);
     },
   });
+
+  useEffect(() => {
+    const needle = memberSearchNeedle(query);
+    if (needle.length < 2) {
+      setMatches([]);
+      return;
+    }
+    let cancel = false;
+    const timer = window.setTimeout(() => {
+      void api.lookupPeople(needle).then((page) => {
+        if (cancel) return;
+        setMatches(page.users.filter((user) => !people.some((picked) => picked.id === user.id)));
+      }).catch(() => {
+        if (!cancel) setMatches([]);
+      });
+    }, 200);
+    return () => {
+      cancel = true;
+      window.clearTimeout(timer);
+    };
+  }, [people, query]);
 
   return (
     <form
@@ -81,6 +103,7 @@ export function NewGroupForm() {
       <p className="text-xs font-medium text-white/70">{t("group.new")}</p>
       <Input
         aria-label={t("group.name")}
+        title={t("group.name")}
         placeholder={t("group.name")}
         value={title}
         onChange={(event) => setTitle(event.target.value)}
@@ -88,13 +111,63 @@ export function NewGroupForm() {
       />
       <Input
         aria-label={t("group.usernames")}
+        title={t("group.usernames")}
         placeholder={t("group.usernames")}
-        value={usernames}
-        onChange={(event) => setUsernames(event.target.value)}
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
         dir="ltr"
         className="text-start"
       />
-      <Button type="submit" size="sm" disabled={create.isPending}>
+      {people.length > 0 ? (
+        <ul className="space-y-1" aria-label={t("group.selected")}>
+          {people.map((person) => {
+            const label = person.displayName?.trim() || person.username;
+            return (
+              <li key={person.id} className="flex items-center justify-between gap-2 text-xs text-white/80">
+                <span className="min-w-0 truncate">
+                  <BidiText>{label}</BidiText> <LtrIsolate>@{person.username}</LtrIsolate>
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 underline"
+                  title={t("group.removePick", { name: label })}
+                  aria-label={t("group.removePick", { name: label })}
+                  onClick={() => setPeople((current) => current.filter((item) => item.id !== person.id))}
+                >
+                  {t("group.remove")}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {matches.length > 0 ? (
+        <ul className="space-y-1">
+          {matches.map((person) => {
+            const label = person.displayName?.trim() || person.username;
+            return (
+              <li key={person.id}>
+                <button
+                  type="button"
+                  className="w-full rounded-xl px-2 py-1 text-start text-xs text-white/80 hover:bg-white/10"
+                  title={t("group.pick", { name: label })}
+                  aria-label={t("group.pick", { name: `${label} @${person.username}` })}
+                  onClick={() => {
+                    setPeople((current) => current.some((item) => item.id === person.id) ? current : [...current, person]);
+                    setQuery("");
+                    setMatches([]);
+                  }}
+                >
+                  <BidiText>{label}</BidiText> <LtrIsolate>@{person.username}</LtrIsolate>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : memberSearchNeedle(query).length >= 2 ? (
+        <p className="text-xs text-white/45">{t("group.noMatch")}</p>
+      ) : null}
+      <Button type="submit" size="sm" disabled={create.isPending} title={t("group.create")} aria-label={t("group.create")}>
         {create.isPending ? t("group.creating") : t("group.create")}
       </Button>
       {error ? <p className="text-sm text-red-300">{t(error)}</p> : null}
@@ -110,6 +183,7 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState("");
   const [username, setUsername] = useState("");
+  const [addMatches, setAddMatches] = useState<PublicUser[]>([]);
   const [actionError, setActionError] = useState<MessageKey | null>(null);
   const [notice, setNotice] = useState<MessageKey | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -216,17 +290,39 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
     }
   }
 
-  async function addMember(event: FormEvent) {
-    event.preventDefault();
-    const name = username.trim().replace(/^@/, "");
-    if (!name) return;
+  async function addPerson(person: PublicUser) {
     setActionError(null);
     setNotice(null);
     try {
-      await api.addGroupMember(conversation.id, { username: name });
+      await api.addGroupMember(conversation.id, { userId: person.id });
       setUsername("");
+      setAddMatches([]);
       await queryClient.invalidateQueries({ queryKey: ["conversations"] });
       await queryClient.invalidateQueries({ queryKey: ["group-sync", conversation.id] });
+    } catch (cause) {
+      setActionError("group.addFailed");
+      console.warn("Could not add the group member", cause);
+    }
+  }
+
+  async function addMember(event: FormEvent) {
+    event.preventDefault();
+    const needle = memberSearchNeedle(username);
+    if (needle.length < 2) return;
+    setActionError(null);
+    setNotice(null);
+    try {
+      const page = await api.lookupPeople(needle);
+      const exact = page.users.find((user) => (
+        user.username === needle || (user.displayName ?? "").trim().toLowerCase() === needle
+      ));
+      const person = exact ?? (page.users.length === 1 ? page.users[0] : null);
+      if (!person) {
+        setAddMatches(page.users);
+        if (page.users.length === 0) setActionError("group.noMatch");
+        return;
+      }
+      await addPerson(person);
     } catch (cause) {
       setActionError("group.addFailed");
       console.warn("Could not add the group member", cause);
@@ -342,7 +438,7 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
             <BidiText>{t("group.encryptedLine", { count: (conversation.members ?? []).length })}</BidiText>
           </p>
         </div>
-        <Button type="button" size="sm" variant="outline" onClick={() => void leaveGroup()}>
+        <Button type="button" size="sm" variant="outline" title={t("group.leave")} aria-label={t("group.leave")} onClick={() => void leaveGroup()}>
           {t("group.leave")}
         </Button>
       </header>
@@ -376,6 +472,7 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
               className="sr-only"
               accept=".pdf,.docx,.pptx,.xlsx,.txt,.csv,application/pdf,text/plain,text/csv"
               aria-label={t("group.attach")}
+              title={t("group.attach")}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
@@ -387,11 +484,14 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
               size="sm"
               variant="outline"
               disabled={!joined}
+              title={t("group.attach")}
+              aria-label={t("group.attach")}
               onClick={() => fileInput.current?.click()}
             >
               {t("group.attach")}
             </Button>
             <Input
+              title={t("group.messageLabel")}
               aria-label={t("group.messageLabel")}
               placeholder={joined ? t("group.messagePlaceholder") : t("group.waitingJoin")}
               value={draft}
@@ -400,7 +500,7 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
               maxLength={16000}
               dir="auto"
             />
-            <Button type="submit" size="sm" disabled={!joined || draft.trim().length === 0}>
+            <Button type="submit" size="sm" title={t("group.send")} aria-label={t("group.send")} disabled={!joined || draft.trim().length === 0}>
               {t("group.send")}
             </Button>
           </form>
@@ -426,11 +526,13 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
                       type="button"
                       size="sm"
                       variant="ghost"
+                      title={member.role === "ADMIN" ? t("group.demote") : t("group.promote")}
+                      aria-label={`${member.role === "ADMIN" ? t("group.demote") : t("group.promote")} @${member.username}`}
                       onClick={() => void setMemberRole(member.userId, member.role === "ADMIN" ? "MEMBER" : "ADMIN")}
                     >
                       {member.role === "ADMIN" ? t("group.demote") : t("group.promote")}
                     </Button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => void removeMember(member.userId)}>
+                    <Button type="button" size="sm" variant="ghost" title={t("group.remove")} aria-label={`${t("group.remove")} @${member.username}`} onClick={() => void removeMember(member.userId)}>
                       {t("group.remove")}
                     </Button>
                   </span>
@@ -441,13 +543,37 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
           {canAdminister ? (
             <form className="mt-4 space-y-2" onSubmit={(event) => void addMember(event)}>
               <Input
-                aria-label={t("group.addLabel")}
-                placeholder={t("group.addPlaceholder")}
+                aria-label={t("group.usernames")}
+                title={t("group.usernames")}
+                placeholder={t("group.usernames")}
                 value={username}
-                onChange={(event) => setUsername(event.target.value)}
+                onChange={(event) => {
+                  setUsername(event.target.value);
+                  setAddMatches([]);
+                }}
                 dir="ltr"
               />
-              <Button type="submit" size="sm" variant="outline">{t("group.add")}</Button>
+              {addMatches.length > 0 ? (
+                <ul className="space-y-1">
+                  {addMatches.map((person) => {
+                    const label = person.displayName?.trim() || person.username;
+                    return (
+                      <li key={person.id}>
+                        <button
+                          type="button"
+                          className="w-full rounded-xl px-2 py-1 text-start text-xs text-white/80 hover:bg-white/10"
+                          title={t("group.pick", { name: label })}
+                          aria-label={t("group.pick", { name: `${label} @${person.username}` })}
+                          onClick={() => void addPerson(person)}
+                        >
+                          <BidiText>{label}</BidiText> <LtrIsolate>@{person.username}</LtrIsolate>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+              <Button type="submit" size="sm" variant="outline" title={t("group.add")} aria-label={t("group.add")}>{t("group.add")}</Button>
             </form>
           ) : null}
           {status && joined ? <p className="mt-3 text-xs text-white/45">{status}</p> : null}

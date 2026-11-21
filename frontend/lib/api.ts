@@ -363,6 +363,9 @@ export const api = {
       body: JSON.stringify({ interests }),
     }),
 
+  lookupPeople: (query: string) =>
+    request<{ users: PublicUser[] }>(`/users/lookup?q=${encodeURIComponent(query)}`),
+
   recommendations: () =>
     request<{ users: RecommendedUser[] }>("/users/recommendations"),
 
