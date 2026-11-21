@@ -9,12 +9,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ExperimentalBadge } from "@/components/experimental-badge";
+import { SophiaCommandBar } from "@/components/sophia-command-bar";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { GroupThread, GroupUnavailable, NewGroupForm } from "@/components/group-thread";
 import { groupE2eeEnabled } from "@/lib/group-e2ee-flag";
 import { api } from "@/lib/api";
+import { listLocalMessages } from "@/lib/idb";
 import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
 import { localizedRuntimeMessage } from "@/lib/i18n/action-summary";
 import { useI18n } from "@/lib/i18n/locale";
@@ -664,6 +666,17 @@ export function InboxShell({
         </div>
 
         <InboxHubNav hub={activeConversationId ? "chats" : hub} className="inbox-hub-nav inbox-hub-nav--sidebar" />
+
+        <div className="max-h-[42vh] min-w-0 overflow-y-auto">
+          <SophiaCommandBar
+            mode="live"
+            loadChatExcerpt={async () => {
+              if (!activeConversationId || !isUnlocked()) return null;
+              const messages = await listLocalMessages(activeConversationId, 6);
+              return messages.map((message) => message.plaintext).join("\n");
+            }}
+          />
+        </div>
 
         <div className="grid grid-cols-2 gap-2">
           <Button

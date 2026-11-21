@@ -9,6 +9,7 @@ import {
   groupAccess,
   keyPackageBoundToDevice,
   planGroupMembers,
+  planGroupRename,
   planMembershipChange,
   planRoleChange,
   validateGroupBlob,
@@ -395,3 +396,19 @@ function keyPackageBytes() {
     vl(Buffer.from([8])),
   ]);
 }
+
+describe("group rename", () => {
+  it("lets an admin rename and refuses a member", () => {
+    const members = [
+      { userId: alice, role: "ADMIN" as const },
+      { userId: bob, role: "MEMBER" as const },
+    ];
+    assert.equal(planGroupRename(members, alice).ok, true);
+    const refused = planGroupRename(members, bob);
+    assert.equal(refused.ok, false);
+    if (!refused.ok) assert.equal(refused.status, 403);
+    const missing = planGroupRename(members, carol);
+    assert.equal(missing.ok, false);
+    if (!missing.ok) assert.equal(missing.status, 404);
+  });
+});

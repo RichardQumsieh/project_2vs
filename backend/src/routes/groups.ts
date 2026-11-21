@@ -10,6 +10,7 @@ import {
   groupAccess,
   keyPackageBoundToDevice,
   planGroupMembers,
+  planGroupRename,
   planMembershipChange,
   planRoleChange,
   validateGroupBlob,
@@ -20,6 +21,7 @@ import {
   addGroupMemberSchema,
   createGroupSchema,
   listGroupMlsQuery,
+  renameGroupSchema,
   markGroupReadSchema,
   postGroupMlsBlobSchema,
   setGroupRoleSchema,
@@ -75,6 +77,26 @@ export async function groupRoutes(app: FastifyInstance) {
       include: { members: { include: { user: true } } },
     });
     return serializeConversation(conversation, session.sub);
+  });
+
+  app.patch("/conversations/:id", async (request, reply) => {
+    const enabled = gateGroupE2ee(groupE2eeEnabled);
+    if (!enabled.ok) return deny(reply, enabled);
+    const session = await requireUser(request, reply);
+    if (!session) return;
+    const { id } = request.params as { id: string };
+    const parsed = renameGroupSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "Invalid input" });
+    const conversation = await loadGroup(id);
+    if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+    const planned = planGroupRename(conversation.members, session.sub);
+    if (!planned.ok) return deny(reply, planned);
+    const previousTitle = conversation.title;
+    await prisma.conversation.update({
+      where: { id },
+      data: { title: parsed.data.title },
+    });
+    return { ok: true, title: parsed.data.title, previousTitle };
   });
 
   app.post("/conversations/:id/members", async (request, reply) => {
@@ -443,6 +465,7 @@ async function loadGroup(id: string) {
     select: {
       id: true,
       type: true,
+      title: true,
       mlsEpoch: true,
       members: { select: { userId: true, role: true } },
     },

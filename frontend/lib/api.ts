@@ -1524,6 +1524,46 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  renameConversation: (id: string, title: string) =>
+    request<{ ok: true; title: string; previousTitle: string | null }>(
+      `/conversations/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify({ title }) },
+    ),
+
+  agentStatus: () =>
+    request<{
+      enabled: boolean;
+      autonomy: "full_control" | "ask_first";
+      readChats: boolean;
+      readChatsPurpose: string;
+      readChatsVersion: string;
+      halted: boolean;
+      model: "mock" | "real";
+      experimentalUntil: number;
+    }>("/sophia/agent"),
+
+  saveAgentSettings: (body: { autonomy: "full_control" | "ask_first"; readChats: boolean }) =>
+    request<{
+      autonomy: "full_control" | "ask_first";
+      readChats: boolean;
+      halted: boolean;
+    }>("/sophia/agent/settings", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  stopAgent: () =>
+    request<{ halted: boolean }>("/sophia/agent/stop", { method: "POST" }),
+
+  resumeAgent: () =>
+    request<{ halted: boolean }>("/sophia/agent/resume", { method: "POST" }),
+
+  recordAgentActivity: (body: { tool: string; result: string; summary: string }) =>
+    request<{ ok: true }>("/sophia/agent/activity", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   listCollabChannels: () =>
     request<{
       channels: {

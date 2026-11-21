@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "test": "VITE_CONFIG_NATIVE_IGNORE_WARNING=true vitest run",
     "test:e2e": "playwright test",
-    "eval:assistant": "tsx scripts/eval-assistant.ts"
+    "eval:assistant": "tsx scripts/eval-assistant.ts",
+    "eval:score": "tsx scripts/report-assistant-score.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

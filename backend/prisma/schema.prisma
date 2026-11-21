@@ -96,6 +96,13 @@ enum AccountActivityAction {
   INVITE_REDEEMED
   WORKSPACE_MEMBER_REMOVED
   WORKSPACE_ROLE_CHANGED
+  AGENT_ACTION
+  AGENT_UNDONE
+}
+
+enum SophiaAutonomy {
+  FULL_CONTROL
+  ASK_FIRST
 }
 
 model User {
@@ -142,6 +149,7 @@ model User {
   workspaceMembers     WorkspaceMember[]
   invitesCreated       WorkspaceInvite[] @relation("InviteCreator")
   invitesRedeemed      WorkspaceInvite[] @relation("InviteRedeemer")
+  sophiaAgentPreference SophiaAgentPreference?
 
   @@index([interests], type: Gin)
 }
@@ -467,6 +475,20 @@ model Reminder {
 
   @@index([ownerUserId, remindAt])
   @@index([ownerUserId, status])
+}
+
+/// Per-account Sophia agent. Full control is the default. Reading E2EE chats
+/// stays off until readChatsGrantedAt is set. haltedAt stops the current plan.
+model SophiaAgentPreference {
+  userId             String          @id
+  autonomy           SophiaAutonomy  @default(FULL_CONTROL)
+  readChatsGrantedAt DateTime?
+  readChatsPurpose   String?
+  readChatsVersion   String?
+  haltedAt           DateTime?
+  updatedAt          DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 /// Explicit cloud-Sophia grant. Off until the person checks the purpose.

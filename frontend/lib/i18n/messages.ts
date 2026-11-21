@@ -5,7 +5,7 @@ export const en = {
 
   "experimental.label": "Experimental",
   "experimental.hint":
-    "Sophia’s replies are not yet proven for English or Levantine Arabic manager work. Review every draft before you approve it.",
+    "Sophia stays experimental until a real-model eval averages 0.8 or higher. Full control can act in this signed-in browser. Safety numbers are still verified by you.",
 
   "nav.account": "Account",
   "nav.checking": "Checking session",
@@ -353,7 +353,9 @@ export const en = {
   "sophiaSettings.p2":
     "Cloud Sophia is a separate consent under Privacy. It stays off until you check it. The hosted model does not receive decrypted private messages. Withdraw there to stop cloud calls. Your account activity log is in the inbox, under Activity.",
   "sophiaSettings.experimental":
-    "Assistant quality is experimental. English and Levantine Arabic replies can miss intent. Nothing is sent, booked, or filed until you approve the exact payload.",
+    "Assistant quality stays experimental until a real-model eval averages at least 0.8. Full control, on by default, lets Sophia run tools in this signed-in browser, including mail and calendar when write access is enabled. Ask first waits for you. Safety numbers are still verified by you on this device. End-to-end chat text is not sent to the model unless you turn on Allow Sophia to read my chats.",
+  "sophiaSettings.agent":
+    "Open the inbox and use the Sophia bar to run a plan, stop it, or undo a reversible action. The activity log records the tool and a redacted summary.",
   "sophiaSettings.li1": "Presentations download as real .pptx decks.",
   "sophiaSettings.li2": "Compound voice commands stage approvals before any download, search, or draft.",
   "sophiaSettings.li3": "Personal notes stay in this browser after approval.",
@@ -935,6 +937,22 @@ export const en = {
   "billing.cancelTitle": "Checkout cancelled",
   "billing.cancelBody": "You left PayPal before approving. No charge was made, and the plan is unchanged.",
   "billing.back": "Back to upgrade",
+
+  "agent.bar.label": "Sophia",
+  "agent.command.label": "Tell Sophia what to do",
+  "agent.command.placeholder": "Rename the family chat to Sunday",
+  "agent.submit": "Run",
+  "agent.stop": "Stop",
+  "agent.undo": "Undo",
+  "agent.undone": "Undone",
+  "agent.fullControl": "Full control",
+  "agent.askFirst": "Ask first",
+  "agent.autonomy": "How Sophia acts",
+  "agent.readChats": "Allow Sophia to read my chats",
+  "agent.readChatsHint": "Decrypted chats from this browser can be sent to the model as untrusted data. This stays off until you check it.",
+  "agent.confirm": "Confirm",
+  "agent.file": "Choose file",
+  "agent.openLink": "Open link",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -946,7 +964,7 @@ export const ar: Record<MessageKey, string> = {
 
   "experimental.label": "تجريبي",
   "experimental.hint":
-    "ردود صوفيا غير مثبتة بعد لعمل المدير بالإنجليزية أو العربية الشامية. راجع كل مسودة قبل الموافقة.",
+    "تبقى صوفيا تجريبية حتى يبلغ تقييم النموذج الحقيقي 0.8 أو أعلى. التحكم الكامل يعمل في هذا المتصفح وأنت مسجّل. أرقام الأمان يتحقق منها أنت.",
 
   "nav.account": "الحساب",
   "nav.checking": "جارٍ التحقق من الجلسة",
@@ -1267,7 +1285,9 @@ export const ar: Record<MessageKey, string> = {
   "sophiaSettings.p2":
     "صوفيا السحابية موافقة منفصلة تحت الخصوصية. تبقى متوقفة حتى تحددها. النموذج المستضاف لا يستلم الرسائل الخاصة بعد فك التشفير. اسحب الموافقة هناك لإيقاف الاستدعاءات. سجل نشاط الحساب في الوارد ضمن النشاط.",
   "sophiaSettings.experimental":
-    "جودة المساعدة تجريبية. الردود بالإنجليزية والعربية الشامية قد تخطئ القصد. لا يُرسل شيء ولا يُحجز ولا يُنشأ ملف حتى توافق على الحمولة نفسها.",
+    "تبقى الجودة تجريبية حتى يبلغ تقييم النموذج الحقيقي 0.8 على الأقل. التحكم الكامل، وهو الافتراضي، يتيح لصوفيا تنفيذ الأدوات في هذا المتصفح وأنت مسجّل، بما في ذلك البريد والتقويم عندما تكون الكتابة مفعّلة. «اسأل أولاً» ينتظرك. أرقام الأمان تبقى مقارنة تقوم بها أنت على هذا الجهاز. نص الدردشة المشفّرة لا يُرسل إلى النموذج إلا إذا فعّلت «اسمحي لصوفيا بقراءة محادثاتي».",
+  "sophiaSettings.agent":
+    "افتح الوارد واستخدم شريط صوفيا لتشغيل خطة أو إيقافها أو التراجع عن إجراء قابل للعكس. سجل النشاط يحفظ الأداة وملخصًا محجوب التفاصيل.",
   "sophiaSettings.li1": "العروض تُنزَّل كملفات ‎.pptx حقيقية.",
   "sophiaSettings.li2": "الأوامر الصوتية المركّبة تجهّز موافقات قبل أي تنزيل أو بحث أو مسودة.",
   "sophiaSettings.li3": "الملاحظات الشخصية تبقى في هذا المتصفح بعد الموافقة.",
@@ -1839,4 +1859,20 @@ export const ar: Record<MessageKey, string> = {
   "billing.cancelTitle": "أُلغي الدفع",
   "billing.cancelBody": "غادرت باي بال قبل الموافقة. لم يُخصم شيء، والخطة لم تتغير.",
   "billing.back": "العودة إلى الترقية",
+
+  "agent.bar.label": "صوفيا",
+  "agent.command.label": "قولي لصوفيا ماذا تفعل",
+  "agent.command.placeholder": "سمّي المجموعة إلى الأحد",
+  "agent.submit": "تشغيل",
+  "agent.stop": "إيقاف",
+  "agent.undo": "تراجع",
+  "agent.undone": "تم التراجع",
+  "agent.fullControl": "تحكم كامل",
+  "agent.askFirst": "اسأل أولاً",
+  "agent.autonomy": "كيف تتصرف صوفيا",
+  "agent.readChats": "اسمحي لصوفيا بقراءة محادثاتي",
+  "agent.readChatsHint": "يمكن إرسال المحادثات بعد فك التشفير من هذا المتصفح إلى النموذج كبيانات غير موثوقة. يبقى هذا متوقفاً حتى تفعّله.",
+  "agent.confirm": "تأكيد",
+  "agent.file": "اختيار ملف",
+  "agent.openLink": "فتح الرابط",
 };

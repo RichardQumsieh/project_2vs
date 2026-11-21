@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { ExperimentalBadge } from "@/components/experimental-badge";
+import { SophiaCommandBar } from "@/components/sophia-command-bar";
 import { InboxActivityLog } from "@/components/inbox-activity-log";
 import { InboxHubNav } from "@/components/inbox-hub-nav";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -175,6 +176,7 @@ function ChatList() {
           </span>
         </div>
         <p className="text-xs text-white/55">{t("inbox.recent")}</p>
+        <SophiaCommandBar mode="preview" />
       </header>
       <nav aria-label={t("inbox.conversations")} className="min-w-0 flex-1 space-y-2 overflow-y-auto p-3">
         <p className="text-xs leading-5 text-white/45">{t("preview.inboxHint")}</p>

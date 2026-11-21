@@ -221,6 +221,10 @@ export const addGroupMemberSchema = z.object({
   message: "Provide a user id or a username",
 });
 
+export const renameGroupSchema = z.object({
+  title: z.string().trim().min(1).max(80),
+}).strict();
+
 export const setGroupRoleSchema = z.object({
   role: z.enum(["ADMIN", "MEMBER"]),
 }).strict();

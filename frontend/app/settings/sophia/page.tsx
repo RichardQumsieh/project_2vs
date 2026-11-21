@@ -16,6 +16,7 @@ export default function SophiaSettingsPage() {
           <p className="text-sm leading-relaxed text-white/55">{t("sophiaSettings.p1")}</p>
           <p className="text-sm leading-relaxed text-white/55">{t("sophiaSettings.p2")}</p>
           <p className="text-sm leading-relaxed text-amber-100/80">{t("sophiaSettings.experimental")}</p>
+          <p className="text-sm leading-relaxed text-white/70">{t("sophiaSettings.agent")}</p>
           <ul className="space-y-2 text-sm text-white/70">
             <li>• {t("sophiaSettings.li1")}</li>
             <li>• {t("sophiaSettings.li2")}</li>

@@ -2,13 +2,23 @@
 
 import { InboxActivityLog } from "@/components/inbox-activity-log";
 import { InboxHomeActivity } from "@/components/inbox-activity-panel";
+import { SophiaCommandBar } from "@/components/sophia-command-bar";
 import type { InboxHub } from "@/lib/inbox-hub";
 import { useI18n } from "@/lib/i18n/locale";
 
 export function InboxHome({ hub }: { hub: InboxHub }) {
-  if (hub === "activity") return <InboxActivityLog />;
-  if (hub === "mail") return <InboxHomeActivity />;
-  return <InboxChatPlaceholder />;
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <div className="shrink-0 border-b border-white/10 p-3 min-[960px]:hidden">
+        <SophiaCommandBar mode="live" />
+      </div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+        {hub === "activity" ? <InboxActivityLog /> : null}
+        {hub === "mail" ? <InboxHomeActivity /> : null}
+        {hub === "chats" ? <InboxChatPlaceholder /> : null}
+      </div>
+    </div>
+  );
 }
 
 function InboxChatPlaceholder() {
