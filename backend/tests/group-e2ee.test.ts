@@ -14,6 +14,7 @@ import {
   planRoleChange,
   validateGroupBlob,
 } from "../src/group-e2ee.js";
+import { parseGroupE2eeEnabled } from "../src/group-e2ee-flag.js";
 import { postGroupMlsBlobSchema } from "../src/schemas.js";
 
 const alice = "11111111-1111-4111-8111-111111111111";
@@ -31,6 +32,13 @@ describe("group E2EE server policy", () => {
       assert.equal(disabled.code, "group_e2ee_disabled");
     }
     assert.equal(gateGroupE2ee(true).ok, true);
+  });
+
+  it("is on unless the env value is exactly false", () => {
+    assert.equal(parseGroupE2eeEnabled(undefined), true);
+    assert.equal(parseGroupE2eeEnabled(""), true);
+    assert.equal(parseGroupE2eeEnabled("true"), true);
+    assert.equal(parseGroupE2eeEnabled("false"), false);
   });
 
   it("creates a group of at most 8 members including the creator", () => {

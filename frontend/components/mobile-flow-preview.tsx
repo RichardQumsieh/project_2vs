@@ -141,6 +141,11 @@ function InboxSurface({ hub }: { hub: InboxHub }) {
             backHref={previewHubHref(locale, "chats")}
           />
         ) : null}
+        {hub === "assistant" ? (
+          <div className="p-3">
+            <SophiaCommandBar mode="preview" layout="chat" />
+          </div>
+        ) : null}
         {hub === "mail" ? <MailSurface /> : null}
         {hub === "chats" ? <ChatList /> : null}
       </div>
@@ -176,7 +181,6 @@ function ChatList() {
           </span>
         </div>
         <p className="text-xs text-white/55">{t("inbox.recent")}</p>
-        <SophiaCommandBar mode="preview" />
       </header>
       <nav aria-label={t("inbox.conversations")} className="min-w-0 flex-1 space-y-2 overflow-y-auto p-3">
         <p className="text-xs leading-5 text-white/45">{t("preview.inboxHint")}</p>

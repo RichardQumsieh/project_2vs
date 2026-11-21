@@ -491,6 +491,10 @@ export const workspaceDirectoryQuery = z.object({
   q: z.string().trim().max(40).optional(),
 }).strict();
 
+export const userLookupQuery = z.object({
+  q: z.string().trim().min(2).max(80),
+}).strict();
+
 export const workspaceDirectSchema = z.object({
   username: z.string().trim().min(3).max(24).regex(/^[a-zA-Z0-9_]+$/).toLowerCase(),
 }).strict();

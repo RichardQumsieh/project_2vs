@@ -4,6 +4,7 @@ import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
 import { authCookieSameSite } from "./auth.js";
+import { allowedFrontendOrigins, isAllowedFrontendOrigin } from "./cors-allowlist.js";
 import { env, trustProxy } from "./env.js";
 import { createLoggerOptions } from "./log-redaction.js";
 import { apiSecurityHeaders } from "./security-config.js";
@@ -40,10 +41,16 @@ const app = Fastify({
   trustProxy,
 });
 
-const allowedOrigin = new URL(env.FRONTEND_ORIGIN).origin;
+const allowedOrigins = allowedFrontendOrigins(env.FRONTEND_ORIGIN);
 
 await app.register(cors, {
-  origin: allowedOrigin,
+  origin(origin, callback) {
+    if (!origin) {
+      callback(null, false);
+      return;
+    }
+    callback(null, isAllowedFrontendOrigin(origin, allowedOrigins));
+  },
   credentials: true,
   methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 });
@@ -73,7 +80,8 @@ app.addHook("onRequest", async (request, reply) => {
   const path = request.url.split("?")[0];
   if (path === "/billing/stripe/webhook" || path === "/billing/paypal/webhook") return;
 
-  if (request.headers.origin !== allowedOrigin) {
+  const requestOrigin = typeof request.headers.origin === "string" ? request.headers.origin : undefined;
+  if (!isAllowedFrontendOrigin(requestOrigin, allowedOrigins)) {
     return reply.code(403).send({
       error: "Invalid request origin",
     });
@@ -102,7 +110,7 @@ app.log.info(
   {
     cookieSecure: env.COOKIE_SECURE,
     cookieSameSite: authCookieSameSite(),
-    frontendOrigin: allowedOrigin,
+    frontendOrigins: allowedOrigins,
     trustProxy: trustProxy === false ? "disabled" : "restricted",
   },
   "auth cookie mode",

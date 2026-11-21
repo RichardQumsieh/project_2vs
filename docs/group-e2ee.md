@@ -60,14 +60,14 @@ The ACL is not the cryptographic membership. A user who is in the database but h
 
 ## Feature flag
 
-Both switches default to off.
+Both switches stay on unless set to exactly `false`.
 
 | Variable | Where | Effect |
 | --- | --- | --- |
-| `GROUP_E2EE_ENABLED` | API | `503 group_e2ee_disabled` on `/conversations/group`, member and role changes, the group read cursor, and `/conversations/:id/mls` |
-| `NEXT_PUBLIC_GROUP_E2EE_ENABLED` | Web client | `api.createGroup` and the other group helpers throw before any request |
+| `GROUP_E2EE_ENABLED` | API | On unless exactly `false`. `503 group_e2ee_disabled` on `/conversations/group`, member and role changes, the group read cursor, and `/conversations/:id/mls` when it is `false` |
+| `NEXT_PUBLIC_GROUP_E2EE_ENABLED` | Web client | On unless exactly `false`. `api.createGroup` and the other group helpers throw before any request when it is `false` |
 
-`GET /health` reports `groupE2ee` so an operator can see the API switch. The client flag is a product switch on a machine the user already controls. The API flag is what keeps group delivery off in production.
+`GET /health` reports `groupE2ee` so an operator can see the API switch. Set `GROUP_E2EE_ENABLED=false` to refuse group delivery. The client flag is inlined at frontend build time; set `NEXT_PUBLIC_GROUP_E2EE_ENABLED=false` and rebuild the web app to hide groups.
 
 Pairwise `POST /conversations/:id/messages` and `GET /conversations/:id/messages` return 409 for a GROUP conversation, so a group is not silently downgraded to per-device Double Ratchet envelopes.
 

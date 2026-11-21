@@ -12,6 +12,8 @@ export function ThemeControl() {
       <label htmlFor="theme-preference">{t("settings.theme")}</label>
       <select
         id="theme-preference"
+        title={t("settings.theme")}
+        aria-label={t("settings.theme")}
         value={theme}
         onChange={(event) => {
           const selected = event.currentTarget.value;

@@ -17,6 +17,8 @@ export function LanguageSwitcher({ className = "" }: { className?: string }) {
     >
       <button
         type="button"
+        title={t("lang.english")}
+        aria-label={t("lang.english")}
         aria-pressed={locale === "en"}
         className={buttonClass(locale === "en")}
         onClick={() => choose("en")}
@@ -25,6 +27,8 @@ export function LanguageSwitcher({ className = "" }: { className?: string }) {
       </button>
       <button
         type="button"
+        title={t("lang.arabic")}
+        aria-label={t("lang.arabic")}
         aria-pressed={locale === "ar"}
         className={buttonClass(locale === "ar")}
         onClick={() => choose("ar")}

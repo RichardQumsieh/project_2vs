@@ -1,4 +1,4 @@
-export const inboxHubs = ["chats", "activity", "mail"] as const;
+export const inboxHubs = ["chats", "assistant", "activity", "mail"] as const;
 
 export type InboxHub = (typeof inboxHubs)[number];
 
@@ -13,7 +13,7 @@ export function firstQueryValue(value: string | string[] | undefined): string | 
 }
 
 export function parseInboxHub(value: string | null | undefined): InboxHub {
-  if (value === "activity" || value === "mail") return value;
+  if (value === "activity" || value === "mail" || value === "assistant") return value;
   return "chats";
 }
 
@@ -23,6 +23,7 @@ export function parseInboxMailView(value: string | null | undefined): InboxMailV
 }
 
 export function inboxHubHref(hub: InboxHub, view?: InboxMailView): string {
+  if (hub === "assistant") return "/inbox?hub=assistant";
   if (hub === "activity") return "/inbox?hub=activity";
   if (hub === "mail") {
     if (view === "email" || view === "event") return `/inbox?hub=mail&view=${view}`;

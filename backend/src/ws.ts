@@ -2,10 +2,11 @@ import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "@fastify/websocket";
 import { getSession } from "./auth.js";
 import { attachCallSignaling } from "./call-signaling.js";
+import { allowedFrontendOrigins, isAllowedFrontendOrigin } from "./cors-allowlist.js";
 import { env } from "./env.js";
 import { redisSub } from "./redis.js";
 
-const allowedOrigin = new URL(env.FRONTEND_ORIGIN).origin;
+const allowedOrigins = allowedFrontendOrigins(env.FRONTEND_ORIGIN);
 
 type AuthenticatedSocket = {
   socket: WebSocket;
@@ -64,7 +65,8 @@ export async function registerRealtime(app: FastifyInstance) {
   });
 
   app.get("/ws", { websocket: true }, async (socket, request) => {
-    if (request.headers.origin !== allowedOrigin) {
+    const origin = typeof request.headers.origin === "string" ? request.headers.origin : undefined;
+    if (!isAllowedFrontendOrigin(origin, allowedOrigins)) {
       socket.close(4403, "Invalid origin");
       return;
     }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { agentTurnAllowed } from "../src/agent-availability.js";
 import { sanitizeActivityWrite } from "../src/account-activity.js";
 import {
   AGENT_SYSTEM_PROMPT,
@@ -376,6 +377,14 @@ function outputFor(name: string): Record<string, unknown> {
   if (name === "calendar_create") return { eventId: "evt_9" };
   return {};
 }
+
+describe("assistant billing gate", () => {
+  it("keeps the assistant on when billing is enabled and the agent switch is on", () => {
+    assert.equal(agentTurnAllowed({ agentEnabled: true, billingEnabled: true }), true);
+    assert.equal(agentTurnAllowed({ agentEnabled: true, billingEnabled: false }), true);
+    assert.equal(agentTurnAllowed({ agentEnabled: false, billingEnabled: true }), false);
+  });
+});
 
 function reversible(name: string) {
   return [

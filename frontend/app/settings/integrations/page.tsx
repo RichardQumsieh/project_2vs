@@ -599,6 +599,8 @@ function ProviderCard(props: {
           <Button
             type="button"
             size="sm"
+            title={needsScopeUpgrade ? t("integrations.upgrade") : connection?.status === "CONNECTED" ? t("integrations.reauth") : t("integrations.connect")}
+            aria-label={needsScopeUpgrade ? t("integrations.upgrade") : connection?.status === "CONNECTED" ? t("integrations.reauth") : t("integrations.connect")}
             disabled={!configured || busy}
             onClick={props.onConnect}
           >
@@ -612,6 +614,8 @@ function ProviderCard(props: {
             type="button"
             size="sm"
             variant="outline"
+            title={t("integrations.sync")}
+            aria-label={t("integrations.sync")}
             disabled={!configured || connection?.status !== "CONNECTED" || busy}
             onClick={props.onSync}
           >
@@ -621,6 +625,8 @@ function ProviderCard(props: {
             type="button"
             size="sm"
             variant="ghost"
+            title={t("integrations.disconnect")}
+            aria-label={t("integrations.disconnect")}
             disabled={!connection || connection.status === "REVOKED" || busy}
             onClick={props.onDisconnect}
           >

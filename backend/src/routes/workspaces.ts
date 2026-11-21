@@ -295,7 +295,7 @@ export async function workspaceRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.code(400).send({ error: "Invalid search" });
     const actor = await actorIn(id, session.sub);
     if (!actor) return reply.code(404).send({ error: "Workspace not found" });
-    const query = parsed.data.q?.toLowerCase();
+    const query = parsed.data.q?.trim().replace(/^@+/, "").toLowerCase();
     const members = await prisma.workspaceMember.findMany({
       where: { workspaceId: id },
       include: { user: { select: { username: true, displayName: true } } },
@@ -303,8 +303,8 @@ export async function workspaceRoutes(app: FastifyInstance) {
     });
     const filtered = query
       ? members.filter((member) => {
-          const name = member.user.displayName?.toLowerCase() ?? "";
-          return member.user.username.includes(query) || name.includes(query);
+          const name = (member.user.displayName ?? "").toLowerCase();
+          return member.user.username.toLowerCase().includes(query) || name.includes(query);
         })
       : members;
     reply.header("Cache-Control", "no-store");

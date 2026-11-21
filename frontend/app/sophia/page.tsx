@@ -56,8 +56,8 @@ export default function SophiaStudioPage() {
                 listening, thinking, and speaking while local speech synthesis runs. Open a
                 conversation, enable the assistant, and use Active voice or Speak to hear it.
               </p>
-              <Link href="/inbox" className="inline-flex text-sm text-cyan-200/80 underline-offset-2 hover:underline">
-                Try it in a conversation
+              <Link href="/inbox?hub=assistant" title="Open the Sophia assistant" aria-label="Open the Sophia assistant" className="inline-flex text-sm text-cyan-200/80 underline-offset-2 hover:underline">
+                Open the Sophia assistant
               </Link>
             </div>
           </div>

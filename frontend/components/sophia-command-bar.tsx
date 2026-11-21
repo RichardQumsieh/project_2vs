@@ -7,10 +7,12 @@ import { useI18n } from "@/lib/i18n/locale";
 export function SophiaCommandBar({
   mode,
   className = "",
+  layout = "dock",
   loadChatExcerpt,
 }: {
   mode: AgentRunnerMode;
   className?: string;
+  layout?: "dock" | "chat";
   loadChatExcerpt?: () => Promise<string | null>;
 }) {
   const { t, setLocale } = useI18n();
@@ -18,7 +20,7 @@ export function SophiaCommandBar({
 
   return (
     <form
-      className={`sophia-command min-w-0 space-y-2 ${className}`.trim()}
+      className={`sophia-command min-w-0 space-y-2 ${layout === "chat" ? "rounded-3xl border border-white/10 bg-white/[0.03] p-4" : ""} ${className}`.trim()}
       aria-label={t("agent.bar.label")}
       onSubmit={(event) => {
         event.preventDefault();
@@ -29,10 +31,13 @@ export function SophiaCommandBar({
         <p className="text-sm font-medium text-white">{t("agent.bar.label")}</p>
         <ExperimentalBadge />
       </div>
+      {layout === "chat" ? <p className="text-sm leading-6 text-white/65">{t("agent.separate")}</p> : null}
       <div className="flex min-w-0 flex-wrap gap-2" role="group" aria-label={t("agent.autonomy")}>
         <button
           type="button"
           aria-pressed={runner.autonomy === "full_control"}
+          title={t("agent.fullControl")}
+          aria-label={t("agent.fullControl")}
           className={`min-h-11 rounded-full px-3 text-sm ${runner.autonomy === "full_control" ? "bg-white text-black" : "border border-white/15 text-white/80"}`}
           onClick={() => runner.setAutonomy("full_control")}
         >
@@ -41,6 +46,8 @@ export function SophiaCommandBar({
         <button
           type="button"
           aria-pressed={runner.autonomy === "ask_first"}
+          title={t("agent.askFirst")}
+          aria-label={t("agent.askFirst")}
           className={`min-h-11 rounded-full px-3 text-sm ${runner.autonomy === "ask_first" ? "bg-white text-black" : "border border-white/15 text-white/80"}`}
           onClick={() => runner.setAutonomy("ask_first")}
         >
@@ -72,25 +79,45 @@ export function SophiaCommandBar({
         <button
           type="submit"
           disabled={runner.running || !runner.command.trim()}
+          title={t("agent.submit")}
+          aria-label={t("agent.submit")}
           className="min-h-11 rounded-full bg-cyan-200 px-4 text-sm font-medium text-black disabled:opacity-50"
         >
           {t("agent.submit")}
         </button>
         <button
           type="button"
+          title={t("agent.stop")}
+          aria-label={t("agent.stop")}
           onClick={runner.stop}
           className="min-h-11 rounded-full border border-white/15 px-4 text-sm text-white"
         >
           {t("agent.stop")}
         </button>
-        <label className="inline-flex min-h-11 min-w-0 cursor-pointer items-center rounded-full border border-white/15 px-3 text-sm text-white/80">
+        <label
+          title={t("agent.file")}
+          className="inline-flex min-h-11 min-w-0 cursor-pointer items-center rounded-full border border-white/15 px-3 text-sm text-white/80"
+        >
           <span className="truncate">{runner.file ? runner.file.name : t("agent.file")}</span>
           <input
             type="file"
             className="hidden"
+            aria-label={t("agent.file")}
+            title={t("agent.file")}
             onChange={(event) => runner.setFile(event.target.files?.[0] ?? null)}
           />
         </label>
+        {runner.file ? (
+          <button
+            type="button"
+            title={t("agent.removeFile")}
+            aria-label={t("agent.removeFile")}
+            className="min-h-11 rounded-full border border-white/15 px-3 text-sm text-white"
+            onClick={() => runner.setFile(null)}
+          >
+            {t("agent.removeFile")}
+          </button>
+        ) : null}
       </div>
       {runner.notice ? <p className="text-sm text-amber-100/90" role="status">{runner.notice}</p> : null}
       {runner.text && runner.text !== "Done." ? <p dir="auto" className="text-sm leading-6 text-white/80" role="status">{runner.text}</p> : null}
@@ -108,6 +135,8 @@ export function SophiaCommandBar({
                 {step.status === "confirmed" ? (
                   <button
                     type="button"
+                    title={t("agent.confirm")}
+                    aria-label={t("agent.confirm")}
                     className="min-h-11 rounded-full bg-white px-3 text-sm text-black"
                     onClick={() => void runner.confirm(step)}
                   >
@@ -117,6 +146,8 @@ export function SophiaCommandBar({
                 {step.undo && step.status === "executed" ? (
                   <button
                     type="button"
+                    title={t("agent.undo")}
+                    aria-label={t("agent.undo")}
                     className="min-h-11 rounded-full border border-white/15 px-3 text-sm text-white"
                     onClick={() => void runner.undo(step)}
                   >

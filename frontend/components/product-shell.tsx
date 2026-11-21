@@ -9,7 +9,7 @@ import { useI18n, type MessageKey } from "@/lib/i18n/locale";
 
 const nav: Array<{ href: string; label: MessageKey }> = [
   { href: "/inbox", label: "nav.inbox" },
-  { href: "/sophia", label: "nav.sophia" },
+  { href: "/inbox?hub=assistant", label: "nav.sophia" },
   { href: "/settings", label: "nav.settings" },
   { href: "/settings/subscription", label: "nav.plans" },
 ];
@@ -56,6 +56,8 @@ export function ProductShell({
                 <Link
                   key={item.href}
                   href={item.href}
+                  title={t(item.label)}
+                  aria-label={t(item.label)}
                   className={`rounded-full px-3 py-1.5 text-xs transition-colors sm:text-sm ${
                     active
                       ? "bg-(--foreground) text-(--background)"
@@ -88,6 +90,8 @@ export function ModuleCard({
   return (
     <Link
       href={href}
+      title={body}
+      aria-label={`${title}. ${body}`}
       className="group block rounded-3xl border border-(--line) bg-(--glass) p-5 transition-[border-color,background-color,transform] hover:border-(--accent) hover:bg-(--control-hover) sm:p-6"
     >
       <div className="flex items-start justify-between gap-3">

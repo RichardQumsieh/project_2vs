@@ -13,6 +13,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { DailyBriefScreen } from "@/components/daily-brief-screen";
 import { SophiaMark } from "@/components/sophia-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -473,13 +474,13 @@ export function InboxComposeLetter({
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium">Message</span>
               <div className="flex gap-1">
-                <button type="button" className="inbox-letter-icon" aria-label="Bold" onClick={() => applyFormat("bold")}>
+                <button type="button" className="inbox-letter-icon" title="Bold" aria-label="Bold" onClick={() => applyFormat("bold")}>
                   <Bold aria-hidden="true" className="size-3.5" />
                 </button>
-                <button type="button" className="inbox-letter-icon" aria-label="Italic" onClick={() => applyFormat("italic")}>
+                <button type="button" className="inbox-letter-icon" title="Italic" aria-label="Italic" onClick={() => applyFormat("italic")}>
                   <Italic aria-hidden="true" className="size-3.5" />
                 </button>
-                <button type="button" className="inbox-letter-icon" aria-label="Insert link" onClick={() => applyFormat("link")}>
+                <button type="button" className="inbox-letter-icon" title="Insert link" aria-label="Insert link" onClick={() => applyFormat("link")}>
                   <Link2 aria-hidden="true" className="size-3.5" />
                 </button>
               </div>
@@ -499,10 +500,12 @@ export function InboxComposeLetter({
               <button
                 type="button"
                 className="inbox-letter-quiet"
+                title="Attach photos or documents. You can remove each file before sending."
+                aria-label="Attach photos or documents. You can remove each file before sending."
                 onClick={() => fileRef.current?.click()}
               >
                 <Paperclip aria-hidden="true" className="size-3.5" />
-                Attach files
+                Attach photos or documents
               </button>
             </div>
             <input
@@ -510,6 +513,8 @@ export function InboxComposeLetter({
               type="file"
               className="sr-only"
               tabIndex={-1}
+              title="Attach photos or documents to this message. Remove any file before you send."
+              aria-label="Attach photos or documents to this message. Remove any file before you send."
               multiple
               accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
               onChange={(event) => void addFiles(event.target.files)}
@@ -529,6 +534,7 @@ export function InboxComposeLetter({
                     <button
                       type="button"
                       className="inbox-letter-icon"
+                      title={`Remove ${file.filename}`}
                       aria-label={`Remove ${file.filename}`}
                       onClick={() =>
                         setAttachments((current) => current.filter((_, item) => item !== index))
@@ -559,12 +565,14 @@ export function InboxComposeLetter({
             <p role="alert" className="text-xs text-red-800">{formError}</p>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            <button type="submit" className="inbox-letter-primary">
+            <button type="submit" className="inbox-letter-primary" title={typoOverride ? t("mail.stageSendAnyway") : t("mail.stageSend")} aria-label={typoOverride ? t("mail.stageSendAnyway") : t("mail.stageSend")}>
               {typoOverride ? t("mail.stageSendAnyway") : t("mail.stageSend")}
             </button>
             <button
               type="button"
               className="inbox-letter-secondary"
+              title={typoOverride ? t("mail.stageDraftAnyway") : t("mail.stageDraft")}
+              aria-label={typoOverride ? t("mail.stageDraftAnyway") : t("mail.stageDraft")}
               onClick={() => stageEmail("draft")}
             >
               {typoOverride ? t("mail.stageDraftAnyway") : t("mail.stageDraft")}
@@ -610,6 +618,7 @@ export function InboxActivityPanel({
   const [composeSeed, setComposeSeed] = useState<MailReplySeed | null>(null);
   const [openMail, setOpenMail] = useState<MailRow | null>(null);
   const [openEvent, setOpenEvent] = useState<EventRow | null>(null);
+  const [showBrief, setShowBrief] = useState(false);
   if (composeRequest !== handledComposeRequest) {
     setHandledComposeRequest(composeRequest);
     if (composeSeed) {
@@ -689,6 +698,10 @@ export function InboxActivityPanel({
     }
   }
 
+  if (showBrief) {
+    return <DailyBriefScreen mode="live" onClose={() => setShowBrief(false)} />;
+  }
+
   const loading = mail.isLoading || events.isLoading;
   const loadError = mail.error || events.error;
 
@@ -699,6 +712,8 @@ export function InboxActivityPanel({
           <button
             type="button"
             className="inbox-pane-back rounded-full px-2 py-1 text-xs text-white/70"
+            title={t("mail.back")}
+            aria-label={t("mail.back")}
             onClick={onBack}
           >
             {t("mail.back")}
@@ -711,17 +726,22 @@ export function InboxActivityPanel({
           </p>
         </div>
         {dailyBriefEnabled() ? (
-          <Link
-            href="/inbox/brief"
+          <button
+            type="button"
             className="shrink-0 rounded-full border border-white/15 px-2.5 py-1 text-xs text-white/80"
+            title={briefCopy(locale, "open")}
+            aria-label={briefCopy(locale, "open")}
+            onClick={() => setShowBrief(true)}
           >
             {briefCopy(locale, "open")}
-          </Link>
+          </button>
         ) : null}
         {onClose ? (
           <button
             type="button"
             className="rounded-full px-2 py-1 text-xs text-white/55 hover:text-white"
+            title={t("mail.close")}
+            aria-label={t("mail.close")}
             onClick={onClose}
           >
             {t("mail.close")}
@@ -745,6 +765,8 @@ export function InboxActivityPanel({
             type="button"
             role="tab"
             aria-selected={view === id}
+            title={label}
+            aria-label={label}
             className={`inline-flex items-center justify-center gap-1.5 rounded-full px-2 py-1.5 text-xs font-medium transition-colors ${
               view === id
                 ? "bg-white text-black"
@@ -947,7 +969,7 @@ export function InboxActivityPanel({
             {formError ? (
               <p role="alert" className="text-xs text-red-300">{formError}</p>
             ) : null}
-            <Button type="submit" size="sm">
+            <Button type="submit" size="sm" title={t("mail.stageEvent")} aria-label={t("mail.stageEvent")}>
               {t("mail.stageEvent")}
             </Button>
           </form>
@@ -982,6 +1004,8 @@ function MailLine({
     <button
       type="button"
       className="inbox-agenda-row"
+      title={`Open ${message.subject || "message"} from ${message.fromAddress}`}
+      aria-label={`Open ${message.subject || "message"} from ${message.fromAddress}`}
       onClick={() => onOpen(message)}
     >
       <Mail aria-hidden="true" className="size-4 shrink-0 text-(--accent)" />
@@ -1007,6 +1031,8 @@ function EventLine({
     <button
       type="button"
       className="inbox-agenda-row"
+      title={`Open ${event.title}`}
+      aria-label={`Open ${event.title}`}
       onClick={() => onOpen(event)}
     >
       <CalendarDays aria-hidden="true" className="size-4 shrink-0 text-(--accent)" />
@@ -1101,7 +1127,7 @@ function DetailLetter({
               {title}
             </h2>
           </div>
-          <button type="button" className="inbox-letter-icon" aria-label={closeLabel} onClick={onClose}>
+          <button type="button" className="inbox-letter-icon" title={closeLabel} aria-label={closeLabel} onClick={onClose}>
             <X aria-hidden="true" className="size-4" />
           </button>
         </header>
@@ -1144,6 +1170,8 @@ function MailDetailLetter({
         <button
           type="button"
           className="inbox-letter-primary"
+          title="Reply to this message"
+          aria-label="Reply to this message"
           disabled={!bodyQuery.isSuccess}
           onClick={() => {
             const error = onReply(body);
@@ -1216,12 +1244,14 @@ function EventDetailLetter({
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="inbox-letter-secondary" onClick={onClose}>
+          <button type="button" className="inbox-letter-secondary" title="Keep this event" aria-label="Keep this event" onClick={onClose}>
             Keep
           </button>
           <button
             type="button"
             className="inbox-letter-danger"
+            title={`Remove ${title}`}
+            aria-label={`Remove ${title}`}
             onClick={() => setActionError(onRemove(title))}
           >
             Remove

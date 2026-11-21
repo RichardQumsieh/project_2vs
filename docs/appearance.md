@@ -2,7 +2,7 @@
 
 Sophia can change how the app looks, and how drafts sound, without changing its code and without sending chat text off the device.
 
-The feature is behind `NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED`. It is on only when that value is exactly `true`. Production Compose defaults it to false by leaving it unset. The end-to-end tests turn it on for the Playwright dev server.
+The feature is behind `NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED`. It stays on unless that value is exactly `false`. Production Compose and the frontend image default it to true. Set it to `false` to turn adaptive appearance off.
 
 ## What is stored
 

@@ -125,10 +125,17 @@ export function stripSophiaWakeWord(input: string) {
     .trim();
 }
 
+function withoutWebAddresses(input: string) {
+  return input
+    .replace(/\bhttps?:\/\/\S+/gi, " ")
+    .replace(/\b[\w.-]*sophia[\w.-]*\.[\w.-]+\S*/gi, " ");
+}
+
 export function isSophiaAddressed(input: string) {
+  const text = withoutWebAddresses(input);
   return (
-    /(?:^|[\s,])@?(?:sophia|jarvis)\b/i.test(input) ||
-    /\b(?:hey |ok |okay |hi )?(?:sophia|jarvis)\b/i.test(input)
+    /(?:^|[\s,])@?(?:sophia|jarvis)\b/i.test(text) ||
+    /\b(?:hey |ok |okay |hi )?(?:sophia|jarvis)\b/i.test(text)
   );
 }
 

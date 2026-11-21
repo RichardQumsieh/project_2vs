@@ -325,6 +325,8 @@ describe("draft voice", () => {
     const previous = process.env.NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED;
     try {
       delete process.env.NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED;
+      expect(adaptiveThemeEnabled()).toBe(true);
+      process.env.NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED = "false";
       expect(adaptiveThemeEnabled()).toBe(false);
       expect(draftVoiceForUser("user-1")).toBeUndefined();
       process.env.NEXT_PUBLIC_ADAPTIVE_THEME_ENABLED = "true";
