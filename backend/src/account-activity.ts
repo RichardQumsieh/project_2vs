@@ -16,6 +16,8 @@ export const wiredActivityActions = [
   "INVITE_REDEEMED",
   "WORKSPACE_MEMBER_REMOVED",
   "WORKSPACE_ROLE_CHANGED",
+  "AGENT_ACTION",
+  "AGENT_UNDONE",
 ] as const;
 
 export type WiredActivityAction = (typeof wiredActivityActions)[number];

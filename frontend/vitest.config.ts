@@ -7,6 +7,11 @@ export default defineConfig({
       "@": path.resolve(__dirname, "."),
     },
   },
+  server: {
+    fs: {
+      allow: [path.resolve(__dirname, "..")],
+    },
+  },
   test: {
     exclude: ["**/node_modules/**", "**/e2e/**", "**/.next/**"],
   },

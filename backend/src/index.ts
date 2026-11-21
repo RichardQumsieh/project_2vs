@@ -23,6 +23,7 @@ import { taskRoutes } from "./routes/tasks.js";
 import { aiConsentRoutes } from "./routes/ai-consents.js";
 import { accountActivityRoutes } from "./routes/account-activity.js";
 import { cloudSophiaRoutes } from "./routes/cloud-sophia.js";
+import { sophiaAgentRoutes } from "./routes/sophia-agent.js";
 import { integrationCalendarRoutes } from "./routes/integrations-calendar.js";
 import { integrationEmailRoutes } from "./routes/integrations-email.js";
 import { integrationWorkRoutes } from "./routes/integrations-work.js";
@@ -91,6 +92,8 @@ app.get("/health", async (request) => ({
   billing: env.BILLING_ENABLED ? env.BILLING_PROVIDER : "off",
   // true unless SAFETY_NUMBERS_ENABLED is exactly "false".
   safetyNumbers: env.SAFETY_NUMBERS_ENABLED,
+  // true unless SOPHIA_AGENT_ENABLED is exactly "false".
+  sophiaAgent: env.SOPHIA_AGENT_ENABLED,
   trustProxy: trustProxy === false ? "disabled" : "restricted",
   hsts: request.protocol === "https" ? "enabled" : "off",
 }));
@@ -124,6 +127,7 @@ await app.register(taskRoutes);
 await app.register(aiConsentRoutes);
 await app.register(accountActivityRoutes);
 await app.register(cloudSophiaRoutes);
+await app.register(sophiaAgentRoutes);
 await app.register(integrationCalendarRoutes);
 await app.register(integrationEmailRoutes);
 await app.register(integrationWorkRoutes);

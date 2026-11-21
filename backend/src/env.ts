@@ -110,6 +110,14 @@ const envSchema = z.object({
   PAYPAL_PLAN_FAMILY_PLUS: optionalEnvironmentValue,
   PAYPAL_PLAN_TEAM_SEAT: optionalEnvironmentValue,
   BRAVE_SEARCH_API_KEY: optionalEnvironmentValue,
+  /**
+   * Sophia agent kill switch. On unless the value is exactly "false".
+   * When off, tool execution and model turns for the agent are refused.
+   */
+  SOPHIA_AGENT_ENABLED: z.preprocess(
+    (value) => value === "false" ? false : true,
+    z.boolean(),
+  ),
   /** Hosted Sophia model. Both key and HTTPS base URL are required before any call. */
   SOPHIA_MODEL_API_KEY: optionalEnvironmentValue,
   SOPHIA_MODEL_BASE_URL: z.preprocess(
@@ -390,6 +398,9 @@ export const dailyBriefEnabled = env.DAILY_BRIEF_ENABLED;
 
 /** Safety-number identity directory. On unless SAFETY_NUMBERS_ENABLED is "false". */
 export const safetyNumbersEnabled = env.SAFETY_NUMBERS_ENABLED;
+
+/** Sophia agent. On unless SOPHIA_AGENT_ENABLED is exactly "false". */
+export const sophiaAgentEnabled = env.SOPHIA_AGENT_ENABLED;
 
 /** Workspace charges. Off unless BILLING_ENABLED is exactly "true". */
 export const billingEnabled = env.BILLING_ENABLED;

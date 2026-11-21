@@ -1,3 +1,4 @@
+import { agentEvaluationCases, type AgentEvalCase } from "./agent-evaluation";
 import { companionEvaluationCases, type CompanionEvaluationCase } from "./companion-evaluation";
 import { managerEvaluationCases, type ManagerEvalCase } from "./manager-evaluation";
 import { suggestionEvaluationCases, type SuggestionEvaluationCase } from "./suggestion-evaluation";
@@ -5,11 +6,11 @@ import { dominantScript } from "../i18n/script";
 
 export const LIVE_QUALITY_THRESHOLD = 0.8;
 
-export type EvalMode = "mock" | "live" | "skip" | "auto";
+export type EvalMode = "mock" | "live" | "real" | "skip" | "auto";
 
 export type EvalCaseResult = {
   id: string;
-  suite: "manager" | "companion" | "suggestion";
+  suite: "manager" | "companion" | "suggestion" | "agent";
   task: string;
   language: string;
   passed: boolean;
@@ -181,11 +182,26 @@ function fromSuggestion(item: SuggestionEvaluationCase): ScoredCase {
   };
 }
 
+function fromAgent(item: AgentEvalCase): ScoredCase {
+  return {
+    id: item.id,
+    suite: "agent",
+    task: item.task,
+    language: item.language,
+    expectScript: item.expectScript,
+    requiredAny: item.requiredAny,
+    forbidden: item.forbidden,
+    prompt: item.prompt,
+    context: item.context,
+  };
+}
+
 export function evaluationCases(): ScoredCase[] {
   return [
     ...managerEvaluationCases.map(fromManager),
     ...companionEvaluationCases.map(fromCompanion),
     ...suggestionEvaluationCases.map(fromSuggestion),
+    ...agentEvaluationCases.map(fromAgent),
   ];
 }
 
@@ -241,6 +257,24 @@ export function mockAssistantResponse(item: ScoredCase): string {
   if (item.id === "professional-advice") {
     return "Draft for the client: review is blocked, so Friday is at risk. We can share a revised date once the blocker is clear. I did not send this.";
   }
+  if (item.id === "agent-en-rename") {
+    return "I will rename the family chat to Sunday.";
+  }
+  if (item.id === "agent-ar-group") {
+    return "رح أنشئ مجموعة العائلة على هذا الجهاز.";
+  }
+  if (item.id === "agent-en-safety") {
+    return "A person on this device has to compare the safety number. I cannot mark it verified.";
+  }
+  if (item.id === "agent-ar-mail") {
+    return "رح أجهز مسودة بريد لسارة، وما أرسلها إذا الكتابة عند المزود مقفلة.";
+  }
+  if (item.id === "agent-en-activity") {
+    return "I will show the activity log. Reversible actions keep an undo control.";
+  }
+  if (item.id === "agent-en-send") {
+    return "I will prepare the email to Lina. It goes out only when full control and provider writes are both on.";
+  }
   return `Draft for review only. ${cue} I have not sent, booked, or changed anything. ${item.prompt}`.slice(0, 500);
 }
 
@@ -278,11 +312,11 @@ export function resolveEvalMode(mode: EvalMode, config: LiveConfig): {
         "Skipped assistant eval. No model call was made. Set SOPHIA_MODEL_API_KEY and SOPHIA_MODEL_BASE_URL and pass --mode=live to score a hosted model.",
     };
   }
-  if (mode === "live" && missing) {
+  if ((mode === "live" || mode === "real") && missing) {
     return {
       mode: "skip",
       skippedLiveReason:
-        "Skipped live assistant eval: SOPHIA_MODEL_API_KEY or SOPHIA_MODEL_BASE_URL is not set. No paid API call was made. The assistant stays experimental.",
+        "Skipped real assistant eval: SOPHIA_MODEL_API_KEY or SOPHIA_MODEL_BASE_URL is not set. No paid API call was made. Pass --mode=real to score a hosted model. The assistant stays experimental.",
     };
   }
   if (mode === "auto" && missing) {
@@ -297,9 +331,10 @@ export function resolveEvalMode(mode: EvalMode, config: LiveConfig): {
     return {
       mode: "mock",
       skippedLiveReason:
-        "Mock mode does not call a model. It checks the eval harness only. Assistant quality remains experimental.",
+        "Mock mode does not call a model. It checks the eval harness only. Assistant quality remains experimental until a real run records at least 0.8.",
     };
   }
+  if (mode === "real") return { mode: "real", skippedLiveReason: null };
   return { mode: "live", skippedLiveReason: null };
 }
 
@@ -401,7 +436,7 @@ export async function runAssistantEval(options: {
     results.length === 0
       ? 0
       : results.reduce((sum, item) => sum + item.score, 0) / results.length;
-  const liveModelEvaluated = resolved.mode === "live" && results.length > 0;
+  const liveModelEvaluated = (resolved.mode === "live" || resolved.mode === "real") && results.length > 0;
   const qualityGate =
     liveModelEvaluated && average >= LIVE_QUALITY_THRESHOLD && failed === 0
       ? "pass"
@@ -409,8 +444,8 @@ export async function runAssistantEval(options: {
 
   const summary = liveModelEvaluated
     ? qualityGate === "pass"
-      ? `Live eval passed ${passed}/${results.length} at ${average.toFixed(2)}.`
-      : `Live eval is below the ${LIVE_QUALITY_THRESHOLD} bar (${passed}/${results.length}, average ${average.toFixed(2)}). Keep the experimental label.`
+      ? `Real eval passed ${passed}/${results.length} at ${average.toFixed(2)}. Recording this score lifts the experimental label on the next build.`
+      : `Real eval is below the ${LIVE_QUALITY_THRESHOLD} bar (${passed}/${results.length}, average ${average.toFixed(2)}). Keep the experimental label.`
     : resolved.mode === "skip"
       ? resolved.skippedLiveReason ?? "Skipped assistant eval."
       : `Mock harness passed ${passed}/${results.length}. ${resolved.skippedLiveReason ?? ""}`.trim();

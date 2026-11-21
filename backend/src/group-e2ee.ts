@@ -93,6 +93,21 @@ export function planMembershipChange(
   return { ok: true, members: members.filter((member) => member.userId !== change.userId) };
 }
 
+/** Admin-only display title change. The title is not message contents. */
+export function planGroupRename(
+  members: readonly GroupMemberRef[],
+  actorUserId: string,
+): GroupGateSuccess<Record<never, never>> | GroupGateFailure {
+  const actor = members.find((member) => member.userId === actorUserId);
+  if (!actor) {
+    return { ok: false, status: 404, error: "Conversation not found" };
+  }
+  if (actor.role !== "ADMIN") {
+    return { ok: false, status: 403, error: "Only a group admin can rename the group" };
+  }
+  return { ok: true };
+}
+
 export function planRoleChange(
   members: readonly GroupMemberRef[],
   actorUserId: string,

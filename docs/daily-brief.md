@@ -2,7 +2,7 @@
 
 Sophia can prepare a short morning brief from the mail and calendar the person already connected. It lists today's meetings with a prep note, overlapping events, emails that look like they need a reply, overdue follow-ups, and up to three suggested actions. The actions are a draft reply, a proposed reschedule, and declining a conflicting event by removing it.
 
-Nothing is sent, moved, or deleted when the brief is prepared. Each suggestion is a payload for the existing approval routes in [Provider write APIs](phase4-write-oauth.md). The person has to approve that exact payload. Approval is the only step that talks to Gmail, Outlook, Google Calendar, or Microsoft Graph, and only when `INTEGRATIONS_WRITE_ENABLED` is also on for that account. That write flag stays off unless an operator sets it.
+Nothing is sent, moved, or deleted when the brief is prepared. Each suggestion is a payload for the existing approval routes in [Provider write APIs](phase4-write-oauth.md). From the brief screen the person approves that exact payload. The inbox agent uses the same routes. With Full control on, and only when `INTEGRATIONS_WRITE_ENABLED` is also on, Sophia can auto-approve a send, reschedule, or decline. If the write flag is off, the agent refuses and nothing is sent. Ask first still waits for a confirm. That write flag stays off unless an operator sets it.
 
 If neither mail nor a calendar is connected, the brief screen stays up and asks the person to connect one. That response is successful. It does not call a model, and it does not store an empty brief that would block the real one later.
 
