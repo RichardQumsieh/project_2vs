@@ -62,6 +62,12 @@ function friendlyError(error: unknown) {
   return error instanceof Error ? error.message : "Could not sync this conversation. Try again.";
 }
 
+function runtimeDiagnostic(error: unknown) {
+  const detail = friendlyError(error);
+  if (!detail.toLowerCase().includes("undefined is not a function")) return "";
+  return error instanceof Error ? error.stack ?? `${error.name}: ${detail}` : detail;
+}
+
 async function loadGroupBlobs(conversationId: string, deviceId: string, after?: string) {
   const blobs: GroupWireBlob[] = [];
   let cursor = after;
@@ -89,7 +95,9 @@ export function NativeThread({ conversation, cookie }: Props) {
   const [vaultPassword, setVaultPassword] = useState("");
   const [historyRecoveryInput, setHistoryRecoveryInput] = useState("");
   const [unlocking, setUnlocking] = useState(false);
+  const [unlockStep, setUnlockStep] = useState("");
   const [unlockError, setUnlockError] = useState("");
+  const [unlockDiagnostic, setUnlockDiagnostic] = useState("");
   const [historyError, setHistoryError] = useState("");
   const [historyBusy, setHistoryBusy] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState("");
@@ -237,6 +245,8 @@ export function NativeThread({ conversation, cookie }: Props) {
       setSyncError("");
     } catch (error) {
       setSyncError(friendlyError(error));
+      const diagnostic = runtimeDiagnostic(error);
+      if (diagnostic) setUnlockDiagnostic(diagnostic);
     } finally {
       refreshInFlight.current = false;
     }
@@ -245,28 +255,52 @@ export function NativeThread({ conversation, cookie }: Props) {
   const unlock = useCallback(async () => {
     const password = vaultPassword;
     if (!password) return;
+    let activeStep = "checking your account";
+    const updateStep = (step: string) => {
+      activeStep = step;
+      setUnlockStep(step);
+    };
     setUnlocking(true);
     setUnlockError("");
+    setUnlockDiagnostic("");
     setHistoryError("");
     try {
-      const setup = await bootstrapDevice(password, historyRecoveryInput.trim() || undefined);
+      const setup = await bootstrapDevice(
+        password,
+        historyRecoveryInput.trim() || undefined,
+        undefined,
+        updateStep,
+      );
       if (setup.archiveRecoveryCode) setRecoveryCode(setup.archiveRecoveryCode);
       setVaultPassword("");
       setHistoryRecoveryInput("");
       setUnlocked(true);
+      updateStep("loading local messages");
       await refreshLocal();
       setHistoryBusy(true);
       try {
+        updateStep("restoring previous encrypted messages");
         await syncConversationRecoveryHistory();
       } catch (error) {
-        setHistoryError(friendlyError(error));
+        setHistoryError(`Could not finish ${activeStep}: ${friendlyError(error)}`);
+        setUnlockDiagnostic(runtimeDiagnostic(error));
       } finally {
         setHistoryBusy(false);
       }
+      updateStep("syncing this conversation");
       await refreshConversation();
     } catch (error) {
-      setUnlockError(friendlyError(error));
+      const detail = friendlyError(error);
+      console.warn("[sophia-mobile] vault unlock failed", {
+        stage: activeStep,
+        name: error instanceof Error ? error.name : "UnknownError",
+        message: detail,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      setUnlockError(`Could not finish ${activeStep}: ${detail}`);
+      setUnlockDiagnostic(runtimeDiagnostic(error));
     } finally {
+      setUnlockStep("");
       setUnlocking(false);
     }
   }, [historyRecoveryInput, refreshConversation, refreshLocal, vaultPassword]);
@@ -433,6 +467,8 @@ export function NativeThread({ conversation, cookie }: Props) {
         editable={!unlocking}
       />
       {!!unlockError && <Notice text={unlockError} />}
+      {!!unlockDiagnostic && <Text selectable style={styles.unlockDiagnostic}>{unlockDiagnostic}</Text>}
+      {unlocking && !!unlockStep && <Text accessibilityLiveRegion="polite" style={styles.unlockFoot}>{unlockStep}…</Text>}
       <ActionButton title="Unlock secure messages" icon="lock-open-outline" onPress={() => void unlock()} busy={unlocking} disabled={!vaultPassword} />
       <Text style={styles.unlockFoot}>Message keys and chat history are encrypted on this device. Sophia's servers only receive encrypted content.</Text>
     </View>;
@@ -448,8 +484,8 @@ export function NativeThread({ conversation, cookie }: Props) {
       }} secondary />
     </View>}
     {historyBusy && <View style={styles.syncBanner}><ActivityIndicator color={C.purple} size="small" /><Text style={styles.syncBannerText}>Restoring encrypted history for this device…</Text></View>}
-    {!!historyError && <View style={styles.inlineNotice}><Notice text={`Some history could not be restored: ${historyError}`} tone="info" /></View>}
-    {!!syncError && <View style={styles.inlineNotice}><Notice text={syncError} tone="info" /></View>}
+    {!!historyError && <View style={styles.inlineNotice}><Notice text={`Some history could not be restored: ${historyError}`} tone="info" />{!!unlockDiagnostic && <Text selectable style={styles.unlockDiagnostic}>{unlockDiagnostic}</Text>}</View>}
+    {!!syncError && <View style={styles.inlineNotice}><Notice text={syncError} tone="info" />{!!unlockDiagnostic && <Text selectable style={styles.unlockDiagnostic}>{unlockDiagnostic}</Text>}</View>}
     {conversation.type === "GROUP" && groupStatus && !groupStatus.joined && <View style={styles.inlineNotice}><Notice text="This device is waiting for an existing group member to add it securely. Group history already available to your account can still be restored." tone="info" /></View>}
     {conversation.type === "GROUP" && groupStatus?.error && <View style={styles.inlineNotice}><Notice text={groupStatus.error} tone="info" /></View>}
     {!!sendError && <View style={styles.inlineNotice}><Notice text={sendQueued ? `Message safely queued. Sophia will retry when the connection returns. ${sendError}` : sendError} tone="info" /></View>}
@@ -527,6 +563,7 @@ const styles = StyleSheet.create({
   unlockTitle: { fontFamily: "Georgia", color: C.ink, fontSize: 26, lineHeight: 32, marginTop: 4 },
   unlockCopy: { color: C.muted, fontSize: 14, lineHeight: 21, marginBottom: 3 },
   unlockFoot: { color: C.faint, fontSize: 11, lineHeight: 17, textAlign: "center", marginTop: 1 },
+  unlockDiagnostic: { color: C.muted, fontFamily: "monospace", fontSize: 9, lineHeight: 13, maxHeight: 100, marginTop: 5 },
   syncBanner: { minHeight: 38, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line, backgroundColor: C.paper },
   syncBannerText: { color: C.muted, fontSize: 12 },
   inlineNotice: { paddingHorizontal: 12, paddingTop: 8 },

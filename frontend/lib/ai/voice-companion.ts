@@ -275,7 +275,7 @@ const automaticSpeechAllowlist =
   /^(?:hi(?: there| buddy)?|hey(?: there| buddy)?|hello(?: there)?|good morning|good evening|how are you|how's it going|what's up|i'm good|im good|i'm doing well|im doing well|thanks|thank you|sure|yes|no|okay|ok|sounds good|that works|great|perfect|see you|see you then|i'd love to|id love to|are you free(?: later| tonight| tomorrow| for coffee)?|what time works for you|what time|want to (?:get )?(?:coffee|lunch|dinner)|let's meet for (?:coffee|lunch|dinner)|lets meet for (?:coffee|lunch|dinner)|مرحبا|أهلا|اهلا|هلا|كيفك|شو الأخبار|شو الاخبار|تمام|منيح|يسعد صباحك|يسعد مساك|بكرا|أي ساعة|اي ساعة|متى نتلاقى|نتلاقى بكرا|بدك قهوة|قهوة|أكيد|اكيد|ماشي|شكرا|يسلمو|كيف الحال|كفك|كيفك|شو أخبارك|شو اخبارك|تمام بشوفك|هههه|ههههه|keefak|kefak|shu akhbarak|tamam)(?:[.!?؟،]*)$/i;
 
 export function isSafeForAutomaticSpeech(messages: LocalMessage[]) {
-  const latest = messages.at(-1);
+  const latest = messages[messages.length - 1];
   if (!latest || latest.fromMe) {
     return false;
   }

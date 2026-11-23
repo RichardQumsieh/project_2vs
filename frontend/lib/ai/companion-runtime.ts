@@ -279,7 +279,7 @@ export function createCompanionRuntime({
       for (const message of ordered.slice(-maxRememberedMessages)) {
         seenIds.add(message.id);
       }
-      const latest = ordered.at(-1);
+      const latest = ordered[ordered.length - 1];
       lastProcessedOrder = latest ? `${latest.createdAt}:${latest.id}` : "";
       initialized = true;
       setState(restingState());

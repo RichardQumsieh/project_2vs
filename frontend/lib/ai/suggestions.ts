@@ -75,7 +75,7 @@ export function prepareSuggestionPrompt(
   request: SuggestionRequest,
 ): ChatTurn[] {
   const messages = recentMessages(request);
-  const latest = messages.at(-1);
+  const latest = messages[messages.length - 1];
 
   if (!latest || latest.fromMe) {
     throw new Error("Suggestions are only available after an incoming message.");

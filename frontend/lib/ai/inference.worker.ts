@@ -195,7 +195,7 @@ workerScope.addEventListener(
 
       const generated = result[0]?.generated_text;
       const lastMessage = Array.isArray(generated)
-        ? generated.at(-1)
+        ? generated[generated.length - 1]
         : undefined;
       const text =
         lastMessage && typeof lastMessage.content === "string"

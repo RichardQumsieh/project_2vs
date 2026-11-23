@@ -109,6 +109,6 @@ export function createSuggestionScheduler(
 export function latestIncomingMessageId(
   messages: Array<{ id: string; fromMe: boolean }>,
 ) {
-  const latest = messages.at(-1);
+  const latest = messages[messages.length - 1];
   return latest && !latest.fromMe ? latest.id : null;
 }

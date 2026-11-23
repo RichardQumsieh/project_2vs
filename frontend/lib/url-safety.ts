@@ -36,7 +36,8 @@ function normalizeLink(raw: string) {
   ) {
     return { url: null, issue: "Links with deceptive credentials or unsupported schemes are blocked." };
   }
-  const topLevelDomain = url.hostname.split(".").at(-1) ?? "";
+  const hostParts = url.hostname.split(".");
+  const topLevelDomain = hostParts[hostParts.length - 1] ?? "";
   if (
     !commonTopLevelDomain.test(topLevelDomain) &&
     !topLevelDomain.startsWith("xn--")
@@ -52,16 +53,17 @@ export function extractLinks(text: string): DetectedLink[] {
   for (const match of text.matchAll(linkPattern)) {
     const raw = match[0].replace(trailingPunctuation, "");
     if (!raw) continue;
+    const rawParts = raw.split(/[./()[\]]/);
     if (
       !/^(?:https?:\/\/|hxxps?:\/\/|www\.)/i.test(raw) &&
-      fileLikeSuffix.test(raw.split(/[./()[\]]/).at(-1) ?? "") &&
-      !commonTopLevelDomain.test(raw.split(/[./()[\]]/).at(-2) ?? "")
+      fileLikeSuffix.test(rawParts[rawParts.length - 1] ?? "") &&
+      !commonTopLevelDomain.test(rawParts[rawParts.length - 2] ?? "")
     ) {
       continue;
     }
     const start = match.index ?? 0;
     const normalized = normalizeLink(raw);
-    const previous = links.at(-1);
+    const previous = links[links.length - 1];
     if (previous && start < previous.end) continue;
     links.push({
       raw,

@@ -1,3 +1,16 @@
+if (typeof Array.prototype.at !== "function") {
+  Object.defineProperty(Array.prototype, "at", {
+    configurable: true,
+    writable: true,
+    value(index) {
+      const length = this.length >>> 0;
+      const integer = Math.trunc(Number(index)) || 0;
+      const position = integer < 0 ? length + integer : integer;
+      return position < 0 || position >= length ? undefined : this[position];
+    },
+  });
+}
+
 const quickCrypto = require("react-native-quick-crypto");
 quickCrypto.install();
 

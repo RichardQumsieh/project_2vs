@@ -1153,7 +1153,7 @@ function ThreadConversation({
   const selectedSpeechLanguage =
     assistantSettings?.language === "arabic" ||
     (assistantSettings?.language === "auto" &&
-      speechLanguage(localMessages.at(-1)?.plaintext ?? "") === "ar")
+      speechLanguage(localMessages[localMessages.length - 1]?.plaintext ?? "") === "ar")
       ? "ar-JO"
       : "en-US";
   const selectedSpeechInputAvailable =
@@ -1161,7 +1161,7 @@ function ThreadConversation({
       ? localSpeechInputAvailability.arabic
       : localSpeechInputAvailability.english;
   const latestIncomingId = latestIncomingMessageId(localMessages);
-  const latestLocalMessageId = localMessages.at(-1)?.id ?? null;
+  const latestLocalMessageId = localMessages[localMessages.length - 1]?.id ?? null;
   const currentSuggestionKey =
     assistantSettings?.enabled && latestIncomingId
       ? [

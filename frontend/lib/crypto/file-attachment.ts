@@ -57,7 +57,8 @@ type ZipEntry = {
 };
 
 export function sanitizeAttachmentName(name: string) {
-  const baseName = name.split(/[\\/]/).at(-1) ?? "";
+  const nameParts = name.split(/[\\/]/);
+  const baseName = nameParts[nameParts.length - 1] ?? "";
   if (baseName.startsWith(".")) {
     throw new Error("Choose a file with a safe name and an allowed extension.");
   }
@@ -69,7 +70,8 @@ export function sanitizeAttachmentName(name: string) {
   if (!cleaned || cleaned.startsWith(".")) {
     throw new Error("Choose a file with a safe name and an allowed extension.");
   }
-  const extension = cleaned.split(".").at(-1)?.toLowerCase();
+  const extensionParts = cleaned.split(".");
+  const extension = extensionParts[extensionParts.length - 1]?.toLowerCase();
   if (!extension || !mimeByExtension[extension]) {
     throw new Error("Allowed files: PDF, DOCX, PPTX, XLSX, TXT, and CSV.");
   }
@@ -312,7 +314,8 @@ export async function inspectAndEncryptFileAttachment(file: File): Promise<Encry
     throw new Error("Files must be non-empty and 450 MB or smaller.");
   }
   const name = sanitizeAttachmentName(file.name);
-  const extension = name.split(".").at(-1)!.toLowerCase();
+  const extensionParts = name.split(".");
+  const extension = extensionParts[extensionParts.length - 1]!.toLowerCase();
   const mime = mimeByExtension[extension];
   const fileBuffer = await file.arrayBuffer();
   const bytes = new Uint8Array(fileBuffer);

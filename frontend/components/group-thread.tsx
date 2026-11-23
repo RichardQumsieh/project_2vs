@@ -622,7 +622,7 @@ async function loadBlobs(conversationId: string, deviceId: string) {
     const page = await api.groupMls(conversationId, deviceId, after);
     blobs.push(...page.blobs);
     if (page.blobs.length < 100) return blobs;
-    const next = page.blobs.at(-1)?.id;
+    const next = page.blobs[page.blobs.length - 1]?.id;
     if (!next || next === after) return blobs;
     after = next;
   }
@@ -700,7 +700,7 @@ async function refreshGroup(
   const mlsRole = result.record.session
     ? listRoster(result.record.session).find((leaf) => leaf.deviceId === deviceId)?.role ?? null
     : null;
-  const latestBlobId = blobs.at(-1)?.id;
+  const latestBlobId = blobs[blobs.length - 1]?.id;
   if (joined && latestBlobId && markedGroupRead.get(conversation.id) !== latestBlobId) {
     try {
       await api.markGroupRead(conversation.id, latestBlobId);

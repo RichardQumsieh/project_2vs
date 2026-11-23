@@ -1045,7 +1045,9 @@ export async function bootstrapDevice(
   password: string,
   recoveryCode?: string,
   restoredArchiveMaterial?: AccountArchiveMaterial,
+  onProgress?: (step: string) => void,
 ) {
+  onProgress?.("checking your account");
   const account =
     await api.me();
 
@@ -1056,6 +1058,7 @@ export async function bootstrapDevice(
     await lockDevice();
   }
 
+  onProgress?.("opening the local encrypted database");
   const existing =
     await loadVault(
       account.user.id,
@@ -1082,10 +1085,12 @@ export async function bootstrapDevice(
     (existing.version ?? 1) ===
       account.user.vaultVersion
   ) {
+    onProgress?.("deriving the messaging vault key");
     const restoredKey = await deriveVaultKey(
       password,
       b64ToBytes(existing.salt),
     );
+    onProgress?.("decrypting the messaging vault");
     const openedIdentity =
       await openVaultWithKey(restoredKey, existing);
 
@@ -1096,17 +1101,20 @@ export async function bootstrapDevice(
     identityUserId =
       account.user.id;
     vaultKey = restoredKey;
+    onProgress?.("restoring encrypted device history");
     try {
       await restoreRecoveryRecords(existingDeviceId, restoredKey, account.user.id);
     } catch (error) {
       reportRecoveryBackupError(error);
     }
+    onProgress?.("opening the account history key");
     const archiveRecoveryCode = await ensureAccountArchiveKey(
       password,
       account.user.id,
       recoveryCode,
       restoredArchiveMaterial,
     );
+    onProgress?.("syncing encrypted message history");
     try {
       await syncLocalRecoveryRecords();
       await saveRecoveryVault(existing);
@@ -1124,9 +1132,11 @@ export async function bootstrapDevice(
   }
 
   if (existing || existingDeviceId) {
+    onProgress?.("clearing outdated device sessions");
     await clearSessions();
   }
 
+  onProgress?.("creating this device's encryption keys");
   const newIdentity =
     await createIdentityMaterial();
   const vault = {
@@ -1137,15 +1147,18 @@ export async function bootstrapDevice(
     ),
     version: account.user.vaultVersion,
   };
+  onProgress?.("sealing the local messaging vault");
   await saveVault(
     vault,
     account.user.id,
   );
+  onProgress?.("deriving the messaging vault key");
   const newVaultKey = await deriveVaultKey(
     password,
     b64ToBytes(vault.salt),
   );
 
+  onProgress?.("registering this secure device");
   const registered =
     await api.registerDevice(
       devicePayload(
@@ -1168,12 +1181,14 @@ export async function bootstrapDevice(
   identity = newIdentity;
   identityUserId = account.user.id;
   vaultKey = newVaultKey;
+  onProgress?.("opening the account history key");
   const archiveRecoveryCode = await ensureAccountArchiveKey(
     password,
     account.user.id,
     recoveryCode,
     restoredArchiveMaterial,
   );
+  onProgress?.("syncing encrypted message history");
   try {
     await syncLocalRecoveryRecords();
     await saveRecoveryVault(vault);
