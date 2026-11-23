@@ -13,7 +13,7 @@ import { requireUser } from "../auth.js";
 import { allowedFrontendOrigins, credentialedCorsHeaders } from "../cors-allowlist.js";
 import { prisma } from "../db.js";
 import { billingEnabled, env, sophiaAgentEnabled } from "../env.js";
-import { completeChat } from "../model-provider.js";
+import { completeChat, ModelStatusError, publicModelProviderFailure } from "../model-provider.js";
 
 const runs = new Map<string, AbortController>();
 const allowedOrigins = allowedFrontendOrigins(env.FRONTEND_ORIGIN);
@@ -241,17 +241,23 @@ export async function sophiaAgentRoutes(app: FastifyInstance) {
         );
       } catch (error) {
         const aborted = controller.signal.aborted || (error instanceof Error && error.name === "AbortError");
+        const providerFailure = publicModelProviderFailure(error);
+        request.log.warn({
+          userId: session.sub,
+          providerStatus: error instanceof ModelStatusError ? error.status : undefined,
+          code: providerFailure.code,
+        }, "sophia agent model provider failure");
         if (stream) {
           writeEvent(reply.raw, "error", {
-            error: aborted ? "Sophia stopped this plan." : "The model could not be reached.",
-            code: aborted ? "agent_stopped" : "agent_provider_error",
+            error: aborted ? "Sophia stopped this plan." : providerFailure.error,
+            code: aborted ? "agent_stopped" : providerFailure.code,
           });
           reply.raw.end();
           return;
         }
         return reply.code(aborted ? 409 : 502).send({
-          error: aborted ? "Sophia stopped this plan." : "The model could not be reached.",
-          code: aborted ? "agent_stopped" : "agent_provider_error",
+          error: aborted ? "Sophia stopped this plan." : providerFailure.error,
+          code: aborted ? "agent_stopped" : providerFailure.code,
         });
       } finally {
         if (runs.get(session.sub) === controller) runs.delete(session.sub);

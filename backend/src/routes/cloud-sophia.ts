@@ -15,7 +15,7 @@ import { prisma } from "../db.js";
 import { env } from "../env.js";
 import { cloudSophiaConsentSchema } from "../schemas.js";
 
-const modelName = () => env.SOPHIA_MODEL_NAME ?? "grok-4";
+const modelName = () => env.SOPHIA_MODEL_NAME;
 
 function publicConsent(consent: {
   id: string;

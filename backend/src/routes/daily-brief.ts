@@ -24,7 +24,7 @@ import { dailyBriefEntitled } from "../workspace-entitlement.js";
 const repo = createPrismaDailyBriefRepository();
 
 function modelName() {
-  return env.SOPHIA_MODEL_NAME ?? "grok-4";
+  return env.SOPHIA_MODEL_NAME;
 }
 
 async function assistantFor(userId: string, log: (fields: object) => void): Promise<BriefAssistant> {

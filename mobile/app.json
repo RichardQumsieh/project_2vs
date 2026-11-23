@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Sophia",
+    "slug": "sophia-mobile",
+    "scheme": "sophia",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sophia.messenger"
+    },
+    "android": {
+      "package": "com.sophia.messenger"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-sqlite",
+        {
+          "useSQLCipher": true
+        }
+      ],
+      "react-native-quick-crypto",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 33
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "447dd9a5-8bfd-4026-aeef-6c5fbee8dba6"
+      }
+    },
+    "owner": "sophia-build"
+  }
+}

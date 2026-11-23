@@ -28,6 +28,7 @@ import {
   currentSigningMaterial,
   currentUserId,
   currentVaultKey,
+  archiveGroupMessages,
 } from "@/lib/session";
 import type { LocalMessage } from "@/lib/crypto/types";
 
@@ -685,10 +686,14 @@ async function refreshGroup(
     conversation.id,
     await sealGroupRecord(key, userId, conversation.id, result.record),
   );
+  const newlyDecrypted: LocalMessage[] = [];
   for (const message of result.messages) {
     const sender = devices.devices.find((device) => device.deviceId === message.senderDeviceId);
-    await saveLocalMessage(localFrom(conversation.id, message, deviceId, sender?.userId));
+    const local = localFrom(conversation.id, message, deviceId, sender?.userId);
+    newlyDecrypted.push(local);
+    await saveLocalMessage(local);
   }
+  await archiveGroupMessages(newlyDecrypted);
   const messages = await listLocalMessages(conversation.id, 100);
   const selfRemoved = result.selfRemoved;
   const joined = Boolean(result.record.session) && !selfRemoved;

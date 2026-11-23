@@ -197,3 +197,18 @@ export type WireMessage = {
 
   createdAt: string;
 };
+
+export type DirectSendPayload = {
+  senderDeviceId: string;
+  logicalMessageId: string;
+  envelopes: { recipientDeviceId: string; ciphertext: string; nonce: string; ratchetHeader: unknown }[];
+  archiveEnvelopes: { ownerUserId: string; recipientPublicKey: string; ephemeralPublicKey: string; nonce: string; ciphertext: string }[];
+};
+
+export type PendingDirectSend = {
+  id: string;
+  conversationId: string;
+  plaintext: string;
+  createdAt: string;
+  payload: DirectSendPayload;
+};

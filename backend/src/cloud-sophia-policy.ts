@@ -18,7 +18,7 @@ export const CLOUD_SOPHIA_CONSENT_ERROR = "Cloud Sophia consent is required.";
 export const CLOUD_SOPHIA_UNCONFIGURED_ERROR =
   "Cloud Sophia is not configured on this server.";
 export const CLOUD_SOPHIA_PROVIDER_ERROR =
-  "The cloud model could not complete the request.";
+  "Sophia could not connect to the configured model provider. Check the backend provider settings and network access.";
 export const CLOUD_SOPHIA_UNEXPECTED_ERROR =
   "The cloud model returned an unexpected response.";
 export const CLOUD_SOPHIA_PRIVATE_MESSAGE_ERROR =
@@ -71,6 +71,8 @@ export type CloudCallLogFields = {
   userId: string;
   outcome: "denied" | "unconfigured" | "completed" | "provider_error";
   status: number;
+  providerStatus?: number;
+  transportError?: string;
 };
 
 type CloudGate =
@@ -158,6 +160,39 @@ export function cloudCallLogFields(input: CloudCallLogFields): CloudCallLogField
     userId: input.userId,
     outcome: input.outcome,
     status: input.status,
+    ...(input.providerStatus === undefined ? {} : { providerStatus: input.providerStatus }),
+    ...(input.transportError ? { transportError: input.transportError } : {}),
+  };
+}
+
+function cloudProviderFailure(status: number) {
+  if (status === 401 || status === 403) {
+    return {
+      error: "The model provider rejected Sophia's API key. Check SOPHIA_MODEL_API_KEY in the backend deployment settings.",
+      code: "cloud_sophia_provider_auth_error",
+    };
+  }
+  if (status === 404) {
+    return {
+      error: "The configured Grok model or API endpoint was not found. Check SOPHIA_MODEL_NAME and SOPHIA_MODEL_BASE_URL.",
+      code: "cloud_sophia_model_not_found",
+    };
+  }
+  if (status === 429) {
+    return {
+      error: "The model provider rate limit or API quota was reached. Check the xAI account limits and billing.",
+      code: "cloud_sophia_provider_rate_limited",
+    };
+  }
+  if (status >= 500) {
+    return {
+      error: "The model provider is temporarily unavailable. Please try again shortly.",
+      code: "cloud_sophia_provider_unavailable",
+    };
+  }
+  return {
+    error: "The model provider rejected Sophia's request. Check the backend model configuration.",
+    code: "cloud_sophia_provider_error",
   };
 }
 
@@ -323,11 +358,12 @@ export async function executeCloudModelCall(input: {
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(20_000),
     });
-  } catch {
+  } catch (error) {
     input.log(cloudCallLogFields({
       userId: input.sessionUserId,
       outcome: "provider_error",
       status: 502,
+      transportError: error instanceof Error ? error.name : "UnknownError",
     }));
     return {
       status: 502,
@@ -340,17 +376,16 @@ export async function executeCloudModelCall(input: {
   }
 
   if (!response.ok) {
+    const failure = cloudProviderFailure(response.status);
     input.log(cloudCallLogFields({
       userId: input.sessionUserId,
       outcome: "provider_error",
       status: 502,
+      providerStatus: response.status,
     }));
     return {
       status: 502,
-      body: {
-        error: CLOUD_SOPHIA_PROVIDER_ERROR,
-        code: "cloud_sophia_provider_error",
-      },
+      body: failure,
       calledModel: true,
     };
   }

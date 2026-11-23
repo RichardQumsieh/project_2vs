@@ -123,10 +123,13 @@ const envSchema = z.object({
   /** Hosted Sophia model. Both key and HTTPS base URL are required before any call. */
   SOPHIA_MODEL_API_KEY: optionalEnvironmentValue,
   SOPHIA_MODEL_BASE_URL: z.preprocess(
-    (value) => value === "" ? undefined : value,
-    z.string().url().optional(),
+    (value) => value === undefined || value === "" ? "https://api.x.ai/v1" : value,
+    z.string().url(),
   ),
-  SOPHIA_MODEL_NAME: optionalEnvironmentValue,
+  SOPHIA_MODEL_NAME: z.preprocess(
+    (value) => value === undefined || value === "" ? "grok-4.7" : value,
+    z.string().min(1),
+  ),
   SAFE_BROWSING_API_KEY: optionalEnvironmentValue,
   TURN_URLS: optionalEnvironmentValue,
   TURN_SHARED_SECRET: z.preprocess(

@@ -132,7 +132,7 @@ async function completeReal(input: {
   const maxAttempts = input.config.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const url = chatCompletionsUrl(input.config.baseUrl!);
   const body = {
-    model: input.config.model || "grok-4",
+    model: input.config.model || "grok-4.7",
     temperature: 0.2,
     max_tokens: input.config.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     messages: input.messages,
@@ -343,9 +343,46 @@ function abortError() {
   return error;
 }
 
-class ModelStatusError extends Error {
+export class ModelStatusError extends Error {
   constructor(readonly status: number) {
     super(`Model request failed with status ${status}.`);
     this.name = "ModelStatusError";
   }
+}
+
+export function publicModelProviderFailure(error: unknown) {
+  if (!(error instanceof ModelStatusError)) {
+    return {
+      error: "Sophia could not connect to the configured model provider. Check the backend provider settings and network access.",
+      code: "agent_provider_unreachable",
+    };
+  }
+  if (error.status === 401 || error.status === 403) {
+    return {
+      error: "The model provider rejected Sophia's API key. Check SOPHIA_MODEL_API_KEY in the backend deployment settings.",
+      code: "agent_provider_auth_error",
+    };
+  }
+  if (error.status === 404) {
+    return {
+      error: "The configured Grok model or API endpoint was not found. Check SOPHIA_MODEL_NAME and SOPHIA_MODEL_BASE_URL.",
+      code: "agent_model_not_found",
+    };
+  }
+  if (error.status === 429) {
+    return {
+      error: "The model provider rate limit or API quota was reached. Check the xAI account limits and billing.",
+      code: "agent_provider_rate_limited",
+    };
+  }
+  if (error.status >= 500) {
+    return {
+      error: "The model provider is temporarily unavailable. Please try again shortly.",
+      code: "agent_provider_unavailable",
+    };
+  }
+  return {
+    error: "The model provider rejected Sophia's request. Check the backend model configuration.",
+    code: "agent_provider_error",
+  };
 }

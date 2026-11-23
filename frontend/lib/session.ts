@@ -51,6 +51,7 @@ import {
   listAllLocalMessages,
   listAllSessions,
   listLocalMessages,
+  loadWireCursor,
   loadDeviceId,
   loadAccountArchiveCache,
   loadPendingArchiveRecoveryCode,
@@ -64,6 +65,7 @@ import {
   deletePendingArchiveRecoveryCode,
   deleteLocalMessages,
   saveLocalMessage,
+  saveWireCursor,
   saveRememberedVaultKey,
   saveSession,
   saveSessions,
@@ -88,7 +90,7 @@ let pendingArchiveRecoveryCodeToDisplay: string | null = null;
 
 function publishPendingArchiveRecoveryCode(value: string | null) {
   pendingArchiveRecoveryCodeToDisplay = value;
-  if (typeof window !== "undefined") {
+  if (typeof window !== "undefined" && typeof Event !== "undefined") {
     window.dispatchEvent(new Event("private-messenger-archive-recovery-code"));
   }
 }
@@ -111,7 +113,7 @@ function reportRecoveryBackupError(error: unknown) {
   recoveryBackupError = error instanceof Error
     ? error.message
     : "Could not save this device's encrypted recovery backup.";
-  if (typeof window !== "undefined") {
+  if (typeof window !== "undefined" && typeof Event !== "undefined") {
     window.dispatchEvent(new Event("private-messenger-recovery-backup"));
   }
 }
@@ -230,7 +232,7 @@ async function flushRecoveryRecordsLocked() {
       }
     }
     recoveryBackupError = null;
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && typeof Event !== "undefined") {
       window.dispatchEvent(new Event("private-messenger-recovery-backup"));
     }
   } catch (error) {
@@ -451,6 +453,28 @@ async function archiveLocalMessages(messages: LocalMessage[]) {
   }
 }
 
+const pendingGroupArchiveConversations = new Set<string>();
+
+/** Keep MLS plaintext available to this user's other devices via the encrypted account archive. */
+export async function archiveGroupMessages(messages: LocalMessage[]) {
+  if (!identityUserId || !accountArchiveKey) return;
+  const conversationIds = new Set([
+    ...messages.map((message) => message.conversationId),
+    ...pendingGroupArchiveConversations,
+  ]);
+  for (const conversationId of conversationIds) {
+    const stored = (await listAllLocalMessages()).filter((message) => message.conversationId === conversationId);
+    const pending = messages.filter((message) => message.conversationId === conversationId);
+    try {
+      await archiveLocalMessages([...stored, ...pending]);
+      pendingGroupArchiveConversations.delete(conversationId);
+    } catch (error) {
+      pendingGroupArchiveConversations.add(conversationId);
+      throw error;
+    }
+  }
+}
+
 let historySync: Promise<void> | null = null;
 
 export async function syncConversationRecoveryHistory(
@@ -470,6 +494,12 @@ export async function syncConversationRecoveryHistory(
     let messagesSynced = 0;
     for (const [index, conversation] of conversations.entries()) {
       await syncConversationMessageDeletions(conversation.id);
+      if (conversation.type === "GROUP") {
+        const localGroupHistory = (await listAllLocalMessages()).filter(
+          (message) => message.conversationId === conversation.id,
+        );
+        await archiveGroupMessages(localGroupHistory);
+      }
       let archiveAfter: string | undefined;
       while (true) {
         const page = await api.archiveMessages(conversation.id, archiveAfter);
@@ -520,7 +550,8 @@ export async function syncConversationRecoveryHistory(
         if (page.records.length < 100 || !archiveAfter) break;
       }
 
-      let after: { id: string } | undefined;
+      const savedCursor = await loadWireCursor(conversation.id);
+      let after: { id: string } | undefined = savedCursor ? { id: savedCursor } : undefined;
       while (true) {
         const { messages } = await api.messages(
           conversation.id,
@@ -532,6 +563,8 @@ export async function syncConversationRecoveryHistory(
         );
         if (messages.length === 0) break;
         await ingestWireMessages(messages, { strict: true });
+        const last = messages.at(-1);
+        if (last) await saveWireCursor(conversation.id, last.id);
         if (recoveryBackupError) {
           throw new Error(
             `Encrypted recovery backup failed: ${recoveryBackupError}`,
@@ -543,10 +576,9 @@ export async function syncConversationRecoveryHistory(
           total: conversations.length,
           messages: messagesSynced,
         });
-        const last = messages.at(-1);
         if (!last || messages.length < 100) break;
         after = { id: last.id };
-        await new Promise((resolve) => window.setTimeout(resolve, 600));
+        await new Promise((resolve) => setTimeout(resolve, 600));
       }
     }
     await syncLocalRecoveryRecords();
@@ -1118,10 +1150,9 @@ export async function bootstrapDevice(
     await api.registerDevice(
       devicePayload(
         newIdentity,
-        navigator.userAgent.slice(
-          0,
-          72,
-        ),
+        (typeof navigator !== "undefined" && typeof navigator.userAgent === "string"
+          ? navigator.userAgent
+          : "SophiaMobile/1.0").slice(0, 72),
       ),
     );
 
@@ -1720,7 +1751,15 @@ export async function conversationPlaintext(
       before,
     );
 
-  return messages;
+  const byLogicalId = new Map<string, LocalMessage>();
+  for (const message of messages) {
+    const logicalId = message.logicalMessageId ?? message.id;
+    const current = byLogicalId.get(logicalId);
+    if (!current || message.id === logicalId) byLogicalId.set(logicalId, message);
+  }
+  return [...byLogicalId.values()].sort((left, right) =>
+    left.createdAt === right.createdAt ? left.id.localeCompare(right.id) : left.createdAt.localeCompare(right.createdAt),
+  );
 }
 
 export async function ingestWireMessages(

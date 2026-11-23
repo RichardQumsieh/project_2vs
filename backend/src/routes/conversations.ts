@@ -555,6 +555,38 @@ export async function conversationRoutes(app: FastifyInstance) {
     });
     if (!device) return reply.code(403).send({ error: "Unknown sender device" });
 
+    // A mobile sender keeps the exact encrypted payload in its local outbox until
+    // the server acknowledges it. If the response is lost, retrying the same
+    // logical ID returns the first write instead of creating duplicate messages.
+    const logicalMessageId =
+      "logicalMessageId" in parsed.data
+        ? parsed.data.logicalMessageId ?? randomUUID()
+        : randomUUID();
+    const existing = await prisma.message.findMany({
+      where: { conversationId: id, logicalMessageId },
+      include: {
+        senderDevice: true,
+        recipientDevice: { select: { userId: true } },
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    if (existing.length > 0) {
+      if (existing.some((message: any) => message.senderDeviceId !== device.id)) {
+        return reply.code(409).send({ error: "Message ID is already in use." });
+      }
+      const wasDeleted = await prisma.messageDeletion.findUnique({
+        where: { conversationId_logicalMessageId: { conversationId: id, logicalMessageId } },
+        select: { logicalMessageId: true },
+      });
+      if (wasDeleted) return reply.code(409).send({ error: "This message has already been deleted." });
+      return {
+        logicalMessageId,
+        createdAt: existing[0]!.createdAt.toISOString(),
+        message: serializeMessage(existing[0]!),
+        messages: existing.map(serializeMessage),
+      };
+    }
+
     let envelopes: {
       recipientDeviceId?: string;
       ciphertext: string;
@@ -662,10 +694,6 @@ export async function conversationRoutes(app: FastifyInstance) {
       }
     }
 
-    const logicalMessageId =
-      "logicalMessageId" in parsed.data
-        ? parsed.data.logicalMessageId ?? randomUUID()
-        : randomUUID();
     const createdAt = new Date();
     const messages = await prisma.$transaction(async (tx: any) => {
       const deletedMessage = await tx.messageDeletion.findUnique({

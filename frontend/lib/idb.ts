@@ -1,5 +1,5 @@
 import { openDB, type DBSchema } from "idb";
-import type { LocalMessage, SessionRecord, VaultRecord } from "./crypto/types";
+import type { LocalMessage, PendingDirectSend, SessionRecord, VaultRecord } from "./crypto/types";
 
 interface MessengerDB extends DBSchema {
   meta: {
@@ -14,6 +14,10 @@ interface MessengerDB extends DBSchema {
     key: string;
     value: { nonce: string; ciphertext: string };
   };
+  outbox: {
+    key: string;
+    value: PendingDirectSend;
+  };
   messages: {
     key: string;
     value: LocalMessage;
@@ -27,6 +31,8 @@ interface MessengerDB extends DBSchema {
 
 const DB_NAME = "private-messenger";
 
+export type { PendingDirectSend } from "./crypto/types";
+
 export function sessionKey(
   conversationId: string,
   remoteDeviceId: string,
@@ -36,7 +42,7 @@ export function sessionKey(
 }
 
 export async function getDb() {
-  return openDB<MessengerDB>(DB_NAME, 10, {
+  return openDB<MessengerDB>(DB_NAME, 11, {
     upgrade(db, _oldVersion, _newVersion, transaction) {
       if (!db.objectStoreNames.contains("meta")) {
         db.createObjectStore("meta");
@@ -66,6 +72,9 @@ export async function getDb() {
       }
       if (!db.objectStoreNames.contains("groupSessions")) {
         db.createObjectStore("groupSessions");
+      }
+      if (!db.objectStoreNames.contains("outbox")) {
+        db.createObjectStore("outbox", { keyPath: "id" });
       }
 
       if (!messages.indexNames.contains("by-conversation-createdAt-id")) {
@@ -302,4 +311,30 @@ export async function listLocalMessages(
   }
 
   return messages.reverse();
+}
+
+export async function savePendingDirectSend(send: PendingDirectSend) {
+  const db = await getDb();
+  await db.put("outbox", send);
+}
+
+export async function listPendingDirectSends(conversationId?: string) {
+  const db = await getDb();
+  const sends = await db.getAll("outbox");
+  return conversationId ? sends.filter((send) => send.conversationId === conversationId) : sends;
+}
+
+export async function deletePendingDirectSend(id: string) {
+  const db = await getDb();
+  await db.delete("outbox", id);
+}
+
+export async function loadWireCursor(conversationId: string) {
+  const db = await getDb();
+  return db.get("meta", metaKey(conversationId, "wireCursor")) as Promise<string | undefined>;
+}
+
+export async function saveWireCursor(conversationId: string, messageId: string) {
+  const db = await getDb();
+  await db.put("meta", messageId, metaKey(conversationId, "wireCursor"));
 }
