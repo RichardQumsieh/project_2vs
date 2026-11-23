@@ -88,11 +88,19 @@ let vaultKey: CryptoKey | null = null;
 let accountArchiveKey: AccountArchiveMaterial | null = null;
 let pendingArchiveRecoveryCodeToDisplay: string | null = null;
 
+function dispatchSessionEvent(name: string) {
+  if (
+    typeof window !== "undefined" &&
+    typeof window.dispatchEvent === "function" &&
+    typeof Event !== "undefined"
+  ) {
+    window.dispatchEvent(new Event(name));
+  }
+}
+
 function publishPendingArchiveRecoveryCode(value: string | null) {
   pendingArchiveRecoveryCodeToDisplay = value;
-  if (typeof window !== "undefined" && typeof Event !== "undefined") {
-    window.dispatchEvent(new Event("private-messenger-archive-recovery-code"));
-  }
+  dispatchSessionEvent("private-messenger-archive-recovery-code");
 }
 const pendingRecoveryRecords = new Map<
   "message" | "session",
@@ -113,9 +121,7 @@ function reportRecoveryBackupError(error: unknown) {
   recoveryBackupError = error instanceof Error
     ? error.message
     : "Could not save this device's encrypted recovery backup.";
-  if (typeof window !== "undefined" && typeof Event !== "undefined") {
-    window.dispatchEvent(new Event("private-messenger-recovery-backup"));
-  }
+  dispatchSessionEvent("private-messenger-recovery-backup");
 }
 
 function recoveryAdditionalData(
@@ -232,9 +238,7 @@ async function flushRecoveryRecordsLocked() {
       }
     }
     recoveryBackupError = null;
-    if (typeof window !== "undefined" && typeof Event !== "undefined") {
-      window.dispatchEvent(new Event("private-messenger-recovery-backup"));
-    }
+    dispatchSessionEvent("private-messenger-recovery-backup");
   } catch (error) {
     reportRecoveryBackupError(error);
   }
