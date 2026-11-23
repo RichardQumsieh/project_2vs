@@ -3,6 +3,7 @@ export const workspaceActivityActions = [
   "INVITE_CREATED",
   "INVITE_REVOKED",
   "INVITE_REDEEMED",
+  "WORKSPACE_MEMBER_ADDED",
   "WORKSPACE_MEMBER_REMOVED",
   "WORKSPACE_ROLE_CHANGED",
 ] as const;
@@ -75,6 +76,10 @@ export function inviteRevokedSummary(name: string) {
 
 export function inviteRedeemedSummary(name: string) {
   return `Joined ${name} with an invite`;
+}
+
+export function workspaceMemberAddedSummary(name: string, username: string) {
+  return `Added @${username} to ${name}`;
 }
 
 export function memberRemovedSummary(name: string) {

@@ -514,6 +514,10 @@ function Spaces({ cookie, myUserId, onOpenConversation }: { cookie: string; myUs
   const [invites, setInvites] = useState<WorkspaceInvite[]>([]);
   const [newInvite, setNewInvite] = useState<{ code: string; path: string } | null>(null);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberResults, setMemberResults] = useState<User[]>([]);
+  const [memberSearchBusy, setMemberSearchBusy] = useState(false);
+  const [memberNotice, setMemberNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -526,6 +530,9 @@ function Spaces({ cookie, myUserId, onOpenConversation }: { cookie: string; myUs
 
   const selected = spaces.find((space) => space.id === selectedId) ?? null;
   const canInvite = selected?.role === "OWNER" || selected?.role === "ADMIN";
+  const addableMemberResults = memberResults.filter((person) =>
+    !members.some((member) => member.userId === person.id),
+  );
 
   const load = useCallback(async (preferredId?: string) => {
     setError("");
@@ -553,9 +560,31 @@ function Spaces({ cookie, myUserId, onOpenConversation }: { cookie: string; myUs
   useEffect(() => {
     setNewInvite(null);
     setSelectedMemberIds([]);
+    setMemberSearch("");
+    setMemberResults([]);
+    setMemberNotice("");
     if (selectedId) void loadDetail(selectedId);
     else { setMembers([]); setInvites([]); }
   }, [loadDetail, selectedId]);
+
+  useEffect(() => {
+    const query = memberSearch.trim();
+    if (!canInvite || query.length < 2) {
+      setMemberResults([]);
+      setMemberSearchBusy(false);
+      return;
+    }
+    let active = true;
+    setMemberResults([]);
+    setMemberSearchBusy(true);
+    const timer = setTimeout(() => {
+      void api.lookupPeople(cookie, query)
+        .then((result) => { if (active) setMemberResults(result.users); })
+        .catch((caught) => { if (active) setError(message(caught)); })
+        .finally(() => { if (active) setMemberSearchBusy(false); });
+    }, 250);
+    return () => { active = false; clearTimeout(timer); };
+  }, [canInvite, cookie, memberSearch]);
 
   async function create() {
     if (!name.trim()) return;
@@ -595,6 +624,24 @@ function Spaces({ cookie, myUserId, onOpenConversation }: { cookie: string; myUs
     try { onOpenConversation(await api.workspaceDirect(cookie, selected.id, member.username)); }
     catch (e) { setError(message(e)); }
     finally { setBusy(false); }
+  }
+
+  async function addWorkspaceMember(person: User) {
+    if (!selected) return;
+    setBusy(true);
+    setError("");
+    setMemberNotice("");
+    try {
+      await api.addWorkspaceMember(cookie, selected.id, person.username);
+      setMemberSearch("");
+      setMemberResults([]);
+      setMemberNotice(`Added ${person.displayName || `@${person.username}`} to ${selected.name}.`);
+      await Promise.all([loadDetail(selected.id), load(selected.id)]);
+    } catch (caught) {
+      setError(message(caught));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function startGroup() {
@@ -638,6 +685,21 @@ function Spaces({ cookie, myUserId, onOpenConversation }: { cookie: string; myUs
         <View style={styles.workspaceDetailHeading}><View style={{ flex: 1 }}><Eyebrow>{selected.kind === "FAMILY" ? "FAMILY SPACE" : "TEAM WORKSPACE"}</Eyebrow><Text style={styles.workspaceDetailName}>{selected.name}</Text><Text style={styles.spaceMeta}>{selected.seatCount} of {selected.seatLimit || "unlimited"} seats · {selected.role.toLowerCase()}</Text></View>{canInvite && <RoundAction icon="person-add-outline" accessibilityLabel="Invite people" onPress={() => void createInvite()} active />}</View>
         {newInvite && <View style={styles.workspaceInviteNotice}><Text style={styles.workspaceInviteTitle}>Invite ready to share</Text><Text selectable style={styles.workspaceInviteLink}>{WEB_URL}{newInvite.path}</Text><Text style={styles.workspaceInviteHint}>This link contains a one-time invite. Share it with the person joining this space.</Text></View>}
         {canInvite && <ActionButton title="Create and share invite" icon="share-outline" onPress={() => void createInvite()} busy={busy} secondary />}
+        {canInvite && <View style={styles.workspaceAddMembers}>
+          <Eyebrow>ADD AN EXISTING SOPHIA MEMBER</Eyebrow>
+          <Input label="NAME OR USERNAME" value={memberSearch} onChangeText={setMemberSearch} placeholder="Search people by name" autoCapitalize="none" autoCorrect={false} />
+          {!!memberNotice && <Text accessibilityRole="alert" style={styles.workspaceMemberNotice}>{memberNotice}</Text>}
+          {memberSearch.trim().length === 1 && <Text style={styles.spaceMeta}>Type at least 2 characters to search.</Text>}
+          {memberSearchBusy && <LoadingLine label="Searching people" />}
+          {!memberSearchBusy && memberSearch.trim().length >= 2 && addableMemberResults.length === 0 && <Text style={styles.spaceMeta}>No new Sophia accounts found.</Text>}
+          {addableMemberResults.map((person) => <View key={person.id} style={styles.workspaceAddMemberRow}>
+            <Avatar title={person.displayName || person.username} size={36} />
+            <View style={{ flex: 1 }}><Text style={styles.workspaceMemberName}>{person.displayName || person.username}</Text><Text style={styles.spaceMeta}>@{person.username}</Text></View>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Add ${person.displayName || person.username} to ${selected.name}`} disabled={busy} onPress={() => void addWorkspaceMember(person)} style={[styles.workspaceMessageButton, busy && { opacity: 0.5 }]}>
+              <Ionicons name="person-add-outline" size={16} color={C.purple} /><Text style={styles.workspaceMessageLabel}>Add</Text>
+            </Pressable>
+          </View>)}
+        </View>}
         {detailLoading ? <LoadingLine label="Loading members" /> : <>
           <View style={styles.workspaceSectionHead}><Text style={styles.workspaceSectionTitle}>Members</Text><Text style={styles.spaceMeta}>{members.length}</Text></View>
           <Text style={styles.workspaceHelp}>Tap a member to include them in a group chat. Use Message for a private 1:1 chat.</Text>
@@ -782,7 +844,7 @@ const styles = StyleSheet.create({
   groupModeRow: { flexDirection: "row", gap: 8, marginBottom: 13 }, groupModeButton: { minHeight: 37, paddingHorizontal: 12, borderRadius: 13, borderWidth: 1, borderColor: C.line, backgroundColor: C.paper, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, flex: 1 }, groupModeButtonActive: { backgroundColor: C.lilac, borderColor: C.lilac2 }, groupModeText: { color: C.muted, fontSize: 11, fontWeight: "600" }, groupModeTextActive: { color: C.purple }, memberCheck: { width: 22, height: 22, borderRadius: 8, borderWidth: 1.5, borderColor: C.lilac2, alignItems: "center", justifyContent: "center" }, memberCheckOn: { backgroundColor: C.purple, borderColor: C.purple }, groupCreateFooter: { paddingTop: 12, gap: 8 }, selectedCount: { color: C.muted, fontSize: 11, textAlign: "center" },
   filterRow: { flexDirection: "row", gap: 8, marginVertical: 5 }, filterChip: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 20, borderWidth: 1, borderColor: C.line, backgroundColor: "white" }, filterChipActive: { backgroundColor: C.lilac, borderColor: C.lilac2 }, filterText: { color: C.muted, fontSize: 11, fontWeight: "600" }, filterTextActive: { color: C.purple }, filterCount: { color: C.faint, fontSize: 10 }, planInput: { flexDirection: "row", alignItems: "center", gap: 9, padding: 10 }, sendTask: { width: 40, height: 40, borderRadius: 14, backgroundColor: C.purple, alignItems: "center", justifyContent: "center" }, planHint: { flexDirection: "row", alignItems: "flex-start", gap: 9, padding: 13, backgroundColor: C.lilac, borderRadius: 14, marginTop: 4 }, planHintText: { flex: 1, color: C.purple, fontSize: 11, lineHeight: 16 },
   createSpaceCard: { gap: 14 }, kindRow: { flexDirection: "row", gap: 9 }, kindOption: { flex: 1, minHeight: 43, borderRadius: 13, borderWidth: 1, borderColor: C.line, backgroundColor: "white", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }, kindOptionActive: { backgroundColor: C.lilac, borderColor: C.lilac2 }, kindLabel: { color: C.muted, fontSize: 12, fontWeight: "600" }, spaceCard: { marginBottom: 2, padding: 18, borderRadius: 22, borderWidth: 1, borderColor: C.line, backgroundColor: C.paper }, spaceCardSelected: { borderColor: C.lilac2, backgroundColor: "#FBF9FF" }, spaceTop: { flexDirection: "row", alignItems: "center", gap: 12 }, spaceIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: C.lilac, alignItems: "center", justifyContent: "center" }, spaceName: { color: C.ink, fontSize: 14, fontWeight: "700" }, spaceMeta: { color: C.muted, fontSize: 10, marginTop: 4 }, spaceDivider: { height: 1, backgroundColor: C.line, marginVertical: 13 }, spaceBottom: { flexDirection: "row", justifyContent: "space-between" },
-  workspaceDetailCard: { marginTop: 12, gap: 14 }, workspaceDetailHeading: { flexDirection: "row", alignItems: "center", gap: 12 }, workspaceDetailName: { color: C.ink, fontFamily: "Georgia", fontSize: 23, marginTop: 5 }, workspaceSectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }, workspaceSectionTitle: { color: C.ink, fontSize: 13, fontWeight: "700" }, workspaceHelp: { color: C.muted, fontSize: 11, lineHeight: 16, marginTop: -8 }, workspaceMemberRow: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line, paddingVertical: 7 }, workspaceMemberSelect: { flex: 1, minHeight: 45, flexDirection: "row", alignItems: "center", gap: 9 }, workspaceMemberName: { color: C.ink, fontSize: 12, fontWeight: "600" }, workspaceMessageButton: { minHeight: 38, paddingHorizontal: 10, borderRadius: 12, backgroundColor: C.lilac, flexDirection: "row", alignItems: "center", gap: 5 }, workspaceMessageLabel: { color: C.purple, fontSize: 10, fontWeight: "700" }, workspaceGroupComposer: { gap: 11, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line, paddingTop: 13 }, workspaceInviteNotice: { backgroundColor: C.amberWash, borderRadius: 14, padding: 12, gap: 7 }, workspaceInviteTitle: { color: "#805820", fontSize: 12, fontWeight: "700" }, workspaceInviteLink: { color: C.ink, fontSize: 11, lineHeight: 17 }, workspaceInviteHint: { color: "#805820", fontSize: 10, lineHeight: 15 }, workspaceInvites: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line, paddingTop: 13, gap: 10 }, workspaceInviteRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }, revokeInviteLabel: { color: C.red, fontSize: 11, fontWeight: "700", padding: 6 },
+  workspaceDetailCard: { marginTop: 12, gap: 14 }, workspaceDetailHeading: { flexDirection: "row", alignItems: "center", gap: 12 }, workspaceDetailName: { color: C.ink, fontFamily: "Georgia", fontSize: 23, marginTop: 5 }, workspaceSectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 4 }, workspaceSectionTitle: { color: C.ink, fontSize: 13, fontWeight: "700" }, workspaceHelp: { color: C.muted, fontSize: 11, lineHeight: 16, marginTop: -8 }, workspaceAddMembers: { gap: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line, paddingTop: 13 }, workspaceAddMemberRow: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: 9 }, workspaceMemberNotice: { color: C.green, fontSize: 11, lineHeight: 16 }, workspaceMemberRow: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line, paddingVertical: 7 }, workspaceMemberSelect: { flex: 1, minHeight: 45, flexDirection: "row", alignItems: "center", gap: 9 }, workspaceMemberName: { color: C.ink, fontSize: 12, fontWeight: "600" }, workspaceMessageButton: { minHeight: 38, paddingHorizontal: 10, borderRadius: 12, backgroundColor: C.lilac, flexDirection: "row", alignItems: "center", gap: 5 }, workspaceMessageLabel: { color: C.purple, fontSize: 10, fontWeight: "700" }, workspaceGroupComposer: { gap: 11, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line, paddingTop: 13 }, workspaceInviteNotice: { backgroundColor: C.amberWash, borderRadius: 14, padding: 12, gap: 7 }, workspaceInviteTitle: { color: "#805820", fontSize: 12, fontWeight: "700" }, workspaceInviteLink: { color: C.ink, fontSize: 11, lineHeight: 17 }, workspaceInviteHint: { color: "#805820", fontSize: 10, lineHeight: 15 }, workspaceInvites: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line, paddingTop: 13, gap: 10 }, workspaceInviteRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }, revokeInviteLabel: { color: C.red, fontSize: 11, fontWeight: "700", padding: 6 },
   profileCard: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 26 }, profileName: { color: C.ink, fontSize: 15, fontWeight: "700" }, profileHandle: { color: C.muted, fontSize: 11, marginTop: 4 }, verifiedMark: { width: 31, height: 31, borderRadius: 12, backgroundColor: C.greenWash, alignItems: "center", justifyContent: "center" }, settingRow: { minHeight: 72, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line, flexDirection: "row", alignItems: "center", gap: 12 }, settingIcon: { width: 39, height: 39, borderRadius: 13, alignItems: "center", justifyContent: "center" }, settingTitle: { color: C.ink, fontSize: 13, fontWeight: "700" }, settingMeta: { color: C.muted, fontSize: 10, marginTop: 4 }, deviceInfo: { marginTop: 18, flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#F0EFF1" }, deviceInfoText: { color: C.muted, fontSize: 11, lineHeight: 16, flex: 1 }, versionText: { textAlign: "center", color: C.faint, fontSize: 10, paddingVertical: 15 }, hidden: { display: "none" },
   assistantHero: { alignItems: "center", paddingTop: 8, paddingBottom: 17 }, assistantOrb: { width: 53, height: 53, borderRadius: 19, backgroundColor: C.lilac, alignItems: "center", justifyContent: "center", marginBottom: 18 }, assistantTitle: { color: C.ink, fontFamily: "Georgia", fontSize: 29, textAlign: "center", marginTop: 9 }, assistantIntro: { color: C.muted, fontSize: 13, lineHeight: 19, maxWidth: 290, textAlign: "center", marginTop: 8 }, cloudNotice: { backgroundColor: C.lilac, borderRadius: 15, padding: 13, flexDirection: "row", alignItems: "flex-start", gap: 9, marginBottom: 13 }, cloudNoticeText: { color: C.purple, flex: 1, fontSize: 10, lineHeight: 15 }, askForm: { padding: 14 }, promptInput: { minHeight: 122, lineHeight: 21, paddingTop: 12 }, askFormBottom: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 }, charCount: { color: C.faint, fontSize: 10 }, replyCard: { marginTop: 13 }, replyTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 }, replyIcon: { width: 25, height: 25, borderRadius: 9, backgroundColor: C.lilac, alignItems: "center", justifyContent: "center" }, replyTitle: { color: C.ink, fontSize: 12, fontWeight: "700" }, replyText: { color: C.ink, fontSize: 13, lineHeight: 21, marginTop: 13 }, consentCard: { gap: 15 }, consentHeader: { flexDirection: "row", alignItems: "center", gap: 10 }, consentIcon: { width: 35, height: 35, borderRadius: 12, backgroundColor: C.lilac, alignItems: "center", justifyContent: "center" }, consentTitle: { color: C.ink, fontSize: 14, fontWeight: "700", flex: 1 }, consentCopy: { color: C.muted, fontSize: 12, lineHeight: 19 }, purposeBox: { padding: 13, borderRadius: 14, backgroundColor: "#F2F0F3", gap: 8 }, purposeText: { color: C.ink, fontSize: 11, lineHeight: 17 }, consentCheckRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 }, consentCheck: { width: 22, height: 22, borderRadius: 7, borderWidth: 1.5, borderColor: C.lilac2, alignItems: "center", justifyContent: "center" }, consentCheckOn: { backgroundColor: C.purple, borderColor: C.purple }, consentCheckText: { flex: 1, color: C.ink, fontSize: 11, lineHeight: 16 }, consentFoot: { textAlign: "center", color: C.faint, fontSize: 10 }, localNote: { marginTop: 13, flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: C.greenWash }, localNoteTitle: { color: C.green, fontSize: 11, fontWeight: "700" }, localNoteCopy: { color: C.green, fontSize: 10, lineHeight: 15, marginTop: 4 },
   chatRoot: { flex: 1, backgroundColor: "white" }, chatNotice: { minHeight: 36, backgroundColor: C.greenWash, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 12 }, chatNoticeText: { color: C.green, fontSize: 10, fontWeight: "600" }, webview: { flex: 1, backgroundColor: "white" }, chatLoading: { ...StyleSheet.absoluteFill, top: 36, alignItems: "center", justifyContent: "center", backgroundColor: "white" }, chatLoadingText: { color: C.muted, fontSize: 12, marginTop: 12 }, chatError: { ...StyleSheet.absoluteFill, top: 36, backgroundColor: C.bg, alignItems: "center", justifyContent: "center", gap: 15, padding: 26 },

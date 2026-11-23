@@ -34,10 +34,17 @@ export async function openVaultWithKey(
   key: CryptoKey,
   record: VaultRecord,
 ): Promise<IdentityMaterial> {
-  const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: asBufferSource(b64ToBytes(record.nonce)) },
-    key,
-    asBufferSource(b64ToBytes(record.ciphertext)),
-  );
+  let plaintext: ArrayBuffer;
+  try {
+    plaintext = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: asBufferSource(b64ToBytes(record.nonce)) },
+      key,
+      asBufferSource(b64ToBytes(record.ciphertext)),
+    );
+  } catch (error) {
+    throw new Error("That messaging vault password is incorrect. Check it and try again.", {
+      cause: error,
+    });
+  }
   return JSON.parse(bytesToUtf8(new Uint8Array(plaintext))) as IdentityMaterial;
 }

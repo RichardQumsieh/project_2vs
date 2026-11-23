@@ -298,7 +298,7 @@ async function restoreRecoveryRecords(
           await saveSession(session, session.direction);
         }
       }
-      after = page.records.at(-1)?.recordId;
+      after = page.records[page.records.length - 1]?.recordId;
       if (page.records.length < 100 || !after) break;
     }
   }
@@ -321,7 +321,7 @@ async function syncLocalRecoveryRecords() {
   while (true) {
     const page = await api.recoveryRecords(deviceId, "message", after);
     for (const record of page.records) serverMessageIds.add(record.recordId);
-    after = page.records.at(-1)?.recordId;
+    after = page.records[page.records.length - 1]?.recordId;
     if (page.records.length < 100 || !after) break;
   }
 
@@ -365,7 +365,7 @@ async function syncLocalRecoveryRecords() {
     while (true) {
       const page = await api.archiveMessages(conversation.id, archiveAfter);
       for (const record of page.records) archivedIds.add(record.logicalMessageId);
-      archiveAfter = page.records.at(-1)?.logicalMessageId;
+      archiveAfter = page.records[page.records.length - 1]?.logicalMessageId;
       if (page.records.length < 100 || !archiveAfter) break;
     }
 
@@ -415,7 +415,7 @@ export async function syncConversationMessageDeletions(conversationId: string) {
         deletion.messageRecordIds,
       );
     }
-    after = page.deletions.at(-1)?.logicalMessageId;
+    after = page.deletions[page.deletions.length - 1]?.logicalMessageId;
     if (page.deletions.length < 100 || !after) break;
   }
 }
@@ -541,7 +541,7 @@ export async function syncConversationRecoveryHistory(
           });
           messagesSynced += 1;
         }
-        archiveAfter = page.records.at(-1)?.logicalMessageId;
+        archiveAfter = page.records[page.records.length - 1]?.logicalMessageId;
         onProgress?.({
           conversation: index + 1,
           total: conversations.length,
@@ -563,7 +563,7 @@ export async function syncConversationRecoveryHistory(
         );
         if (messages.length === 0) break;
         await ingestWireMessages(messages, { strict: true });
-        const last = messages.at(-1);
+        const last = messages[messages.length - 1];
         if (last) await saveWireCursor(conversation.id, last.id);
         if (recoveryBackupError) {
           throw new Error(

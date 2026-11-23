@@ -168,6 +168,7 @@ export const api = {
   workspaces: (cookie: string) => request<{ workspaces: Workspace[] }>("/workspaces", {}, cookie),
   createWorkspace: (cookie: string, name: string, kind: Workspace["kind"]) => request<{ workspace: Workspace }>("/workspaces", { method: "POST", body: JSON.stringify({ name, kind }) }, cookie),
   workspaceDetail: (cookie: string, id: string) => request<{ workspace: Workspace; members: WorkspaceMember[]; invites: WorkspaceInvite[] }>(`/workspaces/${encodeURIComponent(id)}`, {}, cookie),
+  addWorkspaceMember: (cookie: string, id: string, username: string) => request<{ member: WorkspaceMember }>(`/workspaces/${encodeURIComponent(id)}/members`, { method: "POST", body: JSON.stringify({ username }) }, cookie),
   createWorkspaceInvite: (cookie: string, id: string) => request<{ invite: { id: string; code: string; hint: string; expiresAt: string; path: string } }>(`/workspaces/${encodeURIComponent(id)}/invites`, { method: "POST", body: JSON.stringify({}) }, cookie),
   revokeWorkspaceInvite: (cookie: string, id: string, inviteId: string) => request<{ ok: true }>(`/workspaces/${encodeURIComponent(id)}/invites/${encodeURIComponent(inviteId)}`, { method: "DELETE" }, cookie),
   workspaceDirect: (cookie: string, id: string, username: string) => request<Conversation>(`/workspaces/${encodeURIComponent(id)}/conversations/direct`, { method: "POST", body: JSON.stringify({ username }) }, cookie),

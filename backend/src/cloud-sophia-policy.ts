@@ -178,6 +178,12 @@ function cloudProviderFailure(status: number) {
       code: "cloud_sophia_model_not_found",
     };
   }
+  if (status === 402) {
+    return {
+      error: "xAI requires an active billing method or available API credits to run Sophia. Check the xAI Console billing and prepaid credits for the team that owns SOPHIA_MODEL_API_KEY.",
+      code: "cloud_sophia_provider_payment_required",
+    };
+  }
   if (status === 429) {
     return {
       error: "The model provider rate limit or API quota was reached. Check the xAI account limits and billing.",

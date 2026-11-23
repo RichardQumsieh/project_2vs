@@ -69,7 +69,7 @@ async function loadGroupBlobs(conversationId: string, deviceId: string, after?: 
     const result = await api.groupMls(conversationId, deviceId, cursor);
     blobs.push(...result.blobs);
     if (result.blobs.length < 100) break;
-    const next = result.blobs.at(-1)?.id;
+    const next = result.blobs[result.blobs.length - 1]?.id;
     if (!next || next === cursor) break;
     cursor = next;
   }
@@ -148,7 +148,9 @@ export function NativeThread({ conversation, cookie }: Props) {
       loadSealedGroup(userId, conversation.id),
     ]);
     const existing = sealed ? await openGroupRecord(vaultKey, userId, conversation.id, sealed) : null;
-    const after = existing?.appliedBlobIds.at(-1);
+    const after = existing
+      ? existing.appliedBlobIds[existing.appliedBlobIds.length - 1]
+      : undefined;
     const blobs = await loadGroupBlobs(conversation.id, deviceId, after);
     const member = conversation.members?.find((item) => item.userId === userId);
     const directory = devices.devices.map((device) => ({
@@ -191,7 +193,7 @@ export function NativeThread({ conversation, cookie }: Props) {
     for (const message of newlyDecrypted) await saveLocalMessage(message);
     if (newlyDecrypted.length) await archiveGroupMessages(newlyDecrypted);
 
-    const latestBlob = blobs.at(-1)?.id;
+    const latestBlob = blobs[blobs.length - 1]?.id;
     const joined = Boolean(result.record.session) && !result.selfRemoved;
     setGroupStatus({ joined, error: result.error });
     if (joined && latestBlob) await api.markGroupRead(conversation.id, latestBlob).catch(() => undefined);
@@ -226,7 +228,7 @@ export function NativeThread({ conversation, cookie }: Props) {
           );
           if (!wireMessages.length) break;
           await ingestWireMessages(wireMessages);
-          after = wireMessages.at(-1)?.id;
+          after = wireMessages[wireMessages.length - 1]?.id;
           if (after) await saveWireCursor(conversation.id, after);
           if (wireMessages.length < 100) break;
         }

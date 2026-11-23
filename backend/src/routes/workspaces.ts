@@ -51,6 +51,7 @@ import {
   inviteCreatedSummary,
   inviteRedeemedSummary,
   inviteRevokedSummary,
+  workspaceMemberAddedSummary,
   memberRemovedSummary,
   roleChangedSummary,
   workspaceCreatedSummary,
@@ -309,6 +310,82 @@ export async function workspaceRoutes(app: FastifyInstance) {
       : members;
     reply.header("Cache-Control", "no-store");
     return { members: filtered.map(publicMember) };
+  });
+
+  app.post("/workspaces/:id/members", async (request, reply) => {
+    const session = await requireUser(request, reply);
+    if (!session) return;
+    const { id } = request.params as { id: string };
+    const parsed = workspaceDirectSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "Enter a valid Sophia username." });
+    const actor = await actorIn(id, session.sub);
+    if (!actor) return reply.code(404).send({ error: "Workspace not found" });
+    if (!canManageInvites(actor.role)) {
+      return reply.code(403).send({ error: "Only an owner or admin can add members.", code: "forbidden" });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { username: parsed.data.username },
+      select: { id: true, username: true, displayName: true },
+    });
+    if (!user) return reply.code(404).send({ error: "No Sophia account has that username.", code: "user_not_found" });
+    const membershipKey = { workspaceId_userId: { workspaceId: id, userId: user.id } };
+    if (await prisma.workspaceMember.findUnique({ where: membershipKey })) {
+      return reply.code(409).send({ error: "That person is already a member.", code: "already_member" });
+    }
+
+    const now = new Date();
+    const [memberCount, pendingInviteCount] = await Promise.all([
+      prisma.workspaceMember.count({ where: { workspaceId: id } }),
+      pendingInvites(id, now),
+    ]);
+    const seats = seatsAvailable({
+      ...billingOf(actor.workspace),
+      memberCount,
+      pendingInviteCount,
+    });
+    if (!seats.ok) {
+      return reply.code(402).send({
+        error: `This plan has ${seats.limit} seats.`,
+        code: seats.code,
+        seatLimit: seats.limit,
+      });
+    }
+
+    let member: {
+      userId: string;
+      role: WorkspaceRole;
+      joinedAt: Date;
+      user: { username: string; displayName: string | null };
+    };
+    try {
+      member = await prisma.workspaceMember.create({
+        data: { workspaceId: id, userId: user.id, role: "MEMBER" },
+        include: { user: { select: { username: true, displayName: true } } },
+      });
+    } catch (error) {
+      if (await prisma.workspaceMember.findUnique({ where: membershipKey })) {
+        return reply.code(409).send({ error: "That person is already a member.", code: "already_member" });
+      }
+      throw error;
+    }
+
+    const owner = await prisma.workspaceMember.findFirst({
+      where: { workspaceId: id, role: "OWNER" },
+      select: { userId: true },
+    });
+    await tryRecordWorkspaceActivity({
+      actorUserId: session.sub,
+      actorLabel: session.username,
+      audienceUserIds: [session.sub, owner?.userId ?? session.sub, user.id],
+      action: "WORKSPACE_MEMBER_ADDED",
+      summary: workspaceMemberAddedSummary(actor.workspace.name, user.username),
+      subjectKind: "workspace",
+      subjectId: id,
+    });
+    await syncPaypalSeatQuantity(request.log, actor.workspace);
+    reply.header("Cache-Control", "no-store");
+    return reply.code(201).send({ member: publicMember(member) });
   });
 
   app.patch("/workspaces/:id/members/:userId", async (request, reply) => {
