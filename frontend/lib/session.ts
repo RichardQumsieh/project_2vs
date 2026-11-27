@@ -43,6 +43,7 @@ import {
   type AccountArchiveMaterial,
   type AccountArchiveDriveBackup,
 } from "./crypto/account-archive";
+import { shouldFetchPairwiseWireHistory } from "./recovery-wire-sync";
 
 import {
   getLocalMessage,
@@ -552,6 +553,17 @@ export async function syncConversationRecoveryHistory(
           messages: messagesSynced,
         });
         if (page.records.length < 100 || !archiveAfter) break;
+      }
+
+      // Groups reject pairwise /messages (409 MLS blobs). Archive push/pull
+      // above is the recovery path; live MLS sync runs in GroupThread.
+      if (!shouldFetchPairwiseWireHistory(conversation.type)) {
+        onProgress?.({
+          conversation: index + 1,
+          total: conversations.length,
+          messages: messagesSynced,
+        });
+        continue;
       }
 
       const savedCursor = await loadWireCursor(conversation.id);
