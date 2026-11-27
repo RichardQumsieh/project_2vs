@@ -309,19 +309,18 @@ function validateTextFile(bytes: Uint8Array) {
   }
 }
 
-export async function inspectAndEncryptFileAttachment(file: File): Promise<EncryptedFileAttachment> {
-  if (file.size === 0 || file.size > maxFileAttachmentBytes) {
+/** Encrypt a verified attachment from raw bytes (shared by web File and native URI paths). */
+export async function inspectAndEncryptFileAttachmentBytes(
+  bytes: Uint8Array,
+  fileName: string,
+): Promise<EncryptedFileAttachment> {
+  if (bytes.byteLength === 0 || bytes.byteLength > maxFileAttachmentBytes) {
     throw new Error("Files must be non-empty and 450 MB or smaller.");
   }
-  const name = sanitizeAttachmentName(file.name);
+  const name = sanitizeAttachmentName(fileName);
   const extensionParts = name.split(".");
   const extension = extensionParts[extensionParts.length - 1]!.toLowerCase();
   const mime = mimeByExtension[extension];
-  const fileBuffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(fileBuffer);
-  if (bytes.byteLength !== file.size) {
-    throw new Error("The selected file could not be read completely.");
-  }
 
   let containsExternalLinks = false;
   if (extension === "pdf") {
@@ -347,7 +346,7 @@ export async function inspectAndEncryptFileAttachment(file: File): Promise<Encry
     await crypto.subtle.encrypt(
       { name: "AES-GCM", iv: asBufferSource(nonce) },
       key,
-      fileBuffer,
+      asBufferSource(bytes),
     ),
   );
   if (ciphertext.byteLength > maxEncryptedFileAttachmentBytes) {
@@ -361,6 +360,18 @@ export async function inspectAndEncryptFileAttachment(file: File): Promise<Encry
     name,
     containsExternalLinks,
   };
+}
+
+export async function inspectAndEncryptFileAttachment(file: File): Promise<EncryptedFileAttachment> {
+  if (file.size === 0 || file.size > maxFileAttachmentBytes) {
+    throw new Error("Files must be non-empty and 450 MB or smaller.");
+  }
+  const fileBuffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(fileBuffer);
+  if (bytes.byteLength !== file.size) {
+    throw new Error("The selected file could not be read completely.");
+  }
+  return inspectAndEncryptFileAttachmentBytes(bytes, file.name);
 }
 
 export async function decryptFileAttachment(

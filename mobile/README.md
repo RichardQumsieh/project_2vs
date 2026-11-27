@@ -12,13 +12,15 @@ npm install
 npx expo start --dev-client
 ```
 
-Chat crypto and encrypted SQLite are native modules. Expo Go does not contain them. Link the app to an Expo account once with `npx eas-cli login` and `npx eas-cli init`, then build a phone-installable Android APK:
+Chat crypto and encrypted SQLite are native modules. Expo Go does not contain them. Link the app to an Expo account once with `npx eas-cli login` (project id is already in `app.json`), then build a phone-installable Android APK:
 
 ```sh
 npx eas-cli build --profile preview --platform android
 ```
 
-Install the APK from the EAS build page. For live JavaScript reloads while developing, build the `development` profile and run `npx expo start --dev-client`. EAS can build iOS in the cloud from Windows, but installing an internal iOS build on a phone requires Apple signing credentials and that phone's device registration. Use `--profile production` only for store builds. Set `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_SOPHIA_WEB_URL` in `.env` to use a different deployment.
+Install the APK from the EAS build page. For live JavaScript reloads while developing, build the `development` profile and run `npx expo start --dev-client`. EAS can build iOS in the cloud from Windows, but installing an internal iOS build on a phone requires Apple signing credentials and that phone's device registration. Use `--profile production` only for store builds; then `npx eas-cli submit --profile production --platform <android|ios> --latest`. Defaults for `EXPO_PUBLIC_API_URL` / `EXPO_PUBLIC_SOPHIA_WEB_URL` live in `eas.json`; override with `mobile/.env` when needed. Full credential checklist: Project docs `docs/sophia-mobile-eas-deploy.md`.
+
+Native 1:1 and group chats send the same encrypted payload prefixes as web (`PM1IMG` / `PM1VID` / `PM1AUD` / `PM1FIL` / `PM1ALB` / `PM1RPL`): photos (with on-device editor), short videos, voice notes, emoji, documents, and multi-message reply. Ciphertext is uploaded via the media API; only sealed envelopes hit the message endpoints.
 
 ## Product architecture
 

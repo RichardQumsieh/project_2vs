@@ -176,4 +176,52 @@ export const api = {
   cloudConsent: (cookie: string) => request<{ active: boolean; purposeText: string; versionId: string }>("/sophia/cloud/consent", {}, cookie),
   grantCloudConsent: (cookie: string, purposeText: string, versionId: string) => request("/sophia/cloud/consent", { method: "POST", body: JSON.stringify({ accepted: true, purposeText, versionId }) }, cookie),
   completeCloudSophia: (cookie: string, prompt: string) => request<{ reply: string }>("/sophia/cloud/complete", { method: "POST", body: JSON.stringify({ prompt }) }, cookie),
+  mediaUpload: (
+    conversationId: string,
+    byteSize: number,
+    kind: "photo" | "video" | "voice" | "file",
+  ) =>
+    request<{
+      mediaId: string;
+      uploadUrl: string;
+      headers: Record<string, string>;
+    }>(`/conversations/${encodeURIComponent(conversationId)}/media`, {
+      method: "POST",
+      body: JSON.stringify({ byteSize, kind }),
+    }),
+  mediaDownload: async (conversationId: string, mediaId: string) => {
+    const result = await request<{ downloadUrl: string }>(
+      `/conversations/${encodeURIComponent(conversationId)}/media/${encodeURIComponent(mediaId)}/download`,
+      { method: "POST" },
+    );
+    let downloadUrl: URL;
+    try {
+      if (typeof result.downloadUrl !== "string") {
+        throw new TypeError("Expected a download URL string.");
+      }
+      downloadUrl = new URL(result.downloadUrl);
+    } catch {
+      throw new ApiError("The media service returned an invalid download URL.", 502);
+    }
+    if (
+      downloadUrl.protocol !== "https:" ||
+      !downloadUrl.hostname.endsWith(".backblazeb2.com") ||
+      downloadUrl.username ||
+      downloadUrl.password
+    ) {
+      throw new ApiError("The media service returned an untrusted download URL.", 502);
+    }
+    return result;
+  },
+  checkUrlSafety: (urls: string[]) =>
+    request<{
+      results: {
+        url: string;
+        status: "clean" | "threat" | "unverifiable" | "unavailable";
+        threatTypes: string[];
+      }[];
+    }>("/url-safety/check", {
+      method: "POST",
+      body: JSON.stringify({ urls }),
+    }),
 };

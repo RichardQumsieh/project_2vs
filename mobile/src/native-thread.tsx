@@ -9,7 +9,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -22,7 +21,6 @@ import { queueGroupMessage, syncGroup, type GroupWireBlob } from "../../frontend
 import {
   archiveGroupMessages,
   acknowledgeArchiveRecoveryCode,
-  applyRemoteMessageDeletion,
   bootstrapDevice,
   conversationPlaintext,
   currentDeviceId,
@@ -49,6 +47,8 @@ import {
   type PendingDirectSend,
 } from "../../frontend/lib/idb";
 import { api, setApiCookie, type Conversation } from "./api";
+import { NativeMediaComposer } from "./media-composer";
+import { NativeMessageBody } from "./message-body";
 import { ActionButton, C, Input, Notice } from "./ui";
 
 type Props = { conversation: Conversation; cookie: string };
@@ -103,7 +103,6 @@ export function NativeThread({ conversation, cookie }: Props) {
   const [recoveryCode, setRecoveryCode] = useState("");
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [pendingSends, setPendingSends] = useState<PendingDirectSend[]>([]);
-  const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
   const [sendQueued, setSendQueued] = useState(false);
@@ -354,7 +353,6 @@ export function NativeThread({ conversation, cookie }: Props) {
         setUnlocked(false);
         setMessages([]);
         setPendingSends([]);
-        setDraft("");
         void lockDevice();
       }
     });
@@ -365,8 +363,8 @@ export function NativeThread({ conversation, cookie }: Props) {
     };
   }, [flushPending, refreshConversation, refreshLocal, unlocked]);
 
-  async function send() {
-    const text = draft.trim();
+  async function sendPlaintext(plaintext: string) {
+    const text = plaintext.trim();
     if (!text || sending || !unlocked) return;
     setSending(true);
     setSendError("");
@@ -384,7 +382,6 @@ export function NativeThread({ conversation, cookie }: Props) {
         };
         await savePendingDirectSend(queued);
         setPendingSends((current) => [...current.filter((item) => item.id !== queued.id), queued]);
-        setDraft("");
         await sendPending(queued);
         await refreshLocal();
       } else {
@@ -397,7 +394,6 @@ export function NativeThread({ conversation, cookie }: Props) {
         if (!record.session) throw new Error("This device is waiting for an existing group member to add it.");
         const queued = await queueGroupMessage(record, text);
         await saveSealedGroup(userId, conversation.id, await sealGroupRecord(vaultKey, userId, conversation.id, queued));
-        setDraft("");
         await refreshConversation();
       }
       autoScroll.current = true;
@@ -406,6 +402,7 @@ export function NativeThread({ conversation, cookie }: Props) {
     } catch (error) {
       setSendError(friendlyError(error));
       setSendQueued(false);
+      throw error;
     } finally {
       setSending(false);
     }
@@ -509,32 +506,16 @@ export function NativeThread({ conversation, cookie }: Props) {
       ListEmptyComponent={<View style={styles.emptyMessages}><View style={styles.emptyIcon}><Ionicons name="chatbubble-ellipses-outline" size={21} color={C.purple} /></View><Text style={styles.emptyTitle}>A fresh start</Text><Text style={styles.emptyCopy}>Messages are private to the people in this conversation. Send the first note when you're ready.</Text></View>}
       renderItem={({ item }) => <MessageBubble message={item} conversation={conversation} pending={pendingSends.some((send) => send.id === item.id)} />}
     />
-    {conversation.type === "GROUP" && groupStatus && !groupStatus.joined ? null : <View style={styles.composerWrap}>
-      <View style={styles.composer}>
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          placeholder={conversation.type === "GROUP" ? "Message your group…" : "Write a message…"}
-          placeholderTextColor={C.faint}
-          multiline
-          maxLength={8000}
-          editable={!sending}
-          textAlignVertical="center"
-          style={styles.composerInput}
-          accessibilityLabel="Message"
-        />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Send message"
-          disabled={!draft.trim() || sending}
-          onPress={() => void send()}
-          style={[styles.sendButton, (!draft.trim() || sending) && styles.sendDisabled]}
-        >
-          {sending ? <ActivityIndicator color="white" size="small" /> : <Ionicons name="arrow-up" size={20} color="white" />}
-        </Pressable>
-      </View>
-      <View style={styles.composerFooter}><Ionicons name="lock-closed" size={12} color={C.green} /><Text style={styles.composerFooterText}>End-to-end encrypted</Text><Text style={styles.charCount}>{draft.length}/8000</Text></View>
-    </View>}
+    {conversation.type === "GROUP" && groupStatus && !groupStatus.joined ? null : (
+      <NativeMediaComposer
+        conversationId={conversation.id}
+        joined={conversation.type !== "GROUP" || Boolean(groupStatus?.joined)}
+        messages={displayMessages}
+        disabled={sending || !unlocked}
+        placeholder={conversation.type === "GROUP" ? "Message your group…" : "Write a message…"}
+        onSendPlaintext={sendPlaintext}
+      />
+    )}
   </View>;
 }
 
@@ -550,7 +531,7 @@ function MessageBubble({ message, conversation, pending }: { message: LocalMessa
   return <View style={[styles.messageRow, message.fromMe ? styles.messageRowMine : styles.messageRowPeer]}>
     <View style={[styles.messageBubble, message.fromMe ? styles.messageBubbleMine : styles.messageBubblePeer]}>
       {conversation.type === "GROUP" && !message.fromMe && <Text style={styles.senderName}>{sender}</Text>}
-      <Text selectable style={[styles.messageText, message.fromMe && styles.messageTextMine]}>{message.plaintext}</Text>
+      <NativeMessageBody conversationId={conversation.id} plaintext={message.plaintext} fromMe={message.fromMe} />
       <View style={styles.messageMeta}><Text style={[styles.messageTime, message.fromMe && styles.messageTimeMine]}>{pending ? "Waiting to send" : time}</Text>{message.fromMe && !pending && <Ionicons name="checkmark-done" size={13} color="#DCD2ED" />}</View>
     </View>
   </View>;
@@ -592,12 +573,4 @@ const styles = StyleSheet.create({
   messageMeta: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 4 },
   messageTime: { color: C.faint, fontSize: 10 },
   messageTimeMine: { color: "#DDD5EB" },
-  composerWrap: { paddingTop: 9, paddingHorizontal: 12, paddingBottom: 9, backgroundColor: C.paper, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line },
-  composer: { minHeight: 48, maxHeight: 125, borderRadius: 18, backgroundColor: C.bg, borderWidth: 1, borderColor: C.line, paddingLeft: 15, paddingRight: 6, flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  composerInput: { flex: 1, minHeight: 44, maxHeight: 120, paddingTop: 12, paddingBottom: 11, color: C.ink, fontSize: 15, lineHeight: 20 },
-  sendButton: { width: 36, height: 36, borderRadius: 13, marginBottom: 5, backgroundColor: C.purple, alignItems: "center", justifyContent: "center" },
-  sendDisabled: { opacity: 0.42 },
-  composerFooter: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 5, paddingTop: 6 },
-  composerFooterText: { color: C.muted, fontSize: 10 },
-  charCount: { color: C.faint, fontSize: 10, marginLeft: "auto" },
 });
