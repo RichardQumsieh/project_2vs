@@ -7,6 +7,7 @@ import {
   queueGroupMessage,
   queueMemberRemoval,
   queueSelfRemoval,
+  shouldReloadGroupBlobs,
   syncGroup,
   type DirectoryDevice,
   type GroupWireBlob,
@@ -321,6 +322,110 @@ describe("group runtime", { timeout: 30_000 }, () => {
     const read = await run("carol", carol);
     expect(read.error).toBeNull();
     expect(read.messages.map((message) => message.plaintext)).toContain("the fork resolved on one epoch");
+  });
+
+  it("reseals a queued application after ingesting a newer epoch", async () => {
+    const keys = {
+      alice: await generateEd25519(),
+      bob: await generateEd25519(),
+      carol: await generateEd25519(),
+    };
+    const carolUser = "33333333-3333-4333-8333-333333333334";
+    const carolPhone = "cccccccc-cccc-4ccc-8ccc-ccccccccccc3";
+    const log: GroupWireBlob[] = [];
+    let stamp = 0;
+    let serverEpoch = 0;
+    const post = (senderDeviceId: string) => async (body: {
+      clientId: string;
+      kind: GroupWireBlob["kind"];
+      payload: string;
+      recipientDeviceId?: string;
+      bindingSignature?: string;
+    }) => {
+      if (body.kind === "commit" || body.kind === "application" || body.kind === "proposal") {
+        const epoch = privateMessageEpoch(body.payload);
+        if (epoch === null || epoch !== serverEpoch) {
+          throw Object.assign(new Error("MLS epoch is not the current group epoch"), {
+            code: "mls_epoch_order",
+          });
+        }
+        if (body.kind === "commit") serverEpoch += 1;
+      }
+      stamp += 1;
+      const id = `00000000-0000-4000-8000-${String(3000 + stamp).padStart(12, "0")}`;
+      log.push({
+        id,
+        kind: body.kind,
+        senderDeviceId,
+        recipientDeviceId: body.recipientDeviceId ?? null,
+        payload: body.payload,
+        bindingSignature: body.bindingSignature ?? null,
+        createdAt: new Date(Date.UTC(2026, 0, 5, 0, 0, stamp)).toISOString(),
+      });
+      return { id };
+    };
+    let alice: GroupRecord | null = null;
+    let bob: GroupRecord | null = null;
+    let carol: GroupRecord | null = null;
+    const people = {
+      alice: { userId: aliceUser, deviceId: alicePhone, keys: keys.alice, role: "admin" as GroupRole },
+      bob: { userId: bobUser, deviceId: bobPhone, keys: keys.bob, role: "member" as GroupRole },
+      carol: { userId: carolUser, deviceId: carolPhone, keys: keys.carol, role: "member" as GroupRole },
+    };
+    const directory = (): DirectoryDevice[] =>
+      [alice, bob, carol].flatMap((record) =>
+        record
+          ? [{
+              userId: record.device.ref.userId,
+              deviceId: record.device.ref.deviceId,
+              signingPublicKey: record.device.sophiaSigningPublicKey,
+              role: record.device.role,
+            }]
+          : [],
+      );
+    const run = (who: keyof typeof people, record: GroupRecord | null) =>
+      syncGroup({
+        record,
+        userId: people[who].userId,
+        deviceId: people[who].deviceId,
+        role: people[who].role,
+        conversationId: groupId,
+        signingPrivateJwk: people[who].keys.privateJwk,
+        signingPublicKey: people[who].keys.publicKey,
+        memberUserIds: [aliceUser, bobUser, ...(carol ? [carolUser] : [])],
+        directory: directory(),
+        blobs: log,
+        post: post(people[who].deviceId),
+      });
+
+    alice = (await run("alice", null)).record;
+    bob = (await run("bob", null)).record;
+    alice = (await run("alice", alice)).record;
+    bob = (await run("bob", bob)).record;
+
+    // Freeze Bob before Alice's Add(Carol) commit advances the server epoch.
+    const bobSnapshot: GroupRecord = {
+      ...bob!,
+      outbox: [...bob!.outbox],
+      appliedBlobIds: [...bob!.appliedBlobIds],
+      keyPackages: [...bob!.keyPackages],
+    };
+    carol = (await run("carol", null)).record;
+    alice = (await run("alice", alice)).record;
+    carol = (await run("carol", carol)).record;
+    expect(serverEpoch).toBeGreaterThan(0);
+
+    const stale = await queueGroupMessage(bobSnapshot, "sent while behind");
+    const caughtUp = await run("bob", stale);
+    expect(caughtUp.error).toBeNull();
+    expect(caughtUp.record.outbox).toEqual([]);
+    const aliceSees = await run("alice", alice);
+    expect(aliceSees.messages.map((message) => message.plaintext)).toContain("sent while behind");
+    expect(shouldReloadGroupBlobs({
+      error: "MLS epoch is not the current group epoch",
+      record: stale,
+    })).toBe(true);
+    expect(shouldReloadGroupBlobs({ error: null, record: caughtUp.record })).toBe(false);
   });
 });
 
