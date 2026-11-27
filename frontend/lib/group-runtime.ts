@@ -161,21 +161,20 @@ export async function syncGroup(input: {
   };
 }
 
-/** True when a later sync should reload MLS blobs and retry once. */
+/**
+ * Reload MLS blobs only after an epoch race. Do not key off leftover outbox
+ * items — that doubled every poll while administer/commit work was pending and
+ * tripped the API rate limit (429), while discarding messages from the first pass.
+ */
 export function shouldReloadGroupBlobs(result: {
   error: string | null;
   record: GroupRecord;
 }): boolean {
-  if (
-    result.error &&
-    (/MLS epoch/i.test(result.error) ||
-      /committed first/i.test(result.error) ||
-      /Sync again/i.test(result.error))
-  ) {
-    return true;
-  }
-  return result.record.outbox.some(
-    (item) => item.kind === "application" || item.kind === "commit",
+  if (!result.error) return false;
+  return (
+    /MLS epoch/i.test(result.error) ||
+    /committed first/i.test(result.error) ||
+    /Sync again/i.test(result.error)
   );
 }
 

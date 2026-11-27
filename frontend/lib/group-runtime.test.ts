@@ -425,7 +425,15 @@ describe("group runtime", { timeout: 30_000 }, () => {
       error: "MLS epoch is not the current group epoch",
       record: stale,
     })).toBe(true);
+    expect(shouldReloadGroupBlobs({
+      error: "Another member committed first. Sync again to retry.",
+      record: caughtUp.record,
+    })).toBe(true);
     expect(shouldReloadGroupBlobs({ error: null, record: caughtUp.record })).toBe(false);
+    expect(shouldReloadGroupBlobs({
+      error: null,
+      record: stale,
+    })).toBe(false);
   });
 });
 
