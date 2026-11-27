@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Audio } from "expo-av";
+import { requestRecordingPermissionsAsync } from "expo-audio";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as VideoThumbnails from "expo-video-thumbnails";
@@ -228,7 +228,7 @@ export function NativeMediaComposer({
     setMenuOpen(false);
     setError("");
     const camera = await ImagePicker.requestCameraPermissionsAsync();
-    const microphone = await Audio.requestPermissionsAsync();
+    const microphone = await requestRecordingPermissionsAsync();
     if (!camera.granted || !microphone.granted) {
       setError("Camera and microphone permission are required to record a video.");
       return;

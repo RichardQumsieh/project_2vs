@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Audio, Video, ResizeMode } from "expo-av";
+import { createAudioPlayer, type AudioPlayer } from "expo-audio";
+import { useVideoPlayer, VideoView } from "expo-video";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import React, { useEffect, useState } from "react";
 import {
@@ -162,14 +163,7 @@ function EncryptedVideoView({
   return (
     <View style={styles.mediaBlock}>
       {playing ? (
-        <Video
-          source={{ uri }}
-          style={styles.video}
-          useNativeControls
-          resizeMode={ResizeMode.CONTAIN}
-          shouldPlay
-          isLooping={false}
-        />
+        <ChatVideo uri={uri} />
       ) : (
         <Pressable accessibilityRole="button" accessibilityLabel="Play video" onPress={() => setPlaying(true)} style={styles.video}>
           {poster ? <Image source={{ uri: poster }} style={styles.videoFill} resizeMode="cover" /> : null}
@@ -194,7 +188,7 @@ function EncryptedVoiceView({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [playing, setPlaying] = useState(false);
-  const soundRef = React.useRef<Audio.Sound | null>(null);
+  const playerRef = React.useRef<AudioPlayer | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -215,34 +209,32 @@ function EncryptedVoiceView({
     })();
     return () => {
       alive = false;
-      void soundRef.current?.unloadAsync();
-      soundRef.current = null;
+      playerRef.current?.remove();
+      playerRef.current = null;
     };
   }, [conversationId, payload.id, payload.bytes, payload.k, payload.n, payload.mime]);
 
   async function toggle() {
     if (!uri) return;
-    const existing = soundRef.current;
+    const existing = playerRef.current;
     if (existing) {
-      const status = await existing.getStatusAsync();
-      if (status.isLoaded && status.isPlaying) {
-        await existing.pauseAsync();
+      if (existing.playing) {
+        existing.pause();
         setPlaying(false);
         return;
       }
-      await existing.playAsync();
+      existing.play();
       setPlaying(true);
       return;
     }
-    const created = new Audio.Sound();
-    await created.loadAsync({ uri });
-    created.setOnPlaybackStatusUpdate((status) => {
+    const created = createAudioPlayer(uri);
+    created.addListener("playbackStatusUpdate", (status) => {
       if (!status.isLoaded) return;
-      setPlaying(status.isPlaying);
+      setPlaying(status.playing);
       if (status.didJustFinish) setPlaying(false);
     });
-    soundRef.current = created;
-    await created.playAsync();
+    playerRef.current = created;
+    created.play();
     setPlaying(true);
   }
 
@@ -264,6 +256,14 @@ function EncryptedVoiceView({
       <Caption text={payload.caption} fromMe={fromMe} />
     </View>
   );
+}
+
+function ChatVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (next) => {
+    next.loop = false;
+    next.play();
+  });
+  return <VideoView player={player} style={styles.video} nativeControls contentFit="contain" />;
 }
 
 function EncryptedFileView({

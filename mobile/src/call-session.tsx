@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Audio } from "expo-av";
+import { setAudioModeAsync } from "expo-audio";
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import {
@@ -83,10 +83,10 @@ async function setSpeaker(enabled: boolean) {
     manager?.setForceSpeakerphoneOn(enabled);
     manager?.setSpeakerphoneOn(enabled);
   } catch {
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      playThroughEarpieceAndroid: !enabled,
+    await setAudioModeAsync({
+      allowsRecording: false,
+      playsInSilentMode: true,
+      shouldRouteThroughEarpiece: !enabled,
     }).catch(() => undefined);
   }
 }
@@ -262,7 +262,7 @@ export function CallProvider({ cookie, userId, children }: { cookie: string; use
     try {
       manager?.start({ media: mode });
     } catch {
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
     }
     const speakerDefault = mode === "video";
     setSpeakerOn(speakerDefault);

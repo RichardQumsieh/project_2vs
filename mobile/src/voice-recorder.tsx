@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Audio } from "expo-av";
+import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from "expo-audio";
 import React, { useEffect, useRef, useState } from "react";
 import { I18nManager, Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -20,6 +20,11 @@ type Preview = {
   cancelArmed: boolean;
 };
 
+const voiceNoteOptions = {
+  ...RecordingPresets.HIGH_QUALITY,
+  isMeteringEnabled: true,
+};
+
 type Props = {
   disabled?: boolean;
   onRecorded: (note: RecordedVoiceNote) => void;
@@ -29,9 +34,10 @@ type Props = {
 };
 
 export function NativeVoiceRecorder({ disabled, onRecorded, onError, onRecordingChange, onPreview }: Props) {
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recorder = useAudioRecorder(voiceNoteOptions);
   const levelsRef = useRef<number[]>([]);
   const cancelRef = useRef(false);
+  const activeRef = useRef(false);
   const startedAt = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [holding, setHolding] = useState(false);
@@ -39,8 +45,8 @@ export function NativeVoiceRecorder({ disabled, onRecorded, onError, onRecording
 
   useEffect(() => () => {
     if (timerRef.current) clearInterval(timerRef.current);
-    void recordingRef.current?.stopAndUnloadAsync().catch(() => undefined);
-  }, []);
+    if (recorder.getStatus().isRecording) void recorder.stop().catch(() => undefined);
+  }, [recorder]);
 
   function publish(cancelArmed: boolean) {
     onPreview?.({
@@ -53,16 +59,12 @@ export function NativeVoiceRecorder({ disabled, onRecorded, onError, onRecording
   async function start() {
     if (disabled || holdingRef.current) return;
     try {
-      const permission = await Audio.requestPermissionsAsync();
+      const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) throw new Error("Microphone permission is required for voice notes.");
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const next = new Audio.Recording();
-      await next.prepareToRecordAsync({
-        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-        isMeteringEnabled: true,
-      });
-      await next.startAsync();
-      recordingRef.current = next;
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync(voiceNoteOptions);
+      recorder.record();
+      activeRef.current = true;
       levelsRef.current = [];
       cancelRef.current = false;
       startedAt.current = Date.now();
@@ -71,12 +73,10 @@ export function NativeVoiceRecorder({ disabled, onRecorded, onError, onRecording
       onRecordingChange?.(true);
       publish(false);
       timerRef.current = setInterval(() => {
-        void next.getStatusAsync().then((status) => {
-          if (!status.isRecording) return;
-          const level = meteringToLevel("metering" in status ? status.metering : undefined);
-          levelsRef.current = [...levelsRef.current, level].slice(-240);
-          publish(cancelRef.current);
-        }).catch(() => undefined);
+        const status = recorder.getStatus();
+        if (!status.isRecording) return;
+        levelsRef.current = [...levelsRef.current, meteringToLevel(status.metering)].slice(-240);
+        publish(cancelRef.current);
       }, 120);
     } catch (cause) {
       holdingRef.current = false;
@@ -90,18 +90,18 @@ export function NativeVoiceRecorder({ disabled, onRecorded, onError, onRecording
   async function finish(cancelled: boolean) {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
-    const recording = recordingRef.current;
-    recordingRef.current = null;
+    const active = activeRef.current;
+    activeRef.current = false;
     holdingRef.current = false;
     setHolding(false);
     onRecordingChange?.(false);
     onPreview?.(null);
-    if (!recording) return;
+    if (!active) return;
     try {
-      await recording.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      await recorder.stop();
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       if (cancelled) return;
-      const uri = recording.getURI();
+      const uri = recorder.uri;
       if (!uri) throw new Error("The voice note could not be saved.");
       const duration = Math.max(0.4, (Date.now() - startedAt.current) / 1000);
       const bytes = await readUriBytes(uri);

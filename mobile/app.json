@@ -48,21 +48,25 @@
         }
       ],
       [
-        "expo-av",
-        {
-          "microphonePermission": "Sophia uses the microphone so you can record voice messages and join encrypted calls."
-        }
-      ],
-      [
         "expo-build-properties",
         {
           "android": {
-            "minSdkVersion": 33
+            "minSdkVersion": 33,
+            "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**"
           }
         }
       ],
       "expo-localization",
-      "./plugins/with-webrtc.js"
+      "./plugins/with-default-locale-strings.js",
+      "./plugins/with-webrtc.js",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Sophia uses the microphone so you can record voice messages and join encrypted voice and video calls."
+        }
+      ],
+      "expo-video",
+      "expo-asset"
     ],
     "locales": {
       "en": "./locales/en.json",
