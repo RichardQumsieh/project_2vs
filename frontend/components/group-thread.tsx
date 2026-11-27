@@ -2,14 +2,13 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { EncryptedFileAttachment } from "@/components/encrypted-file-attachment";
+import { useEffect, useState, type FormEvent } from "react";
+import { GroupComposer } from "@/components/group-composer";
+import { GroupMessageBody } from "@/components/group-message-body";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApiError, api, type Conversation, type PublicUser } from "@/lib/api";
-import { encodeFilePayload, parseChatPayload } from "@/lib/chat-payload";
 import { b64ToBytes } from "@/lib/crypto/bytes";
-import { inspectAndEncryptFileAttachment } from "@/lib/crypto/file-attachment";
 import { openGroupRecord, sealGroupRecord } from "@/lib/crypto/group-store";
 import { listMembers, listRoster, type GroupRole } from "@/lib/crypto/group-mls";
 import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
@@ -184,12 +183,11 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { t } = useI18n();
-  const [draft, setDraft] = useState("");
   const [username, setUsername] = useState("");
   const [addMatches, setAddMatches] = useState<PublicUser[]>([]);
   const [actionError, setActionError] = useState<MessageKey | null>(null);
   const [notice, setNotice] = useState<MessageKey | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
+  const [sending, setSending] = useState(false);
   const userId = currentUserId();
   const me = conversation.members?.find((member) => member.userId === userId);
   const isAdmin = me?.role === "ADMIN";
@@ -226,75 +224,33 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
     void Notification.requestPermission();
   }
 
-  async function sendMessage(event: FormEvent) {
-    event.preventDefault();
-    const text = draft.trim();
-    if (!text || !userId) return;
+  async function sendPlaintext(plaintext: string) {
+    if (!userId) throw new Error("Unlock this device before messaging the group.");
     requestGroupNotifications();
     setActionError(null);
     setNotice(null);
+    setSending(true);
     try {
       const key = requireVault();
       const sealed = await loadSealedGroup(userId, conversation.id);
       if (!sealed) {
         setActionError("group.notJoined");
-        return;
+        throw new Error("Join the group before sending.");
       }
       const record = await openGroupRecord(key, userId, conversation.id, sealed);
-      const queued = await queueGroupMessage(record, text);
-      await saveSealedGroup(userId, conversation.id, await sealGroupRecord(key, userId, conversation.id, queued));
-      setDraft("");
+      const queued = await queueGroupMessage(record, plaintext);
+      await saveSealedGroup(
+        userId,
+        conversation.id,
+        await sealGroupRecord(key, userId, conversation.id, queued),
+      );
       await queryClient.invalidateQueries({ queryKey: ["group-sync", conversation.id] });
     } catch (cause) {
       setActionError("group.sendFailed");
       console.warn("Could not send the group message", cause);
-    }
-  }
-
-  async function sendFile(file: File) {
-    if (!userId) return;
-    requestGroupNotifications();
-    setActionError(null);
-    setNotice(null);
-    try {
-      const prepared = await inspectAndEncryptFileAttachment(file);
-      const ciphertext = prepared.ciphertext;
-      if (
-        ciphertext.byteOffset !== 0 ||
-        !(ciphertext.buffer instanceof ArrayBuffer) ||
-        ciphertext.byteLength !== ciphertext.buffer.byteLength
-      ) {
-        throw new Error("The encrypted file could not be uploaded.");
-      }
-      const upload = await api.mediaUpload(conversation.id, ciphertext.byteLength, "file");
-      const response = await fetch(upload.uploadUrl, {
-        method: "PUT",
-        headers: upload.headers,
-        body: ciphertext.buffer,
-      });
-      if (!response.ok) throw new Error("The encrypted file could not be uploaded.");
-      const body = encodeFilePayload({
-        id: upload.mediaId,
-        k: prepared.key,
-        n: prepared.nonce,
-        name: prepared.name,
-        mime: prepared.mime,
-        bytes: ciphertext.byteLength,
-        containsExternalLinks: prepared.containsExternalLinks,
-      });
-      const key = requireVault();
-      const sealed = await loadSealedGroup(userId, conversation.id);
-      if (!sealed) {
-        setActionError("group.notJoined");
-        return;
-      }
-      const record = await openGroupRecord(key, userId, conversation.id, sealed);
-      const queued = await queueGroupMessage(record, body);
-      await saveSealedGroup(userId, conversation.id, await sealGroupRecord(key, userId, conversation.id, queued));
-      await queryClient.invalidateQueries({ queryKey: ["group-sync", conversation.id] });
-    } catch (cause) {
-      setActionError("group.attachFailed");
-      console.warn("Could not send the group file", cause);
+      throw cause instanceof Error ? cause : new Error("Could not send the group message.");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -469,49 +425,21 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
                     {message.fromMe ? t("group.you") : memberLabel(conversation, message, t("group.member"))}
                   </BidiText>
                 </p>
-                <GroupMessageBody conversationId={conversation.id} plaintext={message.plaintext} />
+                <GroupMessageBody
+                  conversationId={conversation.id}
+                  plaintext={message.plaintext}
+                  fromMe={message.fromMe}
+                />
               </article>
             ))}
           </div>
-          <form className="flex gap-2 border-t border-white/10 p-3" onSubmit={(event) => void sendMessage(event)}>
-            <input
-              ref={fileInput}
-              type="file"
-              className="sr-only"
-              accept=".pdf,.docx,.pptx,.xlsx,.txt,.csv,application/pdf,text/plain,text/csv"
-              aria-label={t("group.attach")}
-              title={t("group.attach")}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) void sendFile(file);
-              }}
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!joined}
-              title={t("group.attach")}
-              aria-label={t("group.attach")}
-              onClick={() => fileInput.current?.click()}
-            >
-              {t("group.attach")}
-            </Button>
-            <Input
-              title={t("group.messageLabel")}
-              aria-label={t("group.messageLabel")}
-              placeholder={joined ? t("group.messagePlaceholder") : t("group.waitingJoin")}
-              value={draft}
-              disabled={!joined}
-              onChange={(event) => setDraft(event.target.value)}
-              maxLength={16000}
-              dir="auto"
-            />
-            <Button type="submit" size="sm" title={t("group.send")} aria-label={t("group.send")} disabled={!joined || draft.trim().length === 0}>
-              {t("group.send")}
-            </Button>
-          </form>
+          <GroupComposer
+            conversationId={conversation.id}
+            joined={joined}
+            messages={messages}
+            disabled={sending}
+            onSendPlaintext={sendPlaintext}
+          />
         </div>
         <aside className="border-t border-white/10 p-4 md:border-t-0 md:border-s">
           <h2 className="text-xs font-medium uppercase tracking-wide text-white/45">{t("group.members")}</h2>
@@ -590,24 +518,6 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
         </aside>
       </div>
     </div>
-  );
-}
-
-function GroupMessageBody({
-  conversationId,
-  plaintext,
-}: {
-  conversationId: string;
-  plaintext: string;
-}) {
-  const payload = parseChatPayload(plaintext);
-  if (payload.type === "file") {
-    return <EncryptedFileAttachment conversationId={conversationId} payload={payload} />;
-  }
-  return (
-    <p className="whitespace-pre-wrap break-words">
-      <BidiText>{payload.type === "text" ? payload.text : ""}</BidiText>
-    </p>
   );
 }
 
