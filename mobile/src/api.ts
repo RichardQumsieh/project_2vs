@@ -224,4 +224,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ urls }),
     }),
+  callIceServers: () =>
+    request<{ iceServers: { urls?: string | string[]; username?: string; credential?: string }[] }>("/calls/ice-servers"),
 };
+
+export function wsUrl() {
+  const url = new URL(API_URL);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = "/ws";
+  return url.toString();
+}
+
+export function openSignalingSocket() {
+  const Socket = WebSocket as unknown as new (
+    url: string,
+    protocols?: string[] | null,
+    options?: { headers?: Record<string, string> },
+  ) => WebSocket;
+  const cookie = activeApiCookie;
+  return new Socket(wsUrl(), null, {
+    headers: {
+      Origin: REQUEST_ORIGIN,
+      ...(cookie ? { Cookie: `${COOKIE_NAME}=${cookie}` } : {}),
+    },
+  });
+}

@@ -36,6 +36,7 @@ import {
   syncConversationRecoveryHistory,
 } from "../../frontend/lib/session";
 import {
+  deleteLocalMessages,
   deletePendingDirectSend,
   listPendingDirectSends,
   loadSealedGroup,
@@ -47,8 +48,12 @@ import {
   type PendingDirectSend,
 } from "../../frontend/lib/idb";
 import { api, setApiCookie, type Conversation } from "./api";
+import { registerCallLogSender, takeQueuedCallLogs } from "./call-log-bridge";
+import { useCallControls } from "./call-session";
 import { NativeMediaComposer } from "./media-composer";
-import { NativeMessageBody } from "./message-body";
+import { deleteScopes, type DeleteScope } from "./message-actions";
+import { addReplyTarget, removeReplyTarget, toggleReplyTarget } from "./reply-selection";
+import { SwipeableMessage } from "./swipeable-message";
 import { ActionButton, C, Input, Notice } from "./ui";
 
 type Props = { conversation: Conversation; cookie: string };
@@ -110,16 +115,31 @@ export function NativeThread({ conversation, cookie }: Props) {
   const [groupStatus, setGroupStatus] = useState<GroupStatus | null>(null);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [hasEarlier, setHasEarlier] = useState(false);
+  const [replyIds, setReplyIds] = useState<string[]>([]);
+  const [selectingReplies, setSelectingReplies] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<LocalMessage | null>(null);
+  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  const [undo, setUndo] = useState<{ message: LocalMessage; scope: DeleteScope; pending: boolean } | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<FlatList<LocalMessage>>(null);
+  const calls = useCallControls();
   const autoScroll = useRef(true);
   const refreshInFlight = useRef(false);
   const groupHistorySynced = useRef(new Set<string>());
 
   useEffect(() => { setApiCookie(cookie); }, [cookie]);
-  useEffect(() => { setUnlocked(isUnlocked()); }, [conversation.id]);
+  useEffect(() => {
+    setUnlocked(isUnlocked());
+    setReplyIds([]);
+    setSelectingReplies(false);
+    setDeleteTarget(null);
+    setHiddenIds([]);
+    setUndo(null);
+  }, [conversation.id]);
 
   const myUserId = currentUserId();
   const displayMessages = useMemo(() => {
+    const hidden = new Set(hiddenIds);
     const pending = pendingSends.map((send): LocalMessage => ({
       id: send.id,
       logicalMessageId: send.id,
@@ -130,8 +150,8 @@ export function NativeThread({ conversation, cookie }: Props) {
       plaintext: send.plaintext,
       createdAt: send.createdAt,
     }));
-    return mergeMessages(messages, pending);
-  }, [messages, myUserId, pendingSends]);
+    return mergeMessages(messages, pending).filter((message) => !hidden.has(message.id));
+  }, [hiddenIds, messages, myUserId, pendingSends]);
 
   const refreshLocal = useCallback(async () => {
     const [recent, pending] = await Promise.all([
@@ -399,6 +419,8 @@ export function NativeThread({ conversation, cookie }: Props) {
       autoScroll.current = true;
       listRef.current?.scrollToEnd({ animated: true });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+      setReplyIds([]);
+      setSelectingReplies(false);
     } catch (error) {
       setSendError(friendlyError(error));
       setSendQueued(false);
@@ -406,6 +428,51 @@ export function NativeThread({ conversation, cookie }: Props) {
     } finally {
       setSending(false);
     }
+  }
+
+  useEffect(() => {
+    if (!unlocked) return;
+    const unregister = registerCallLogSender(async (conversationId, plaintext) => {
+      if (conversationId !== conversation.id) return;
+      await sendPlaintext(plaintext);
+    });
+    const queued = takeQueuedCallLogs(conversation.id);
+    for (const item of queued) void sendPlaintext(item.plaintext).catch(() => undefined);
+    return unregister;
+  }, [conversation.id, unlocked]);
+
+  async function finalizeDelete(message: LocalMessage, scope: DeleteScope, pending: boolean) {
+    const logicalId = message.logicalMessageId ?? message.id;
+    if (pending) {
+      await deletePendingDirectSend(message.id);
+      setPendingSends((current) => current.filter((item) => item.id !== message.id));
+      return;
+    }
+    if (scope === "everyone") await api.deleteMessage(conversation.id, logicalId);
+    await deleteLocalMessages(conversation.id, logicalId, [message.id]);
+    setMessages((current) => current.filter((item) => item.id !== message.id && (item.logicalMessageId ?? item.id) !== logicalId));
+  }
+
+  function confirmDelete(scope: DeleteScope) {
+    const message = deleteTarget;
+    if (!message) return;
+    const pending = pendingSends.some((send) => send.id === message.id);
+    setDeleteTarget(null);
+    setHiddenIds((current) => current.includes(message.id) ? current : [...current, message.id]);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndo({ message, scope, pending });
+    undoTimer.current = setTimeout(() => {
+      setUndo(null);
+      void finalizeDelete(message, scope, pending)
+        .catch((error) => setSendError(friendlyError(error)))
+        .finally(() => setHiddenIds((current) => current.filter((id) => id !== message.id)));
+    }, 5000);
+  }
+
+  function undoDelete() {
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    if (undo) setHiddenIds((current) => current.filter((id) => id !== undo.message.id));
+    setUndo(null);
   }
 
   async function loadEarlier() {
@@ -486,6 +553,42 @@ export function NativeThread({ conversation, cookie }: Props) {
     {conversation.type === "GROUP" && groupStatus && !groupStatus.joined && <View style={styles.inlineNotice}><Notice text="This device is waiting for an existing group member to add it securely. Group history already available to your account can still be restored." tone="info" /></View>}
     {conversation.type === "GROUP" && groupStatus?.error && <View style={styles.inlineNotice}><Notice text={groupStatus.error} tone="info" /></View>}
     {!!sendError && <View style={styles.inlineNotice}><Notice text={sendQueued ? `Message safely queued. Sophia will retry when the connection returns. ${sendError}` : sendError} tone="info" /></View>}
+    <View style={styles.callBar}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Start voice call" onPress={() => void calls.startCall(conversation, "audio")} style={styles.callButton}>
+        <Ionicons name="call-outline" size={16} color={C.purple} />
+        <Text style={styles.callText}>Voice</Text>
+      </Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Start video call" onPress={() => void calls.startCall(conversation, "video")} style={styles.callButton}>
+        <Ionicons name="videocam-outline" size={16} color={C.purple} />
+        <Text style={styles.callText}>Video</Text>
+      </Pressable>
+    </View>
+    {deleteTarget ? (
+      <View style={styles.deleteCard}>
+        <Text style={styles.deleteTitle}>Delete this message?</Text>
+        <View style={styles.deleteActions}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Delete for me" onPress={() => confirmDelete("me")} style={styles.deleteChoice}>
+            <Text style={styles.deleteChoiceText}>Delete for me</Text>
+          </Pressable>
+          {deleteScopes({ fromMe: Boolean(deleteTarget.fromMe), pending: pendingSends.some((send) => send.id === deleteTarget.id) }).includes("everyone") ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Delete for everyone" onPress={() => confirmDelete("everyone")} style={styles.deleteChoice}>
+              <Text style={styles.deleteChoiceText}>Delete for everyone</Text>
+            </Pressable>
+          ) : null}
+          <Pressable accessibilityRole="button" accessibilityLabel="Cancel delete" onPress={() => setDeleteTarget(null)} style={styles.deleteChoice}>
+            <Text style={styles.deleteCancel}>Cancel</Text>
+          </Pressable>
+        </View>
+      </View>
+    ) : null}
+    {undo ? (
+      <View style={styles.undoBar}>
+        <Text style={styles.undoText}>{undo.scope === "everyone" ? "Deleting for everyone" : "Deleted for you"}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Undo delete" onPress={undoDelete}>
+          <Text style={styles.undoAction}>Undo</Text>
+        </Pressable>
+      </View>
+    ) : null}
     <FlatList
       ref={listRef}
       style={styles.list}
@@ -504,7 +607,22 @@ export function NativeThread({ conversation, cookie }: Props) {
         <Text style={styles.earlierText}>{loadingEarlier ? "Loading earlier messages" : "Load earlier messages"}</Text>
       </Pressable> : undefined}
       ListEmptyComponent={<View style={styles.emptyMessages}><View style={styles.emptyIcon}><Ionicons name="chatbubble-ellipses-outline" size={21} color={C.purple} /></View><Text style={styles.emptyTitle}>A fresh start</Text><Text style={styles.emptyCopy}>Messages are private to the people in this conversation. Send the first note when you're ready.</Text></View>}
-      renderItem={({ item }) => <MessageBubble message={item} conversation={conversation} pending={pendingSends.some((send) => send.id === item.id)} />}
+      renderItem={({ item }) => (
+        <SwipeableMessage
+          message={item}
+          conversation={conversation}
+          pending={pendingSends.some((send) => send.id === item.id)}
+          selecting={selectingReplies}
+          selected={replyIds.includes(item.id)}
+          onReply={(message) => setReplyIds((current) => addReplyTarget(current, message.id))}
+          onToggleSelect={(message) => setReplyIds((current) => toggleReplyTarget(current, message.id))}
+          onBeginSelect={(message) => {
+            setSelectingReplies(true);
+            setReplyIds((current) => addReplyTarget(current, message.id));
+          }}
+          onDelete={setDeleteTarget}
+        />
+      )}
     />
     {conversation.type === "GROUP" && groupStatus && !groupStatus.joined ? null : (
       <NativeMediaComposer
@@ -513,27 +631,14 @@ export function NativeThread({ conversation, cookie }: Props) {
         messages={displayMessages}
         disabled={sending || !unlocked}
         placeholder={conversation.type === "GROUP" ? "Message your group…" : "Write a message…"}
+        replyIds={replyIds}
+        selectingReplies={selectingReplies}
+        onRemoveReply={(messageId) => setReplyIds((current) => removeReplyTarget(current, messageId))}
+        onToggleReply={(messageId) => setReplyIds((current) => toggleReplyTarget(current, messageId))}
+        onSelectingChange={setSelectingReplies}
         onSendPlaintext={sendPlaintext}
       />
     )}
-  </View>;
-}
-
-function MessageBubble({ message, conversation, pending }: { message: LocalMessage; conversation: Conversation; pending: boolean }) {
-  const sender = message.fromMe
-    ? "You"
-    : conversation.type === "DIRECT"
-      ? conversation.peer?.displayName || conversation.peer?.username || "Member"
-      : conversation.members?.find((member) => member.userId === message.senderUserId)?.displayName
-        || conversation.members?.find((member) => member.userId === message.senderUserId)?.username
-        || "Member";
-  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(message.createdAt));
-  return <View style={[styles.messageRow, message.fromMe ? styles.messageRowMine : styles.messageRowPeer]}>
-    <View style={[styles.messageBubble, message.fromMe ? styles.messageBubbleMine : styles.messageBubblePeer]}>
-      {conversation.type === "GROUP" && !message.fromMe && <Text style={styles.senderName}>{sender}</Text>}
-      <NativeMessageBody conversationId={conversation.id} plaintext={message.plaintext} fromMe={message.fromMe} />
-      <View style={styles.messageMeta}><Text style={[styles.messageTime, message.fromMe && styles.messageTimeMine]}>{pending ? "Waiting to send" : time}</Text>{message.fromMe && !pending && <Ionicons name="checkmark-done" size={13} color="#DCD2ED" />}</View>
-    </View>
   </View>;
 }
 
@@ -553,6 +658,18 @@ const styles = StyleSheet.create({
   recoveryTitle: { color: "#8C652E", fontSize: 12, fontWeight: "700" },
   recoveryCopy: { color: "#8C652E", fontSize: 10, lineHeight: 15 },
   recoveryCode: { padding: 10, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.72)", color: C.ink, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 12, textAlign: "center" },
+  callBar: { flexDirection: "row", justifyContent: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 8 },
+  callButton: { minHeight: 34, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: C.line, backgroundColor: C.paper, flexDirection: "row", alignItems: "center", gap: 6 },
+  callText: { color: C.ink, fontSize: 12, fontWeight: "700" },
+  deleteCard: { marginHorizontal: 12, marginTop: 8, padding: 12, borderRadius: 16, backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, gap: 8 },
+  deleteTitle: { color: C.ink, fontSize: 14, fontWeight: "700" },
+  deleteActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  deleteChoice: { minHeight: 34, paddingHorizontal: 10, borderRadius: 999, backgroundColor: C.bg, justifyContent: "center" },
+  deleteChoiceText: { color: "#B42318", fontSize: 12, fontWeight: "700" },
+  deleteCancel: { color: C.muted, fontSize: 12, fontWeight: "700" },
+  undoBar: { marginHorizontal: 12, marginTop: 8, minHeight: 40, borderRadius: 14, backgroundColor: "#241C33", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  undoText: { color: "#FFFFFF", fontSize: 12 },
+  undoAction: { color: "#E4D7FF", fontSize: 12, fontWeight: "800" },
   list: { flex: 1 },
   listContent: { flexGrow: 1, justifyContent: "flex-end", paddingHorizontal: 15, paddingTop: 10, paddingBottom: 18 },
   earlierButton: { alignSelf: "center", minHeight: 36, paddingHorizontal: 12, marginBottom: 12, flexDirection: "row", alignItems: "center", gap: 6 },

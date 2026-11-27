@@ -1,0 +1,13 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Sophia uses the camera so you can take photos, record videos, and join encrypted video calls.",
+    "NSMicrophoneUsageDescription": "Sophia uses the microphone so you can record voice messages and join encrypted voice and video calls.",
+    "NSPhotoLibraryUsageDescription": "Sophia uses your photo library so you can send encrypted photos and videos.",
+    "NSPhotoLibraryAddUsageDescription": "Sophia can save media you choose to keep on this device."
+  },
+  "android": {
+    "sophia_camera_permission": "Sophia uses the camera so you can take photos, record videos, and join encrypted video calls.",
+    "sophia_microphone_permission": "Sophia uses the microphone so you can record voice messages and join encrypted voice and video calls.",
+    "sophia_media_permission": "Sophia uses your photo library so you can send encrypted photos and videos."
+  }
+}

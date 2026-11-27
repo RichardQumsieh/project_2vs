@@ -3,6 +3,7 @@ import {
   assistantVisibleText,
   encodeAlbumPayload,
   encodeImagePayload,
+  encodeCallPayload,
   encodeReplyPayload,
   encodeVideoPayload,
   encodeVoicePayload,
@@ -233,5 +234,25 @@ describe("chat payloads", () => {
     expect(parseChatPayload(encoded)).toEqual({ type: "reply", ...reply });
     expect(assistantVisibleText(encoded)).toBe("Yes — after lunch.");
     expect(messagePreviewText(encoded)).toBe("Yes — after lunch.");
+  });
+
+  it("still accepts a voice note that has no waveform", () => {
+    const encoded = encodeVoicePayload(voicePayload);
+    expect(parseChatPayload(encoded)).toEqual({ type: "voice", ...voicePayload });
+  });
+
+  it("round-trips an optional voice waveform and a call log", () => {
+    const withWave = encodeVoicePayload({ ...voicePayload, wave: [0, 0.5, 1] });
+    expect(parseChatPayload(withWave)).toMatchObject({ type: "voice", wave: [0, 0.5, 1] });
+    const call = encodeCallPayload({
+      callId: "e8cfa520-3e79-40db-9d85-497a1bdc9917",
+      mode: "video",
+      outcome: "missed",
+      durationSeconds: 0,
+      at: "2026-11-27T15:04:00.000Z",
+    });
+    expect(parseChatPayload(call)).toMatchObject({ type: "call", outcome: "missed" });
+    expect(assistantVisibleText(call)).toBe("Missed video call");
+    expect(messagePreviewText(call)).toBe("Missed video call");
   });
 });

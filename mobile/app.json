@@ -10,8 +10,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.sophia.messenger",
       "infoPlist": {
-        "NSCameraUsageDescription": "Sophia uses the camera so you can capture photos and short videos for encrypted chats.",
-        "NSMicrophoneUsageDescription": "Sophia uses the microphone so you can record encrypted voice notes.",
+        "NSCameraUsageDescription": "Sophia uses the camera so you can take photos, record videos, and join encrypted video calls.",
+        "NSMicrophoneUsageDescription": "Sophia uses the microphone so you can record voice messages and join encrypted voice and video calls.",
         "NSPhotoLibraryUsageDescription": "Sophia uses your photo library so you can send encrypted photos and videos.",
         "NSPhotoLibraryAddUsageDescription": "Sophia can save media you choose to keep on this device."
       }
@@ -23,7 +23,10 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.BLUETOOTH_CONNECT"
       ]
     },
     "plugins": [
@@ -39,15 +42,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Sophia to access your photos for encrypted messaging.",
-          "cameraPermission": "Allow Sophia to use the camera for encrypted messaging.",
-          "microphonePermission": "Allow Sophia to record encrypted voice notes."
+          "photosPermission": "Sophia uses your photo library so you can send encrypted photos and videos.",
+          "cameraPermission": "Sophia uses the camera so you can take photos, record videos, and join encrypted video calls.",
+          "microphonePermission": "Sophia uses the microphone so you can record voice messages and join encrypted calls."
         }
       ],
       [
         "expo-av",
         {
-          "microphonePermission": "Allow Sophia to record encrypted voice notes."
+          "microphonePermission": "Sophia uses the microphone so you can record voice messages and join encrypted calls."
         }
       ],
       [
@@ -57,8 +60,14 @@
             "minSdkVersion": 33
           }
         }
-      ]
+      ],
+      "expo-localization",
+      "./plugins/with-webrtc.js"
     ],
+    "locales": {
+      "en": "./locales/en.json",
+      "ar": "./locales/ar.json"
+    },
     "extra": {
       "eas": {
         "projectId": "447dd9a5-8bfd-4026-aeef-6c5fbee8dba6"

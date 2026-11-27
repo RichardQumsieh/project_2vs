@@ -9,6 +9,7 @@ import { EncryptedPhoto } from "@/components/encrypted-photo";
 import { EncryptedVideo } from "@/components/encrypted-video";
 import { EncryptedVoiceNote } from "@/components/encrypted-voice-note";
 import { LinkSafetyText } from "@/components/link-safety-text";
+import { CallLogBlock } from "@/components/call-log";
 import { ReplyQuoteBlock } from "@/components/reply-quote";
 import { parseChatPayload } from "@/lib/chat-payload";
 import type { LocalMessage } from "@/lib/crypto/types";
@@ -121,6 +122,8 @@ const MessageRow = memo(function MessageRow({
         <EncryptedLocation payload={payload} fromMe={message.fromMe} />
       ) : payload.type === "reply" ? (
         <ReplyQuoteBlock payload={payload} fromMe={message.fromMe} />
+      ) : payload.type === "call" ? (
+        <CallLogBlock payload={payload} />
       ) : (
         <LinkSafetyText text={payload.text} />
       )}

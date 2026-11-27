@@ -5,6 +5,14 @@ import { requireUser } from "./auth.js";
 import { prisma } from "./db.js";
 import { env } from "./env.js";
 import { redis } from "./redis.js";
+import {
+  assertGroupMediaRoute,
+  createGroupCall,
+  isGroupCallRecord,
+  joinGroupCall,
+  leaveGroupCall,
+  type GroupCallRecord,
+} from "./group-call.js";
 import { callSignalSchema } from "./schemas.js";
 
 type CallState = {
@@ -32,7 +40,7 @@ function enforceSignalRateLimit(userId: string, type: string) {
     signalRateLimits.set(userId, rate);
   }
   rate.count += 1;
-  if (type === "call:invite") rate.invites += 1;
+  if (type === "call:invite" || type === "call:group-invite") rate.invites += 1;
 
   if (signalRateLimits.size > 10_000) {
     for (const [id, entry] of signalRateLimits) {
@@ -54,6 +62,11 @@ export async function relayCallSignal(
   }
   const signal = parsed.data;
   enforceSignalRateLimit(userId, signal.type);
+
+  if (signal.type.startsWith("call:group-")) {
+    await relayGroupCallSignal(userId, signal as GroupSignal);
+    return;
+  }
 
   if (signal.type === "call:invite") {
     const conversation = await prisma.conversation.findFirst({
@@ -117,7 +130,11 @@ export async function relayCallSignal(
 
   const stateJson = await redis.get(`call:${signal.callId}`);
   if (!stateJson) throw new Error("This call has ended or expired.");
-  const state = JSON.parse(stateJson) as CallState;
+  const parsedState: unknown = JSON.parse(stateJson);
+  if (isGroupCallRecord(parsedState)) {
+    throw new Error("This call has ended or expired.");
+  }
+  const state = parsedState as CallState;
   if (
     state.conversationId !== signal.conversationId ||
     (userId !== state.callerId && userId !== state.calleeId)
@@ -155,6 +172,139 @@ export async function relayCallSignal(
     ...signal,
     senderId: userId,
   }));
+}
+
+type GroupSignal = Extract<
+  ReturnType<typeof callSignalSchema.parse>,
+  { type: `call:group-${string}` }
+>;
+
+async function publishCall(userId: string, payload: unknown) {
+  await redis.publish(`user:${userId}`, JSON.stringify(payload));
+}
+
+async function saveGroupCall(callId: string, state: GroupCallRecord | null, ttl: number) {
+  if (!state) {
+    await redis.del(`call:${callId}`);
+    return;
+  }
+  await redis.set(`call:${callId}`, JSON.stringify(state), "EX", ttl);
+}
+
+async function relayGroupCallSignal(userId: string, signal: GroupSignal) {
+  if (signal.type === "call:group-invite") {
+    const conversation = await prisma.conversation.findFirst({
+      where: {
+        id: signal.conversationId,
+        type: "GROUP",
+        members: { some: { userId } },
+      },
+      select: {
+        members: {
+          select: {
+            userId: true,
+            user: {
+              select: {
+                id: true,
+                username: true,
+                displayName: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!conversation) {
+      throw new Error("Group calls are only available to members of this group.");
+    }
+    const memberIds = conversation.members.map((member) => member.userId);
+    const state = createGroupCall({
+      conversationId: signal.conversationId,
+      callerId: userId,
+      mode: signal.mode,
+      memberIds,
+    });
+    const created = await redis.set(
+      `call:${signal.callId}`,
+      JSON.stringify(state),
+      "EX",
+      ringingTtlSeconds,
+      "NX",
+    );
+    if (created !== "OK") throw new Error("This call could not be started.");
+    const participants = conversation.members.map((member) => member.user);
+    try {
+      await Promise.all(memberIds.filter((id) => id !== userId).map((memberId) =>
+        publishCall(memberId, {
+          type: "call:group-invite",
+          callId: signal.callId,
+          conversationId: signal.conversationId,
+          mode: signal.mode,
+          senderId: userId,
+          joinedIds: state.joinedIds,
+          participants,
+        }),
+      ));
+    } catch (error) {
+      await redis.del(`call:${signal.callId}`);
+      throw error;
+    }
+    return;
+  }
+
+  const stateJson = await redis.get(`call:${signal.callId}`);
+  if (!stateJson) throw new Error("This call has ended or expired.");
+  const stored: unknown = JSON.parse(stateJson);
+  if (!isGroupCallRecord(stored) || stored.conversationId !== signal.conversationId) {
+    throw new Error("This call has ended or expired.");
+  }
+
+  if (signal.type === "call:group-join") {
+    const next = joinGroupCall(stored, userId);
+    await saveGroupCall(
+      signal.callId,
+      next,
+      next.status === "active" ? activeTtlSeconds : ringingTtlSeconds,
+    );
+    await Promise.all(next.participantIds.filter((id) => id !== userId).map((memberId) =>
+      publishCall(memberId, {
+        type: "call:group-join",
+        callId: signal.callId,
+        conversationId: signal.conversationId,
+        senderId: userId,
+        mode: next.mode,
+        joinedIds: next.joinedIds,
+      }),
+    ));
+    return;
+  }
+
+  if (signal.type === "call:group-leave") {
+    const result = leaveGroupCall(stored, userId);
+    await saveGroupCall(
+      signal.callId,
+      result.state,
+      result.state?.status === "active" ? activeTtlSeconds : ringingTtlSeconds,
+    );
+    await Promise.all(result.notifyIds.map((memberId) =>
+      publishCall(memberId, {
+        type: "call:group-leave",
+        callId: signal.callId,
+        conversationId: signal.conversationId,
+        senderId: userId,
+        ended: result.ended,
+      }),
+    ));
+    return;
+  }
+
+  assertGroupMediaRoute(stored, userId, signal.peerId);
+  await redis.expire(
+    `call:${signal.callId}`,
+    stored.status === "ringing" ? ringingTtlSeconds : activeTtlSeconds,
+  );
+  await publishCall(signal.peerId, { ...signal, senderId: userId });
 }
 
 export async function registerCallIceServerRoute(app: FastifyInstance) {

@@ -20,7 +20,7 @@ export type PreparedNativeChatMedia =
   | { kind: "photo"; asset: NativeMediaAsset; caption: string }
   | { kind: "album"; assets: NativeMediaAsset[]; caption: string }
   | { kind: "video"; asset: NativeMediaAsset; caption: string }
-  | { kind: "voice"; asset: NativeMediaAsset; duration: number; caption: string }
+  | { kind: "voice"; asset: NativeMediaAsset; duration: number; caption: string; wave?: number[] }
   | { kind: "file"; attachment: EncryptedFileAttachment; caption: string };
 
 export function sniffPhotoMime(bytes: Uint8Array, hinted?: string): AllowedPhotoMime {
