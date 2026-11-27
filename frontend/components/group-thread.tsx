@@ -197,7 +197,10 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
   const sync = useQuery({
     queryKey: ["group-sync", conversation.id, userId],
     enabled: Boolean(userId),
-    refetchInterval: 4000,
+    // Realtime invalidation covers live traffic; polling is a backstop only.
+    // Keep this well under the API's 120 req/min budget (each sync hits several routes).
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
     queryFn: () => refreshGroup(conversation, queryClient),
   });
   const mlsRole = sync.data?.mlsRole ?? null;
@@ -212,9 +215,11 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
       : null;
   const error = actionError
     ? t(actionError)
-    : sync.data?.error || sync.error
-      ? t("group.syncFailed")
-      : null;
+    : sync.data?.error
+      ? sync.data.error
+      : sync.error
+        ? t("group.syncFailed")
+        : null;
 
   function requestGroupNotifications() {
     if (typeof Notification === "undefined" || Notification.permission !== "default") return;
@@ -631,17 +636,60 @@ async function loadBlobs(conversationId: string, deviceId: string) {
   return blobs;
 }
 
-async function refreshGroup(
-  conversation: Conversation,
-  queryClient: { invalidateQueries: (filters: { queryKey: string[] }) => Promise<unknown> },
-): Promise<{
+type GroupRefreshResult = {
   messages: LocalMessage[];
   joined: boolean;
   status: GroupNotice | null;
   error: string | null;
   selfRemoved: boolean;
   mlsRole: GroupRole | null;
-}> {
+};
+
+/**
+ * Single-flight group refresh with a trailing re-run.
+ * Realtime invalidation, the 15s poll, and send() must not stack parallel MLS
+ * syncs (that hit the API 120/min ceiling and returned 429).
+ */
+const groupRefreshJobs = new Map<
+  string,
+  { inFlight: Promise<GroupRefreshResult>; pending: boolean }
+>();
+
+async function refreshGroup(
+  conversation: Conversation,
+  queryClient: { invalidateQueries: (filters: { queryKey: string[] }) => Promise<unknown> },
+): Promise<GroupRefreshResult> {
+  const existing = groupRefreshJobs.get(conversation.id);
+  if (existing) {
+    existing.pending = true;
+    return existing.inFlight;
+  }
+
+  const job: { inFlight: Promise<GroupRefreshResult>; pending: boolean } = {
+    inFlight: null as unknown as Promise<GroupRefreshResult>,
+    pending: false,
+  };
+  job.inFlight = (async () => {
+    let result: GroupRefreshResult;
+    for (;;) {
+      job.pending = false;
+      result = await runGroupRefresh(conversation, queryClient);
+      if (!job.pending) {
+        if (groupRefreshJobs.get(conversation.id) === job) {
+          groupRefreshJobs.delete(conversation.id);
+        }
+        return result;
+      }
+    }
+  })();
+  groupRefreshJobs.set(conversation.id, job);
+  return job.inFlight;
+}
+
+async function runGroupRefresh(
+  conversation: Conversation,
+  queryClient: { invalidateQueries: (filters: { queryKey: string[] }) => Promise<unknown> },
+): Promise<GroupRefreshResult> {
   const userId = currentUserId();
   const signing = currentSigningMaterial();
   const key = currentVaultKey();
@@ -660,11 +708,30 @@ async function refreshGroup(
     conversation.members?.find((member) => member.userId === userId)?.role === "ADMIN"
       ? "admin"
       : "member";
-  const [devices, initialBlobs, sealed] = await Promise.all([
-    api.groupDevices(conversation.id),
-    loadBlobs(conversation.id, deviceId),
-    loadSealedGroup(userId, conversation.id),
-  ]);
+
+  let devices;
+  let initialBlobs;
+  let sealed;
+  try {
+    [devices, initialBlobs, sealed] = await Promise.all([
+      api.groupDevices(conversation.id),
+      loadBlobs(conversation.id, deviceId),
+      loadSealedGroup(userId, conversation.id),
+    ]);
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 429) {
+      return {
+        messages: await listLocalMessages(conversation.id, 100),
+        joined: false,
+        status: null,
+        error: "The server asked this tab to slow down. Messages already on this device are still shown; retry shortly.",
+        selfRemoved: false,
+        mlsRole: null,
+      };
+    }
+    throw cause;
+  }
+
   const existing = sealed ? await openGroupRecord(key, userId, conversation.id, sealed) : null;
   const directory = devices.devices.map((device) => ({
     userId: device.userId,
@@ -685,34 +752,59 @@ async function refreshGroup(
     directory,
     post,
   } as const;
+
   let blobs = initialBlobs;
   let result = await syncGroup({
     ...syncInput,
     record: existing,
     blobs,
   });
-  // Epoch can move between the first blob fetch and upload; reload once.
+  // Keep plaintext from every sync pass — a reload must not drop the first pass.
+  const decryptedWire: GroupSyncMessage[] = [...result.messages];
+
+  // Only after an epoch race: one blob reload. Never because outbox still has work.
   if (shouldReloadGroupBlobs(result)) {
-    blobs = await loadBlobs(conversation.id, deviceId);
-    result = await syncGroup({
-      ...syncInput,
-      record: result.record,
-      blobs,
-    });
+    try {
+      blobs = await loadBlobs(conversation.id, deviceId);
+      result = await syncGroup({
+        ...syncInput,
+        record: result.record,
+        blobs,
+      });
+      decryptedWire.push(...result.messages);
+    } catch (cause) {
+      if (!(cause instanceof ApiError && cause.status === 429)) throw cause;
+      // Keep first-pass state; surface a soft error instead of wiping the thread.
+      result = {
+        ...result,
+        error: result.error ?? "The server asked this tab to slow down. Retry shortly.",
+      };
+    }
   }
+
   await saveSealedGroup(
     userId,
     conversation.id,
     await sealGroupRecord(key, userId, conversation.id, result.record),
   );
+
   const newlyDecrypted: LocalMessage[] = [];
-  for (const message of result.messages) {
+  const seen = new Set<string>();
+  for (const message of decryptedWire) {
+    if (seen.has(message.id)) continue;
+    seen.add(message.id);
     const sender = devices.devices.find((device) => device.deviceId === message.senderDeviceId);
     const local = localFrom(conversation.id, message, deviceId, sender?.userId);
     newlyDecrypted.push(local);
     await saveLocalMessage(local);
   }
-  await archiveGroupMessages(newlyDecrypted);
+  try {
+    await archiveGroupMessages(newlyDecrypted);
+  } catch (cause) {
+    // Archive is best-effort for display; do not hide already-decrypted messages.
+    console.warn("Could not archive group messages", cause);
+  }
+
   const messages = await listLocalMessages(conversation.id, 100);
   const selfRemoved = result.selfRemoved;
   const joined = Boolean(result.record.session) && !selfRemoved;
