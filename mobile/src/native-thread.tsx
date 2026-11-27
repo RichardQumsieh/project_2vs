@@ -5,6 +5,7 @@ import {
   AppState,
   FlatList,
   Keyboard,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -48,12 +49,17 @@ import {
   type PendingDirectSend,
 } from "../../frontend/lib/idb";
 import { api, setApiCookie, type Conversation } from "./api";
+import { asActivityState, currentLockDelayMs, createLockController, externalActivityActive, subscribeExternalActivity } from "./app-lock";
 import { registerCallLogSender, takeQueuedCallLogs } from "./call-log-bridge";
-import { useCallControls } from "./call-session";
+import { appLocale, t } from "./i18n";
+import { sweepDecryptedCache, wipeDecryptedCache } from "./media-cache";
 import { NativeMediaComposer } from "./media-composer";
 import { deleteScopes, type DeleteScope } from "./message-actions";
+import { messagePreviewText } from "../../frontend/lib/chat-payload";
 import { addReplyTarget, removeReplyTarget, toggleReplyTarget } from "./reply-selection";
 import { SwipeableMessage } from "./swipeable-message";
+import { buildThreadRows, type ThreadRow } from "./thread-rows";
+import { useColors } from "./theme";
 import { ActionButton, C, Input, Notice } from "./ui";
 
 type Props = { conversation: Conversation; cookie: string };
@@ -96,7 +102,10 @@ function mergeMessages(current: LocalMessage[], next: LocalMessage[]) {
 }
 
 export function NativeThread({ conversation, cookie }: Props) {
-  const [unlocked, setUnlocked] = useState(isUnlocked());
+  const colors = useColors();
+  const initiallyOpen = isUnlocked();
+  const hasSession = useRef(initiallyOpen);
+  const [locked, setLocked] = useState(!initiallyOpen);
   const [vaultPassword, setVaultPassword] = useState("");
   const [historyRecoveryInput, setHistoryRecoveryInput] = useState("");
   const [unlocking, setUnlocking] = useState(false);
@@ -118,23 +127,33 @@ export function NativeThread({ conversation, cookie }: Props) {
   const [replyIds, setReplyIds] = useState<string[]>([]);
   const [selectingReplies, setSelectingReplies] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<LocalMessage | null>(null);
+  const [menuMessage, setMenuMessage] = useState<LocalMessage | null>(null);
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
+  const [unreadBelow, setUnreadBelow] = useState(0);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [undo, setUndo] = useState<{ message: LocalMessage; scope: DeleteScope; pending: boolean } | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listRef = useRef<FlatList<LocalMessage>>(null);
-  const calls = useCallControls();
+  const listRef = useRef<FlatList<ThreadRow>>(null);
+  const awayRef = useRef(false);
+  const seenNewest = useRef<string | null>(null);
   const autoScroll = useRef(true);
   const refreshInFlight = useRef(false);
   const groupHistorySynced = useRef(new Set<string>());
 
   useEffect(() => { setApiCookie(cookie); }, [cookie]);
   useEffect(() => {
-    setUnlocked(isUnlocked());
     setReplyIds([]);
     setSelectingReplies(false);
     setDeleteTarget(null);
+    setMenuMessage(null);
     setHiddenIds([]);
     setUndo(null);
+    setMessages([]);
+    setPendingSends([]);
+    setAwayFromLatest(false);
+    setUnreadBelow(0);
+    seenNewest.current = null;
+    setLocked(!isUnlocked());
   }, [conversation.id]);
 
   const myUserId = currentUserId();
@@ -293,7 +312,8 @@ export function NativeThread({ conversation, cookie }: Props) {
       if (setup.archiveRecoveryCode) setRecoveryCode(setup.archiveRecoveryCode);
       setVaultPassword("");
       setHistoryRecoveryInput("");
-      setUnlocked(true);
+      hasSession.current = true;
+      setLocked(false);
       updateStep("loading local messages");
       await refreshLocal();
       setHistoryBusy(true);
@@ -355,7 +375,7 @@ export function NativeThread({ conversation, cookie }: Props) {
   }, [conversation.id, conversation.type, sendPending]);
 
   useEffect(() => {
-    if (!unlocked || !isUnlocked()) return;
+    if (locked || !isUnlocked()) return;
     let active = true;
     const run = async () => {
       if (!active) return;
@@ -367,25 +387,58 @@ export function NativeThread({ conversation, cookie }: Props) {
     const timer = setInterval(() => {
       if (AppState.currentState === "active") void run();
     }, 5000);
-    const appState = AppState.addEventListener("change", (state) => {
-      if (state === "active") void run();
-      else {
-        setUnlocked(false);
-        setMessages([]);
-        setPendingSends([]);
-        void lockDevice();
-      }
-    });
     return () => {
       active = false;
       clearInterval(timer);
-      appState.remove();
     };
-  }, [flushPending, refreshConversation, refreshLocal, unlocked]);
+  }, [flushPending, locked, refreshConversation, refreshLocal]);
+
+  useEffect(() => {
+    let alive = true;
+    const run = async () => {
+      if (!alive || locked || !isUnlocked()) return;
+      await flushPending();
+      await refreshConversation();
+    };
+    const controller = createLockController({
+      now: () => Date.now(),
+      delayMs: () => currentLockDelayMs(),
+      externalActivity: externalActivityActive,
+      appState: () => asActivityState(AppState.currentState),
+      onLock: () => {
+        if (!alive || !isUnlocked()) return;
+        Keyboard.dismiss();
+        void wipeDecryptedCache();
+        void lockDevice().finally(() => {
+          if (alive) setLocked(true);
+        });
+      },
+      schedule: (lockAt, fire) => {
+        const timer = setTimeout(fire, Math.max(0, lockAt - Date.now()));
+        return () => clearTimeout(timer);
+      },
+    });
+    const appState = AppState.addEventListener("change", (state) => {
+      controller.evaluate(asActivityState(state));
+      if (state === "active") {
+        void sweepDecryptedCache();
+        void run();
+      }
+    });
+    const unsubscribe = subscribeExternalActivity(() => {
+      controller.evaluate(asActivityState(AppState.currentState));
+    });
+    return () => {
+      alive = false;
+      appState.remove();
+      unsubscribe();
+      controller.dispose();
+    };
+  }, [flushPending, locked, refreshConversation]);
 
   async function sendPlaintext(plaintext: string) {
     const text = plaintext.trim();
-    if (!text || sending || !unlocked) return;
+    if (!text || sending || locked || !isUnlocked()) return;
     setSending(true);
     setSendError("");
     setSendQueued(false);
@@ -417,7 +470,7 @@ export function NativeThread({ conversation, cookie }: Props) {
         await refreshConversation();
       }
       autoScroll.current = true;
-      listRef.current?.scrollToEnd({ animated: true });
+      listRef.current?.scrollToOffset({ offset: 0, animated: true });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
       setReplyIds([]);
       setSelectingReplies(false);
@@ -431,7 +484,7 @@ export function NativeThread({ conversation, cookie }: Props) {
   }
 
   useEffect(() => {
-    if (!unlocked) return;
+    if (locked || !isUnlocked()) return;
     const unregister = registerCallLogSender(async (conversationId, plaintext) => {
       if (conversationId !== conversation.id) return;
       await sendPlaintext(plaintext);
@@ -439,7 +492,7 @@ export function NativeThread({ conversation, cookie }: Props) {
     const queued = takeQueuedCallLogs(conversation.id);
     for (const item of queued) void sendPlaintext(item.plaintext).catch(() => undefined);
     return unregister;
-  }, [conversation.id, unlocked]);
+  }, [conversation.id, locked]);
 
   async function finalizeDelete(message: LocalMessage, scope: DeleteScope, pending: boolean) {
     const logicalId = message.logicalMessageId ?? message.id;
@@ -499,16 +552,43 @@ export function NativeThread({ conversation, cookie }: Props) {
     }
   }
 
+  const rows = useMemo(
+    () => [...buildThreadRows(displayMessages, new Date(), appLocale())].reverse(),
+    [displayMessages],
+  );
+
+  useEffect(() => {
+    const newest = displayMessages[displayMessages.length - 1];
+    if (!newest) return;
+    if (seenNewest.current && seenNewest.current !== newest.id && awayRef.current) {
+      const previousIndex = displayMessages.findIndex((item) => item.id === seenNewest.current);
+      const arrived = previousIndex === -1 ? 1 : displayMessages.length - 1 - previousIndex;
+      if (arrived > 0) setUnreadBelow((count) => count + arrived);
+    }
+    seenNewest.current = newest.id;
+  }, [displayMessages]);
+
   function onScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    autoScroll.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 80;
+    const atLatest = event.nativeEvent.contentOffset.y < 80;
+    autoScroll.current = atLatest;
+    awayRef.current = !atLatest;
+    setAwayFromLatest(!atLatest);
+    if (atLatest) setUnreadBelow(0);
   }
 
-  if (!unlocked) {
-    return <View style={styles.unlockRoot}>
+  async function copyMessage(message: LocalMessage) {
+    const text = messagePreviewText(message.plaintext);
+    if (!text.trim()) return;
+    const clipboard = await import("expo-clipboard");
+    await clipboard.setStringAsync(text);
+    void Haptics.selectionAsync().catch(() => undefined);
+  }
+
+  const unlockView = (
+    <View style={[styles.unlockRoot, { backgroundColor: colors.bg }]}>
       <View style={styles.unlockIcon}><Ionicons name="lock-closed" size={23} color={C.green} /></View>
-      <Text style={styles.unlockTitle}>Unlock your encrypted chats</Text>
-      <Text style={styles.unlockCopy}>Enter your Sophia messaging vault password. This device will join your secure account and restore the history available to you.</Text>
+      <Text style={[styles.unlockTitle, { color: colors.ink }]}>Unlock your encrypted chats</Text>
+      <Text style={[styles.unlockCopy, { color: colors.muted }]}>Enter your Sophia messaging vault password. This device will join your secure account and restore the history available to you.</Text>
       <Input
         label="MESSAGING VAULT PASSWORD"
         value={vaultPassword}
@@ -535,10 +615,16 @@ export function NativeThread({ conversation, cookie }: Props) {
       {unlocking && !!unlockStep && <Text accessibilityLiveRegion="polite" style={styles.unlockFoot}>{unlockStep}…</Text>}
       <ActionButton title="Unlock secure messages" icon="lock-open-outline" onPress={() => void unlock()} busy={unlocking} disabled={!vaultPassword} />
       <Text style={styles.unlockFoot}>Message keys and chat history are encrypted on this device. Sophia's servers only receive encrypted content.</Text>
-    </View>;
-  }
+    </View>
+  );
 
-  return <View style={styles.root}>
+  if (locked && !hasSession.current) return unlockView;
+
+  const deleteEveryone = deleteTarget
+    ? deleteScopes({ fromMe: Boolean(deleteTarget.fromMe), pending: pendingSends.some((send) => send.id === deleteTarget.id) }).includes("everyone")
+    : false;
+
+  return <View style={[styles.root, { backgroundColor: colors.bg }]}>
     {!!recoveryCode && <View style={styles.recoveryCard}>
       <View style={styles.recoveryTitleRow}><Ionicons name="key-outline" size={17} color={C.amber} /><Text style={styles.recoveryTitle}>Save your history recovery code</Text></View>
       <Text style={styles.recoveryCopy}>Keep this code somewhere private. It can restore your encrypted chat history if you forget your messaging vault password. Press and hold the code to copy it.</Text>
@@ -553,83 +639,76 @@ export function NativeThread({ conversation, cookie }: Props) {
     {conversation.type === "GROUP" && groupStatus && !groupStatus.joined && <View style={styles.inlineNotice}><Notice text="This device is waiting for an existing group member to add it securely. Group history already available to your account can still be restored." tone="info" /></View>}
     {conversation.type === "GROUP" && groupStatus?.error && <View style={styles.inlineNotice}><Notice text={groupStatus.error} tone="info" /></View>}
     {!!sendError && <View style={styles.inlineNotice}><Notice text={sendQueued ? `Message safely queued. Sophia will retry when the connection returns. ${sendError}` : sendError} tone="info" /></View>}
-    <View style={styles.callBar}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Start voice call" onPress={() => void calls.startCall(conversation, "audio")} style={styles.callButton}>
-        <Ionicons name="call-outline" size={16} color={C.purple} />
-        <Text style={styles.callText}>Voice</Text>
-      </Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="Start video call" onPress={() => void calls.startCall(conversation, "video")} style={styles.callButton}>
-        <Ionicons name="videocam-outline" size={16} color={C.purple} />
-        <Text style={styles.callText}>Video</Text>
-      </Pressable>
+    <View style={styles.listWrap}>
+      <FlatList
+        ref={listRef}
+        inverted
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        data={rows}
+        keyExtractor={(item) => item.id}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        removeClippedSubviews={false}
+        onEndReachedThreshold={0.2}
+        onEndReached={() => {
+          if (hasEarlier && !loadingEarlier) void loadEarlier();
+        }}
+        maintainVisibleContentPosition={{ minIndexForVisible: 1, autoscrollToTopThreshold: 48 }}
+        ListFooterComponent={hasEarlier ? <Pressable style={styles.earlierButton} onPress={() => void loadEarlier()} disabled={loadingEarlier}>
+          {loadingEarlier ? <ActivityIndicator size="small" color={colors.purple} /> : <Ionicons name="chevron-up" size={15} color={colors.purple} />}
+          <Text style={[styles.earlierText, { color: colors.purple }]}>{loadingEarlier ? t("loadingEarlier") : t("loadEarlier")}</Text>
+        </Pressable> : undefined}
+        ListEmptyComponent={<View style={styles.emptyMessages}><View style={[styles.emptyIcon, { backgroundColor: colors.lilac }]}><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.purple} /></View><Text style={[styles.emptyTitle, { color: colors.ink }]}>{t("emptyTitle")}</Text><Text style={[styles.emptyCopy, { color: colors.muted }]}>{t("emptyCopy")}</Text></View>}
+        renderItem={({ item }) => item.kind === "date" ? (
+          <View style={styles.dateRow} accessibilityRole="header">
+            <View style={[styles.datePill, { backgroundColor: colors.lilac }]}><Text style={[styles.dateText, { color: colors.muted }]}>{item.label}</Text></View>
+          </View>
+        ) : (
+          <SwipeableMessage
+            message={item.message}
+            conversation={conversation}
+            pending={pendingSends.some((send) => send.id === item.message.id)}
+            selecting={selectingReplies}
+            selected={replyIds.includes(item.message.id)}
+            cluster={item.cluster}
+            showSender={item.showSender}
+            onReply={(message) => setReplyIds((current) => addReplyTarget(current, message.id))}
+            onToggleSelect={(message) => setReplyIds((current) => toggleReplyTarget(current, message.id))}
+            onOpenMenu={setMenuMessage}
+            onDelete={setDeleteTarget}
+          />
+        )}
+      />
+      {awayFromLatest ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={t("scrollToLatest")} onPress={() => {
+          setUnreadBelow(0);
+          setAwayFromLatest(false);
+          awayRef.current = false;
+          listRef.current?.scrollToOffset({ offset: 0, animated: true });
+        }} style={[styles.jump, { backgroundColor: colors.paper, borderColor: colors.line }]}>
+          <Ionicons name="chevron-down" size={18} color={colors.purple} />
+          {unreadBelow > 0 ? <View style={[styles.jumpBadge, { backgroundColor: colors.purple }]}><Text style={styles.jumpBadgeText}>{unreadBelow > 99 ? "99+" : unreadBelow}</Text></View> : null}
+        </Pressable>
+      ) : null}
     </View>
-    {deleteTarget ? (
-      <View style={styles.deleteCard}>
-        <Text style={styles.deleteTitle}>Delete this message?</Text>
-        <View style={styles.deleteActions}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Delete for me" onPress={() => confirmDelete("me")} style={styles.deleteChoice}>
-            <Text style={styles.deleteChoiceText}>Delete for me</Text>
-          </Pressable>
-          {deleteScopes({ fromMe: Boolean(deleteTarget.fromMe), pending: pendingSends.some((send) => send.id === deleteTarget.id) }).includes("everyone") ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Delete for everyone" onPress={() => confirmDelete("everyone")} style={styles.deleteChoice}>
-              <Text style={styles.deleteChoiceText}>Delete for everyone</Text>
-            </Pressable>
-          ) : null}
-          <Pressable accessibilityRole="button" accessibilityLabel="Cancel delete" onPress={() => setDeleteTarget(null)} style={styles.deleteChoice}>
-            <Text style={styles.deleteCancel}>Cancel</Text>
-          </Pressable>
-        </View>
-      </View>
-    ) : null}
     {undo ? (
       <View style={styles.undoBar}>
-        <Text style={styles.undoText}>{undo.scope === "everyone" ? "Deleting for everyone" : "Deleted for you"}</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Undo delete" onPress={undoDelete}>
-          <Text style={styles.undoAction}>Undo</Text>
+        <Text style={styles.undoText}>{undo.scope === "everyone" ? t("deletingForEveryone") : t("deletedForYou")}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("undo")} onPress={undoDelete} style={styles.undoButton}>
+          <Text style={styles.undoAction}>{t("undo")}</Text>
         </Pressable>
       </View>
     ) : null}
-    <FlatList
-      ref={listRef}
-      style={styles.list}
-      contentContainerStyle={styles.listContent}
-      data={displayMessages}
-      keyExtractor={(item) => item.id}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-      onScroll={onScroll}
-      scrollEventThrottle={100}
-      onContentSizeChange={() => {
-        if (autoScroll.current) listRef.current?.scrollToEnd({ animated: true });
-      }}
-      ListHeaderComponent={hasEarlier ? <Pressable style={styles.earlierButton} onPress={() => void loadEarlier()} disabled={loadingEarlier}>
-        {loadingEarlier ? <ActivityIndicator size="small" color={C.purple} /> : <Ionicons name="chevron-up" size={15} color={C.purple} />}
-        <Text style={styles.earlierText}>{loadingEarlier ? "Loading earlier messages" : "Load earlier messages"}</Text>
-      </Pressable> : undefined}
-      ListEmptyComponent={<View style={styles.emptyMessages}><View style={styles.emptyIcon}><Ionicons name="chatbubble-ellipses-outline" size={21} color={C.purple} /></View><Text style={styles.emptyTitle}>A fresh start</Text><Text style={styles.emptyCopy}>Messages are private to the people in this conversation. Send the first note when you're ready.</Text></View>}
-      renderItem={({ item }) => (
-        <SwipeableMessage
-          message={item}
-          conversation={conversation}
-          pending={pendingSends.some((send) => send.id === item.id)}
-          selecting={selectingReplies}
-          selected={replyIds.includes(item.id)}
-          onReply={(message) => setReplyIds((current) => addReplyTarget(current, message.id))}
-          onToggleSelect={(message) => setReplyIds((current) => toggleReplyTarget(current, message.id))}
-          onBeginSelect={(message) => {
-            setSelectingReplies(true);
-            setReplyIds((current) => addReplyTarget(current, message.id));
-          }}
-          onDelete={setDeleteTarget}
-        />
-      )}
-    />
     {conversation.type === "GROUP" && groupStatus && !groupStatus.joined ? null : (
       <NativeMediaComposer
+        key={conversation.id}
         conversationId={conversation.id}
         joined={conversation.type !== "GROUP" || Boolean(groupStatus?.joined)}
         messages={displayMessages}
-        disabled={sending || !unlocked}
+        disabled={sending || locked}
         placeholder={conversation.type === "GROUP" ? "Message your group…" : "Write a message…"}
         replyIds={replyIds}
         selectingReplies={selectingReplies}
@@ -639,6 +718,56 @@ export function NativeThread({ conversation, cookie }: Props) {
         onSendPlaintext={sendPlaintext}
       />
     )}
+    {locked ? <View style={[styles.lockOverlay, { backgroundColor: colors.bg }]}>{unlockView}</View> : null}
+    <Modal visible={Boolean(deleteTarget)} transparent animationType="slide" onRequestClose={() => setDeleteTarget(null)}>
+      <Pressable style={[styles.scrim, { backgroundColor: colors.scrim }]} onPress={() => setDeleteTarget(null)} />
+      <View style={[styles.sheet, { backgroundColor: colors.paper }]}>
+        <View style={[styles.sheetHandle, { backgroundColor: colors.line }]} />
+        <Text style={[styles.sheetTitle, { color: colors.ink }]}>{t("deleteTitle")}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("deleteForMe")} onPress={() => confirmDelete("me")} style={styles.sheetButton}>
+          <Text style={styles.sheetDanger}>{t("deleteForMe")}</Text>
+        </Pressable>
+        {deleteEveryone ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={t("deleteForEveryone")} onPress={() => confirmDelete("everyone")} style={styles.sheetButton}>
+            <Text style={styles.sheetDanger}>{t("deleteForEveryone")}</Text>
+          </Pressable>
+        ) : null}
+        <Pressable accessibilityRole="button" accessibilityLabel={t("cancel")} onPress={() => setDeleteTarget(null)} style={styles.sheetButton}>
+          <Text style={[styles.sheetCancel, { color: colors.muted }]}>{t("cancel")}</Text>
+        </Pressable>
+      </View>
+    </Modal>
+    <Modal visible={Boolean(menuMessage)} transparent animationType="slide" onRequestClose={() => setMenuMessage(null)}>
+      <Pressable style={[styles.scrim, { backgroundColor: colors.scrim }]} onPress={() => setMenuMessage(null)} />
+      <View style={[styles.sheet, { backgroundColor: colors.paper }]}>
+        <View style={[styles.sheetHandle, { backgroundColor: colors.line }]} />
+        <Pressable accessibilityRole="button" accessibilityLabel={t("reply")} onPress={() => {
+          if (!menuMessage) return;
+          setReplyIds((current) => addReplyTarget(current, menuMessage.id));
+          setMenuMessage(null);
+        }} style={styles.sheetButton}><Text style={[styles.sheetLabel, { color: colors.ink }]}>{t("reply")}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("copy")} onPress={() => {
+          if (!menuMessage) return;
+          const target = menuMessage;
+          setMenuMessage(null);
+          void copyMessage(target);
+        }} style={styles.sheetButton}><Text style={[styles.sheetLabel, { color: colors.ink }]}>{t("copy")}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("select")} onPress={() => {
+          if (!menuMessage) return;
+          setSelectingReplies(true);
+          setReplyIds((current) => addReplyTarget(current, menuMessage.id));
+          setMenuMessage(null);
+        }} style={styles.sheetButton}><Text style={[styles.sheetLabel, { color: colors.ink }]}>{t("select")}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("delete")} onPress={() => {
+          if (!menuMessage) return;
+          setDeleteTarget(menuMessage);
+          setMenuMessage(null);
+        }} style={styles.sheetButton}><Text style={styles.sheetDanger}>{t("delete")}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("cancel")} onPress={() => setMenuMessage(null)} style={styles.sheetButton}>
+          <Text style={[styles.sheetCancel, { color: colors.muted }]}>{t("cancel")}</Text>
+        </Pressable>
+      </View>
+    </Modal>
   </View>;
 }
 
@@ -670,8 +799,25 @@ const styles = StyleSheet.create({
   undoBar: { marginHorizontal: 12, marginTop: 8, minHeight: 40, borderRadius: 14, backgroundColor: "#241C33", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   undoText: { color: "#FFFFFF", fontSize: 12 },
   undoAction: { color: "#E4D7FF", fontSize: 12, fontWeight: "800" },
+  listWrap: { flex: 1 },
   list: { flex: 1 },
-  listContent: { flexGrow: 1, justifyContent: "flex-end", paddingHorizontal: 15, paddingTop: 10, paddingBottom: 18 },
+  listContent: { flexGrow: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12 },
+  dateRow: { alignItems: "center", marginVertical: 10 },
+  datePill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  dateText: { fontSize: 12, fontWeight: "700" },
+  jump: { position: "absolute", end: 16, bottom: 12, width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  jumpBadge: { position: "absolute", top: -4, end: -4, minWidth: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
+  jumpBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700" },
+  lockOverlay: { ...StyleSheet.absoluteFill },
+  scrim: { flex: 1 },
+  sheet: { borderTopStartRadius: 22, borderTopEndRadius: 22, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24 },
+  sheetHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 12 },
+  sheetTitle: { fontSize: 16, fontWeight: "700", textAlign: "center", marginBottom: 8 },
+  sheetButton: { minHeight: 48, alignItems: "center", justifyContent: "center" },
+  sheetLabel: { fontSize: 16, fontWeight: "600" },
+  sheetDanger: { color: "#B42318", fontSize: 16, fontWeight: "700" },
+  sheetCancel: { fontSize: 16, fontWeight: "600" },
+  undoButton: { minHeight: 44, justifyContent: "center", paddingHorizontal: 8 },
   earlierButton: { alignSelf: "center", minHeight: 36, paddingHorizontal: 12, marginBottom: 12, flexDirection: "row", alignItems: "center", gap: 6 },
   earlierText: { color: C.purple, fontSize: 12, fontWeight: "600" },
   emptyMessages: { alignItems: "center", justifyContent: "center", paddingHorizontal: 36, paddingVertical: 54, flexGrow: 1 },

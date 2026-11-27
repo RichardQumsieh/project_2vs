@@ -60,6 +60,7 @@ function sniffPhotoMime(bytes: Uint8Array): AllowedPhotoMime | null {
 }
 
 async function photoDimensions(bytes: Uint8Array, mime: AllowedPhotoMime) {
+  if (typeof createImageBitmap !== "function") return undefined;
   const blob = new Blob([asBufferSource(bytes)], { type: mime });
   const bitmap = await createImageBitmap(blob);
   const width = bitmap.width;

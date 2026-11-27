@@ -1,12 +1,27 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useRef } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import Swipeable, { type SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
+import * as Haptics from "expo-haptics";
+import React, { useEffect, useMemo, useRef } from "react";
+import { I18nManager, Pressable, StyleSheet, Text, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import type { LocalMessage } from "../../frontend/lib/crypto/types";
 import type { Conversation } from "./api";
-import { deleteScopes, swipeOpenAction } from "./message-actions";
+import { t } from "./i18n";
+import { clusterSpacing, type MessageCluster } from "./thread-rows";
 import { NativeMessageBody } from "./message-body";
-import { C } from "./ui";
+import { swipeIntent } from "./message-actions";
+import { useColors } from "./theme";
+
+const ACTION = 84;
+const THRESHOLD = 72;
+
+const closers = new Set<() => void>();
+
+function closeOtherRows(current: () => void) {
+  closers.forEach((close) => {
+    if (close !== current) close();
+  });
+}
 
 type Props = {
   message: LocalMessage;
@@ -14,19 +29,22 @@ type Props = {
   pending: boolean;
   selecting: boolean;
   selected: boolean;
+  cluster: MessageCluster;
+  showSender: boolean;
   onReply: (message: LocalMessage) => void;
   onToggleSelect: (message: LocalMessage) => void;
-  onBeginSelect: (message: LocalMessage) => void;
+  onOpenMenu: (message: LocalMessage) => void;
   onDelete: (message: LocalMessage) => void;
 };
 
-function Action({ label, icon, tone }: { label: string; icon: keyof typeof Ionicons.glyphMap; tone: "delete" | "reply" }) {
-  return (
-    <View style={[styles.action, tone === "delete" ? styles.deleteAction : styles.replyAction]}>
-      <Ionicons name={icon} size={16} color="#FFFFFF" />
-      <Text style={styles.actionText}>{label}</Text>
-    </View>
-  );
+function senderName(message: LocalMessage, conversation: Conversation) {
+  if (message.fromMe) return "You";
+  if (conversation.type === "DIRECT") {
+    return conversation.peer?.displayName || conversation.peer?.username || "Member";
+  }
+  return conversation.members?.find((member) => member.userId === message.senderUserId)?.displayName
+    || conversation.members?.find((member) => member.userId === message.senderUserId)?.username
+    || "Member";
 }
 
 export function SwipeableMessage({
@@ -35,78 +53,153 @@ export function SwipeableMessage({
   pending,
   selecting,
   selected,
+  cluster,
+  showSender,
   onReply,
   onToggleSelect,
-  onBeginSelect,
+  onOpenMenu,
   onDelete,
 }: Props) {
-  const swipeRef = useRef<SwipeableMethods>(null);
-  const sender = message.fromMe
-    ? "You"
-    : conversation.type === "DIRECT"
-      ? conversation.peer?.displayName || conversation.peer?.username || "Member"
-      : conversation.members?.find((member) => member.userId === message.senderUserId)?.displayName
-        || conversation.members?.find((member) => member.userId === message.senderUserId)?.username
-        || "Member";
+  const colors = useColors();
+  const tx = useSharedValue(0);
+  const tripped = useRef(false);
+  const rtl = I18nManager.isRTL;
+  const handlers = useRef({ onReply, onDelete, onOpenMenu, onToggleSelect });
+  handlers.current = { onReply, onDelete, onOpenMenu, onToggleSelect };
+
+  const close = useMemo(() => () => {
+    tx.value = withTiming(0, { duration: 160 });
+  }, [tx]);
+
+  useEffect(() => {
+    closers.add(close);
+    return () => {
+      closers.delete(close);
+    };
+  }, [close]);
+
+  const gesture = useMemo(() => Gesture.Pan()
+    .runOnJS(true)
+    .enabled(!selecting)
+    .activeOffsetX([-18, 18])
+    .failOffsetY([-14, 14])
+    .onBegin(() => {
+      tripped.current = false;
+      closeOtherRows(close);
+    })
+    .onUpdate((event) => {
+      const signed = rtl ? -event.translationX : event.translationX;
+      const next = Math.max(-ACTION, Math.min(ACTION, signed));
+      tx.value = next;
+      if (!tripped.current && Math.abs(next) >= THRESHOLD) {
+        tripped.current = true;
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
+      }
+    })
+    .onFinalize((event) => {
+      const signed = rtl ? -event.translationX : event.translationX;
+      const action = swipeIntent(signed, THRESHOLD);
+      tx.value = withTiming(0, { duration: 180 });
+      if (action === "delete") handlers.current.onDelete(message);
+      else if (action === "reply") handlers.current.onReply(message);
+    }), [close, message, rtl, selecting, tx]);
+
+  const leadingStyle = useAnimatedStyle(() => ({
+    width: Math.max(0, tx.value),
+    opacity: tx.value > 1 ? 1 : 0,
+  }));
+  const trailingStyle = useAnimatedStyle(() => ({
+    width: Math.max(0, -tx.value),
+    opacity: tx.value < -1 ? 1 : 0,
+  }));
+  const travelStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: rtl ? -tx.value : tx.value }],
+  }));
+
   const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(message.createdAt));
-  const everyone = deleteScopes({ fromMe: Boolean(message.fromMe), pending }).includes("everyone");
+  const tail = cluster === "single" || cluster === "last";
+  const mine = Boolean(message.fromMe);
+  const name = senderName(message, conversation);
 
   return (
-    <Swipeable
-      ref={swipeRef}
-      enabled={!selecting}
-      overshootLeft={false}
-      overshootRight={false}
-      leftThreshold={72}
-      rightThreshold={72}
-      renderLeftActions={() => <Action label={everyone ? "Delete" : "Delete for me"} icon="trash" tone="delete" />}
-      renderRightActions={() => <Action label="Reply" icon="return-up-back" tone="reply" />}
-      onSwipeableOpen={(direction) => {
-        swipeRef.current?.close();
-        const action = swipeOpenAction(direction);
-        if (action === "delete") onDelete(message);
-        else onReply(message);
-      }}
+    <View
+      collapsable={false}
+      style={[styles.clip, { marginBottom: clusterSpacing(cluster), backgroundColor: colors.bg }]}
     >
-      <Pressable
-        accessibilityRole={selecting ? "checkbox" : "button"}
-        accessibilityState={selecting ? { checked: selected } : undefined}
-        accessibilityHint={selecting ? "Include this message in the reply" : "Swipe left to reply. Swipe right to delete. Long press to select more."}
-        onLongPress={() => onBeginSelect(message)}
-        onPress={() => { if (selecting) onToggleSelect(message); }}
-        delayLongPress={320}
-        style={[styles.messageRow, message.fromMe ? styles.messageRowMine : styles.messageRowPeer]}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.reveal, rtl ? styles.revealEnd : styles.revealStart, { backgroundColor: "#B42318" }, leadingStyle]}
       >
-        {selecting ? <View style={[styles.checkbox, selected && styles.checkboxOn]} /> : null}
-        <View style={[styles.messageBubble, message.fromMe ? styles.messageBubbleMine : styles.messageBubblePeer, selected && styles.selected]}>
-          {conversation.type === "GROUP" && !message.fromMe ? <Text style={styles.senderName}>{sender}</Text> : null}
-          <NativeMessageBody conversationId={conversation.id} plaintext={message.plaintext} fromMe={message.fromMe} />
-          <View style={styles.messageMeta}>
-            <Text style={[styles.messageTime, message.fromMe && styles.messageTimeMine]}>{pending ? "Waiting to send" : time}</Text>
-            {message.fromMe && !pending ? <Ionicons name="checkmark-done" size={13} color="#DCD2ED" /> : null}
-          </View>
+        <View style={styles.action}>
+          <Ionicons name="trash" size={18} color="#FFFFFF" />
+          <Text style={styles.actionText}>{t("delete")}</Text>
         </View>
-      </Pressable>
-    </Swipeable>
+      </Animated.View>
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.reveal, rtl ? styles.revealStart : styles.revealEnd, { backgroundColor: colors.purpleDark }, trailingStyle]}
+      >
+        <View style={styles.action}>
+          <Ionicons name="return-up-back" size={18} color="#FFFFFF" />
+          <Text style={styles.actionText}>{t("reply")}</Text>
+        </View>
+      </Animated.View>
+      <GestureDetector gesture={gesture}>
+        <Animated.View style={[styles.foreground, { backgroundColor: colors.bg }, travelStyle]}>
+          <Pressable
+            accessibilityRole={selecting ? "checkbox" : "button"}
+            accessibilityState={selecting ? { checked: selected } : undefined}
+            accessibilityHint="Swipe to reply or delete. Long press for more actions."
+            delayLongPress={320}
+            onLongPress={() => {
+              void Haptics.selectionAsync().catch(() => undefined);
+              handlers.current.onOpenMenu(message);
+            }}
+            onPress={() => {
+              if (selecting) handlers.current.onToggleSelect(message);
+            }}
+            style={[styles.line, mine ? styles.lineMine : styles.linePeer]}
+          >
+            {selecting ? <View style={[styles.checkbox, { borderColor: colors.line, backgroundColor: colors.paper }, selected && { backgroundColor: colors.purple, borderColor: colors.purple }]} /> : null}
+            <View
+              style={[
+                styles.bubble,
+                mine ? { backgroundColor: colors.mine } : { backgroundColor: colors.paper, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+                tail && mine && styles.tailMine,
+                tail && !mine && styles.tailPeer,
+                selected && { borderWidth: 2, borderColor: colors.lilac2 },
+              ]}
+            >
+              {showSender && conversation.type === "GROUP" ? <Text style={[styles.sender, { color: colors.purple }]}>{name}</Text> : null}
+              <NativeMessageBody conversationId={conversation.id} plaintext={message.plaintext} fromMe={mine} />
+              <View style={styles.meta}>
+                <Text style={[styles.time, { color: mine ? "#DDD5EB" : colors.faint }]}>{pending ? "…" : time}</Text>
+                {mine && !pending ? <Ionicons name="checkmark-done" size={13} color="#DCD2ED" /> : null}
+              </View>
+            </View>
+          </Pressable>
+        </Animated.View>
+      </GestureDetector>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  action: { width: 92, marginBottom: 9, borderRadius: 16, alignItems: "center", justifyContent: "center", gap: 4 },
-  deleteAction: { backgroundColor: "#B42318" },
-  replyAction: { backgroundColor: C.purple },
+  clip: { width: "100%", overflow: "hidden" },
+  reveal: { position: "absolute", top: 0, bottom: 0, width: 0, opacity: 0, overflow: "hidden", justifyContent: "center" },
+  revealStart: { left: 0 },
+  revealEnd: { right: 0 },
+  action: { width: ACTION, flex: 1, alignItems: "center", justifyContent: "center", gap: 4 },
   actionText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
-  messageRow: { width: "100%", marginBottom: 9, flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  messageRowMine: { justifyContent: "flex-end" },
-  messageRowPeer: { justifyContent: "flex-start" },
-  checkbox: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: C.line, backgroundColor: C.paper, marginBottom: 10 },
-  checkboxOn: { backgroundColor: C.purple, borderColor: C.purple },
-  messageBubble: { maxWidth: "84%", minWidth: 84, borderRadius: 19, paddingHorizontal: 13, paddingTop: 10, paddingBottom: 7 },
-  messageBubbleMine: { backgroundColor: C.purple, borderBottomEndRadius: 6 },
-  messageBubblePeer: { backgroundColor: C.paper, borderWidth: 1, borderColor: C.line, borderBottomStartRadius: 6 },
-  selected: { borderWidth: 2, borderColor: "#C4B5FD" },
-  senderName: { color: C.purple, fontSize: 11, fontWeight: "700", marginBottom: 4 },
-  messageMeta: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 4 },
-  messageTime: { color: C.faint, fontSize: 10 },
-  messageTimeMine: { color: "#DDD5EB" },
+  foreground: { width: "100%" },
+  line: { width: "100%", flexDirection: "row", alignItems: "flex-end", gap: 8 },
+  lineMine: { justifyContent: "flex-end" },
+  linePeer: { justifyContent: "flex-start" },
+  checkbox: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, marginBottom: 8 },
+  bubble: { maxWidth: "78%", minWidth: 72, borderRadius: 18, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6 },
+  tailMine: { borderBottomEndRadius: 6 },
+  tailPeer: { borderBottomStartRadius: 6 },
+  sender: { fontSize: 12, fontWeight: "700", marginBottom: 2 },
+  meta: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 3 },
+  time: { fontSize: 11 },
 });
