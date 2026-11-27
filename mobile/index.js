@@ -1,3 +1,5 @@
+require("react-native-gesture-handler");
+
 if (typeof Array.prototype.at !== "function") {
   Object.defineProperty(Array.prototype, "at", {
     configurable: true,

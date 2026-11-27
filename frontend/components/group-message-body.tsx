@@ -6,6 +6,7 @@ import { EncryptedPhoto } from "@/components/encrypted-photo";
 import { EncryptedVideo } from "@/components/encrypted-video";
 import { EncryptedVoiceNote } from "@/components/encrypted-voice-note";
 import { LinkSafetyText } from "@/components/link-safety-text";
+import { CallLogBlock } from "@/components/call-log";
 import { ReplyQuoteBlock } from "@/components/reply-quote";
 import { parseChatPayload } from "@/lib/chat-payload";
 import { BidiText } from "@/lib/i18n/bidi";
@@ -49,6 +50,9 @@ export function GroupMessageBody({
   }
   if (payload.type === "reply") {
     return <ReplyQuoteBlock payload={payload} fromMe={fromMe} />;
+  }
+  if (payload.type === "call") {
+    return <CallLogBlock payload={payload} />;
   }
   if (payload.type === "location") {
     return (

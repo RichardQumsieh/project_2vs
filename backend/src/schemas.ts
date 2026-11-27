@@ -378,6 +378,48 @@ export const callSignalSchema = z.discriminatedUnion("type", [
     callId: z.string().uuid(),
     conversationId: z.string().uuid(),
   }).strict(),
+  z.object({
+    type: z.literal("call:group-invite"),
+    callId: z.string().uuid(),
+    conversationId: z.string().uuid(),
+    mode: z.enum(["audio", "video"]),
+  }).strict(),
+  z.object({
+    type: z.literal("call:group-join"),
+    callId: z.string().uuid(),
+    conversationId: z.string().uuid(),
+  }).strict(),
+  z.object({
+    type: z.literal("call:group-offer"),
+    callId: z.string().uuid(),
+    conversationId: z.string().uuid(),
+    peerId: z.string().uuid(),
+    offer: callDescriptionSchema.extend({ type: z.literal("offer") }),
+  }).strict(),
+  z.object({
+    type: z.literal("call:group-answer"),
+    callId: z.string().uuid(),
+    conversationId: z.string().uuid(),
+    peerId: z.string().uuid(),
+    answer: callDescriptionSchema.extend({ type: z.literal("answer") }),
+  }).strict(),
+  z.object({
+    type: z.literal("call:group-ice"),
+    callId: z.string().uuid(),
+    conversationId: z.string().uuid(),
+    peerId: z.string().uuid(),
+    candidate: z.object({
+      candidate: z.string().min(1).max(4_096),
+      sdpMid: z.string().max(256).nullable().optional(),
+      sdpMLineIndex: z.number().int().min(0).max(65_535).nullable().optional(),
+      usernameFragment: z.string().max(256).nullable().optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    type: z.literal("call:group-leave"),
+    callId: z.string().uuid(),
+    conversationId: z.string().uuid(),
+  }).strict(),
 ]);
 
 export const maxEncryptedFileBytes = 450_000_000 + 16;

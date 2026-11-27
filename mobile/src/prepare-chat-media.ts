@@ -140,6 +140,7 @@ export async function prepareNativeChatMediaPlaintext(
       mime: encrypted.mime,
       duration: media.duration,
       bytes: encrypted.ciphertext.byteLength,
+      ...(media.wave && media.wave.length ? { wave: media.wave.slice(0, 48) } : {}),
       ...(caption ? { caption } : {}),
     });
   }

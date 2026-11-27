@@ -1,5 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Audio, Video, ResizeMode } from "expo-av";
+import { createAudioPlayer, type AudioPlayer } from "expo-audio";
+import { useVideoPlayer, VideoView } from "expo-video";
+import * as VideoThumbnails from "expo-video-thumbnails";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -11,8 +13,10 @@ import {
   View,
 } from "react-native";
 import {
+  callLogLabel,
   parseChatPayload,
   type AlbumChatPayload,
+  type CallChatPayload,
   type FileChatPayload,
   type ImageChatPayload,
   type ReplyChatPayload,
@@ -121,6 +125,8 @@ function EncryptedVideoView({
   payload: VideoChatPayload;
 }) {
   const [uri, setUri] = useState<string | null>(null);
+  const [poster, setPoster] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -135,6 +141,12 @@ function EncryptedVideoView({
         const fileUri = await writeCacheBytes(bytes, `sophia-video-${payload.id}.${extension}`);
         if (!alive) return;
         setUri(fileUri);
+        try {
+          const thumb = await VideoThumbnails.getThumbnailAsync(fileUri, { time: 0, quality: 0.6 });
+          if (alive) setPoster(thumb.uri);
+        } catch {
+          // Playback still works when a poster frame cannot be generated.
+        }
       } catch (cause) {
         if (alive) setError(cause instanceof Error ? cause.message : "This video could not be opened.");
       } finally {
@@ -150,13 +162,14 @@ function EncryptedVideoView({
   if (error || !uri) return <Text style={styles.error}>{error || "This video could not be opened."}</Text>;
   return (
     <View style={styles.mediaBlock}>
-      <Video
-        source={{ uri }}
-        style={styles.video}
-        useNativeControls
-        resizeMode={ResizeMode.CONTAIN}
-        isLooping={false}
-      />
+      {playing ? (
+        <ChatVideo uri={uri} />
+      ) : (
+        <Pressable accessibilityRole="button" accessibilityLabel="Play video" onPress={() => setPlaying(true)} style={styles.video}>
+          {poster ? <Image source={{ uri: poster }} style={styles.videoFill} resizeMode="cover" /> : null}
+          <View style={styles.playBadge}><Ionicons name="play" size={18} color="#FFFFFF" /></View>
+        </Pressable>
+      )}
       <Caption text={payload.caption} fromMe={false} />
     </View>
   );
@@ -175,7 +188,7 @@ function EncryptedVoiceView({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [playing, setPlaying] = useState(false);
-  const soundRef = React.useRef<Audio.Sound | null>(null);
+  const playerRef = React.useRef<AudioPlayer | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -196,34 +209,32 @@ function EncryptedVoiceView({
     })();
     return () => {
       alive = false;
-      void soundRef.current?.unloadAsync();
-      soundRef.current = null;
+      playerRef.current?.remove();
+      playerRef.current = null;
     };
   }, [conversationId, payload.id, payload.bytes, payload.k, payload.n, payload.mime]);
 
   async function toggle() {
     if (!uri) return;
-    const existing = soundRef.current;
+    const existing = playerRef.current;
     if (existing) {
-      const status = await existing.getStatusAsync();
-      if (status.isLoaded && status.isPlaying) {
-        await existing.pauseAsync();
+      if (existing.playing) {
+        existing.pause();
         setPlaying(false);
         return;
       }
-      await existing.playAsync();
+      existing.play();
       setPlaying(true);
       return;
     }
-    const created = new Audio.Sound();
-    await created.loadAsync({ uri });
-    created.setOnPlaybackStatusUpdate((status) => {
+    const created = createAudioPlayer(uri);
+    created.addListener("playbackStatusUpdate", (status) => {
       if (!status.isLoaded) return;
-      setPlaying(status.isPlaying);
+      setPlaying(status.playing);
       if (status.didJustFinish) setPlaying(false);
     });
-    soundRef.current = created;
-    await created.playAsync();
+    playerRef.current = created;
+    created.play();
     setPlaying(true);
   }
 
@@ -233,13 +244,26 @@ function EncryptedVoiceView({
     <View style={styles.mediaBlock}>
       <Pressable accessibilityRole="button" accessibilityLabel={playing ? "Pause voice note" : "Play voice note"} onPress={() => void toggle()} style={[styles.voiceBtn, fromMe && styles.voiceBtnMine]}>
         <Ionicons name={playing ? "pause" : "play"} size={16} color={fromMe ? "#FFFFFF" : C.purple} />
+        <View style={styles.waveRow}>
+          {(payload.wave?.length ? payload.wave : [0.3, 0.6, 0.4, 0.8, 0.5, 0.7, 0.35]).slice(0, 32).map((level, index) => (
+            <View key={`${payload.id}-${index}`} style={[styles.waveBar, { height: 4 + level * 16, backgroundColor: fromMe ? "#FFFFFF" : C.purple }]} />
+          ))}
+        </View>
         <Text style={[styles.voiceLabel, fromMe && styles.captionMine]}>
-          Voice note · {Math.round(payload.duration)}s
+          {Math.round(payload.duration)}s
         </Text>
       </Pressable>
       <Caption text={payload.caption} fromMe={fromMe} />
     </View>
   );
+}
+
+function ChatVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (next) => {
+    next.loop = false;
+    next.play();
+  });
+  return <VideoView player={player} style={styles.video} nativeControls contentFit="contain" />;
 }
 
 function EncryptedFileView({
@@ -292,6 +316,17 @@ function EncryptedFileView({
   );
 }
 
+function CallView({ payload, fromMe }: { payload: CallChatPayload; fromMe: boolean }) {
+  return (
+    <View style={styles.mediaBlock}>
+      <View style={styles.voiceBtn}>
+        <Ionicons name={payload.mode === "video" ? "videocam" : "call"} size={16} color={fromMe ? "#FFFFFF" : C.purple} />
+        <Text style={[styles.voiceLabel, fromMe && styles.captionMine]}>{callLogLabel(payload)}</Text>
+      </View>
+    </View>
+  );
+}
+
 function ReplyView({ payload, fromMe }: { payload: ReplyChatPayload; fromMe: boolean }) {
   return (
     <View style={styles.mediaBlock}>
@@ -335,6 +370,9 @@ export function NativeMessageBody({
   if (payload.type === "reply") {
     return <ReplyView payload={payload} fromMe={fromMe} />;
   }
+  if (payload.type === "call") {
+    return <CallView payload={payload} fromMe={fromMe} />;
+  }
   if (payload.type === "location") {
     return (
       <Text style={[styles.body, fromMe && styles.captionMine]}>
@@ -349,7 +387,11 @@ const styles = StyleSheet.create({
   mediaBlock: { gap: 6 },
   photo: { width: 220, height: 220, borderRadius: 14, backgroundColor: "#1A1F2C" },
   albumGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, maxWidth: 230 },
-  video: { width: 230, height: 160, borderRadius: 14, backgroundColor: "#11141C" },
+  video: { width: 230, height: 160, borderRadius: 14, backgroundColor: "#11141C", overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  videoFill: { ...StyleSheet.absoluteFill },
+  playBadge: { width: 42, height: 42, borderRadius: 21, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
+  waveRow: { flex: 1, height: 22, flexDirection: "row", alignItems: "center", gap: 2 },
+  waveBar: { width: 3, borderRadius: 2 },
   caption: { color: C.ink, fontSize: 14, lineHeight: 20 },
   captionMine: { color: "#FFFFFF" },
   meta: { color: C.faint, fontSize: 11 },

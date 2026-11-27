@@ -75,6 +75,17 @@ export function EncryptedVoiceNote({
 
   return (
     <figure className="min-w-0 space-y-2">
+      {payload.wave && payload.wave.length > 0 ? (
+        <div className="flex h-8 items-center gap-0.5" aria-hidden="true">
+          {payload.wave.map((level, index) => (
+            <span
+              key={index}
+              className="w-1 rounded-full bg-current opacity-70"
+              style={{ height: `${Math.max(12, Math.round(level * 100))}%` }}
+            />
+          ))}
+        </div>
+      ) : null}
       <audio
         ref={audioRef}
         controls

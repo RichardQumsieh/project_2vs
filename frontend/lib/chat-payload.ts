@@ -8,6 +8,7 @@ export const filePayloadPrefix = "PM1FIL:";
 export const locationPayloadPrefix = "PM1LOC:";
 export const albumPayloadPrefix = "PM1ALB:";
 export const replyPayloadPrefix = "PM1RPL:";
+export const callPayloadPrefix = "PM1CALL:";
 export const maxAlbumPhotos = 10;
 export const maxReplyRefs = 8;
 export const maxFileAttachmentBytes = 450_000_000;
@@ -50,6 +51,7 @@ const voicePayloadSchema = z.object({
   mime: z.enum(["audio/webm", "audio/ogg", "audio/mp4"]),
   duration: z.number().positive(),
   bytes: z.number().int().min(17).max(maxEncryptedVoiceNoteBytes),
+  wave: z.array(z.number().min(0).max(1)).max(48).optional(),
   caption: z.string().max(4000).optional(),
 });
 
@@ -105,6 +107,14 @@ const replyPayloadSchema = z.object({
   body: z.string().min(1).max(4000),
 });
 
+const callPayloadSchema = z.object({
+  callId: z.string().uuid(),
+  mode: z.enum(["audio", "video"]),
+  outcome: z.enum(["completed", "missed", "declined", "cancelled"]),
+  durationSeconds: z.number().min(0).max(24 * 60 * 60),
+  at: z.string().datetime({ offset: true }).max(64),
+});
+
 export type ImageChatPayload = z.infer<typeof imagePayloadSchema> & {
   type: "image";
 };
@@ -133,6 +143,10 @@ export type ReplyChatPayload = z.infer<typeof replyPayloadSchema> & {
   type: "reply";
 };
 
+export type CallChatPayload = z.infer<typeof callPayloadSchema> & {
+  type: "call";
+};
+
 export type ChatPayload =
   | { type: "text"; text: string }
   | ImageChatPayload
@@ -141,7 +155,20 @@ export type ChatPayload =
   | FileChatPayload
   | LocationChatPayload
   | AlbumChatPayload
-  | ReplyChatPayload;
+  | ReplyChatPayload
+  | CallChatPayload;
+
+export function callLogLabel(payload: Omit<CallChatPayload, "type" | "callId" | "at">) {
+  const kind = payload.mode === "video" ? "video call" : "voice call";
+  if (payload.outcome === "missed") return `Missed ${kind}`;
+  if (payload.outcome === "declined") return `Declined ${kind}`;
+  if (payload.outcome === "cancelled") return `Cancelled ${kind}`;
+  const total = Math.max(0, Math.round(payload.durationSeconds));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  const title = payload.mode === "video" ? "Video call" : "Voice call";
+  return `${title} · ${minutes}:${String(seconds).padStart(2, "0")}`;
+}
 
 export function encodeImagePayload(
   payload: Omit<ImageChatPayload, "type">,
@@ -185,6 +212,12 @@ export function encodeReplyPayload(
   return `${replyPayloadPrefix}${JSON.stringify(payload)}`;
 }
 
+export function encodeCallPayload(
+  payload: Omit<CallChatPayload, "type">,
+) {
+  return `${callPayloadPrefix}${JSON.stringify(payload)}`;
+}
+
 export function parseChatPayload(plaintext: string): ChatPayload {
   if (
     !plaintext.startsWith(imagePayloadPrefix) &&
@@ -193,7 +226,8 @@ export function parseChatPayload(plaintext: string): ChatPayload {
     !plaintext.startsWith(filePayloadPrefix) &&
     !plaintext.startsWith(locationPayloadPrefix) &&
     !plaintext.startsWith(albumPayloadPrefix) &&
-    !plaintext.startsWith(replyPayloadPrefix)
+    !plaintext.startsWith(replyPayloadPrefix) &&
+    !plaintext.startsWith(callPayloadPrefix)
   ) {
     return { type: "text", text: plaintext };
   }
@@ -241,6 +275,13 @@ export function parseChatPayload(plaintext: string): ChatPayload {
       return { type: "reply", ...parsed };
     }
 
+    if (plaintext.startsWith(callPayloadPrefix)) {
+      const parsed = callPayloadSchema.parse(
+        JSON.parse(plaintext.slice(callPayloadPrefix.length)),
+      );
+      return { type: "call", ...parsed };
+    }
+
     const parsed = filePayloadSchema.parse(
       JSON.parse(plaintext.slice(filePayloadPrefix.length)),
     );
@@ -272,6 +313,8 @@ export function messagePreviewText(plaintext: string) {
       return payload.name?.trim() || "Shared location";
     case "file":
       return payload.caption?.trim() || payload.name || "File attachment";
+    case "call":
+      return callLogLabel(payload);
   }
 }
 
@@ -279,6 +322,9 @@ export function assistantVisibleText(plaintext: string) {
   const payload = parseChatPayload(plaintext);
   if (payload.type === "reply") {
     return payload.body;
+  }
+  if (payload.type === "call") {
+    return callLogLabel(payload);
   }
   if (
     payload.type === "image" ||
@@ -316,7 +362,8 @@ export function assistantVisibleText(plaintext: string) {
     plaintext.startsWith(filePayloadPrefix) ||
     plaintext.startsWith(locationPayloadPrefix) ||
     plaintext.startsWith(albumPayloadPrefix) ||
-    plaintext.startsWith(replyPayloadPrefix)
+    plaintext.startsWith(replyPayloadPrefix) ||
+    plaintext.startsWith(callPayloadPrefix)
   ) {
     return "";
   }

@@ -1,11 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
+import { reloadAppAsync } from "expo";
 import * as Haptics from "expo-haptics";
+import * as Localization from "expo-localization";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import {
   ActivityIndicator,
   Alert,
   BackHandler,
   FlatList,
+  I18nManager,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -23,6 +27,7 @@ import {
 import { WebView } from "react-native-webview";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { api, API_URL, ApiError, clearApiCookie, restoreApiCookie, setApiCookie, WEB_URL, type Conversation, type DailyBrief, type SessionUser, type Task, type TotpSetup, type User, type Workspace, type WorkspaceInvite, type WorkspaceMember } from "./src/api";
+import { CallProvider } from "./src/call-session";
 import { NativeThread } from "./src/native-thread";
 import { lockDevice } from "../frontend/lib/session";
 import { ActionButton, Avatar, C, Card, EmptyState, Eyebrow, FadeIn, Heading, Input, LoadingLine, Notice, RoundAction } from "./src/ui";
@@ -60,7 +65,18 @@ function conversationName(item: Conversation) {
 }
 
 export default function App() {
-  return <SafeAreaProvider><AppContent /></SafeAreaProvider>;
+  useEffect(() => {
+    const rtl = Localization.getLocales()[0]?.languageCode === "ar";
+    I18nManager.allowRTL(true);
+    if (I18nManager.isRTL === rtl) return;
+    I18nManager.forceRTL(rtl);
+    void reloadAppAsync();
+  }, []);
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider><AppContent /></SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
 }
 
 function AppContent() {
@@ -130,7 +146,7 @@ function AppContent() {
 
   const isSubpage = page === "assistant" || page === "chat" || page === "web";
   const title = page === "assistant" ? "Ask Sophia" : page === "web" ? "Connected tools" : page === "chat" ? activeConversation ? conversationName(activeConversation) : "Conversation" : null;
-  return <SafeAreaView style={styles.safe}>
+  return <CallProvider cookie={cookie} userId={profile.id}><SafeAreaView style={styles.safe}>
     <StatusBar barStyle="dark-content" />
     <View style={styles.appHeader}>
       {isSubpage ? <RoundAction icon="chevron-back" accessibilityLabel="Go back" onPress={() => navigate(page === "chat" ? "inbox" : page === "assistant" ? "today" : "you")} /> : <Brand />}
@@ -161,7 +177,7 @@ function AppContent() {
         </Pressable>;
       })}
     </View>}
-  </SafeAreaView>;
+  </SafeAreaView></CallProvider>;
 }
 
 function Startup() {

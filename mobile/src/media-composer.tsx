@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import { requestRecordingPermissionsAsync } from "expo-audio";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
+import * as VideoThumbnails from "expo-video-thumbnails";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -13,7 +15,6 @@ import {
   View,
 } from "react-native";
 import {
-  encodeReplyPayload,
   maxAlbumPhotos,
   maxReplyRefs,
   messagePreviewText,
@@ -31,7 +32,8 @@ import {
   type NativeMediaAsset,
 } from "./prepare-chat-media";
 import { assertOutgoingLinksSafe } from "./url-safety";
-import { NativeVoiceRecorder } from "./voice-recorder";
+import { encodeMultiQuote } from "./reply-selection";
+import { NativeVoiceRecorder, VoiceRecordingBar } from "./voice-recorder";
 import { C } from "./ui";
 
 const COMPOSER_EMOJIS = [
@@ -48,6 +50,11 @@ type Props = {
   messages: readonly LocalMessage[];
   disabled: boolean;
   placeholder: string;
+  replyIds: readonly string[];
+  selectingReplies: boolean;
+  onRemoveReply: (messageId: string) => void;
+  onToggleReply: (messageId: string) => void;
+  onSelectingChange: (selecting: boolean) => void;
   onSendPlaintext: (plaintext: string) => Promise<void>;
 };
 
@@ -57,6 +64,11 @@ export function NativeMediaComposer({
   messages,
   disabled,
   placeholder,
+  replyIds,
+  selectingReplies,
+  onRemoveReply,
+  onToggleReply,
+  onSelectingChange,
   onSendPlaintext,
 }: Props) {
   const [draft, setDraft] = useState("");
@@ -66,13 +78,14 @@ export function NativeMediaComposer({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [photos, setPhotos] = useState<NativeMediaAsset[]>([]);
   const [video, setVideo] = useState<NativeMediaAsset | null>(null);
-  const [voice, setVoice] = useState<{ asset: NativeMediaAsset; duration: number } | null>(null);
+  const [voice, setVoice] = useState<{ asset: NativeMediaAsset; duration: number; wave: number[] } | null>(null);
+  const [videoPoster, setVideoPoster] = useState<string | null>(null);
+  const [recordingPreview, setRecordingPreview] = useState<{ duration: number; levels: number[]; cancelArmed: boolean } | null>(null);
   const [file, setFile] = useState<EncryptedFileAttachment | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [preparingFile, setPreparingFile] = useState(false);
-  const [replySelectMode, setReplySelectMode] = useState(false);
-  const [selectedReplyIds, setSelectedReplyIds] = useState<string[]>([]);
+  const selectedReplyIds = replyIds;
 
   const busy = disabled || sending || recording || preparingFile || !joined;
   const hasAttachment = photos.length > 0 || Boolean(video || voice || file);
@@ -89,6 +102,7 @@ export function NativeMediaComposer({
   function clearAttachments() {
     setPhotos([]);
     setVideo(null);
+    setVideoPoster(null);
     setVoice(null);
     setFile(null);
     setEditorOpen(false);
@@ -96,15 +110,6 @@ export function NativeMediaComposer({
 
   function insertEmoji(emoji: string) {
     setDraft((current) => `${current}${emoji}`);
-    setEmojiOpen(false);
-  }
-
-  function toggleReply(messageId: string) {
-    setSelectedReplyIds((current) => {
-      if (current.includes(messageId)) return current.filter((id) => id !== messageId);
-      if (current.length >= maxReplyRefs) return current;
-      return [...current, messageId];
-    });
   }
 
   async function pickPhotos() {
@@ -179,8 +184,87 @@ export function NativeMediaComposer({
         fileName: item.fileName || "video.mp4",
         duration,
       });
+      try {
+        const thumb = await VideoThumbnails.getThumbnailAsync(item.uri, { time: 0, quality: 0.6 });
+        setVideoPoster(thumb.uri);
+      } catch {
+        setVideoPoster(null);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not load the selected video.");
+    }
+  }
+
+  async function capturePhoto() {
+    setMenuOpen(false);
+    setError("");
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setError("Camera permission is required to take a photo.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.92 });
+    if (result.canceled || !result.assets[0]) return;
+    const item = result.assets[0];
+    try {
+      const bytes = await readUriBytes(item.uri);
+      if (bytes.byteLength > maxPhotoBytes) throw new Error("Each photo must be 6 MB or smaller.");
+      clearAttachments();
+      setPhotos([{
+        uri: item.uri,
+        bytes,
+        mime: item.mimeType || "image/jpeg",
+        fileName: item.fileName || "photo.jpg",
+        width: item.width,
+        height: item.height,
+      }]);
+      setEditorOpen(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not use that photo.");
+    }
+  }
+
+  async function recordVideo() {
+    setMenuOpen(false);
+    setError("");
+    const camera = await ImagePicker.requestCameraPermissionsAsync();
+    const microphone = await requestRecordingPermissionsAsync();
+    if (!camera.granted || !microphone.granted) {
+      setError("Camera and microphone permission are required to record a video.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["videos"],
+      videoMaxDuration: maxVideoDurationSeconds,
+      quality: 1,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const item = result.assets[0];
+    try {
+      const bytes = await readUriBytes(item.uri);
+      const duration = (item.duration ?? 0) > 1000 ? (item.duration ?? 0) / 1000 : (item.duration ?? 0);
+      if (!duration || duration > maxVideoDurationSeconds) {
+        throw new Error(`Videos must be ${maxVideoDurationSeconds} seconds or shorter.`);
+      }
+      if (bytes.byteLength + 16 > maxEncryptedVideoBytes) {
+        throw new Error("This video is too large to send encrypted. Try a shorter clip.");
+      }
+      clearAttachments();
+      setVideo({
+        uri: item.uri,
+        bytes,
+        mime: item.mimeType || "video/mp4",
+        fileName: item.fileName || "video.mp4",
+        duration,
+      });
+      try {
+        const thumb = await VideoThumbnails.getThumbnailAsync(item.uri, { time: 0, quality: 0.6 });
+        setVideoPoster(thumb.uri);
+      } catch {
+        setVideoPoster(null);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not use that video.");
     }
   }
 
@@ -225,6 +309,9 @@ export function NativeMediaComposer({
     try {
       let plaintext: string;
       const caption = draft.trim();
+      if (selectedReplyIds.length > 0 && hasAttachment) {
+        throw new Error("Send the reply or the attachment separately.");
+      }
       if (photos.length > 1) {
         plaintext = await prepareNativeChatMediaPlaintext(conversationId, {
           kind: "album",
@@ -248,6 +335,7 @@ export function NativeMediaComposer({
           kind: "voice",
           asset: voice.asset,
           duration: voice.duration,
+          wave: voice.wave,
           caption,
         });
       } else if (file) {
@@ -257,15 +345,9 @@ export function NativeMediaComposer({
           caption,
         });
       } else if (selectedReplyIds.length > 0) {
-        if (!caption) throw new Error("Write a reply before sending.");
+        if (hasAttachment) throw new Error("Send the reply or the attachment separately.");
         await assertOutgoingLinksSafe(caption);
-        const refs = replyPreview.slice(0, maxReplyRefs).map((message) => ({
-          id: message.logicalMessageId ?? message.id,
-          preview: messagePreviewText(message.plaintext),
-          fromMe: message.fromMe,
-        }));
-        if (!refs.length) throw new Error("Select at least one message to reply to.");
-        plaintext = encodeReplyPayload({ refs, body: caption });
+        plaintext = encodeMultiQuote(messages, selectedReplyIds, caption);
       } else {
         if (!caption) return;
         await assertOutgoingLinksSafe(caption);
@@ -274,8 +356,8 @@ export function NativeMediaComposer({
       await onSendPlaintext(plaintext);
       setDraft("");
       clearAttachments();
-      setSelectedReplyIds([]);
-      setReplySelectMode(false);
+      onSelectingChange(false);
+      selectedReplyIds.forEach((id) => onRemoveReply(id));
       setMenuOpen(false);
       setEmojiOpen(false);
     } catch (cause) {
@@ -287,47 +369,32 @@ export function NativeMediaComposer({
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.toolbar}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={replySelectMode ? "Cancel reply selection" : "Reply to messages"}
-          disabled={!joined}
-          onPress={() => {
-            if (replySelectMode) setSelectedReplyIds([]);
-            setReplySelectMode((open) => !open);
-          }}
-          style={[styles.chip, replySelectMode && styles.chipActive]}
-        >
-          <Text style={[styles.chipText, replySelectMode && styles.chipTextActive]}>
-            {replySelectMode ? "Cancel reply" : "Reply"}
-          </Text>
-        </Pressable>
-        {selectedReplyIds.length > 0 ? (
-          <Text style={styles.replyCount}>
-            {selectedReplyIds.length} selected
-          </Text>
-        ) : null}
-      </View>
-
-      {(replySelectMode || selectedReplyIds.length > 0) && (
+      {selectingReplies ? (
         <View style={styles.replyBanner}>
           <Text style={styles.replyBannerText}>
-            {selectedReplyIds.length
-              ? `${selectedReplyIds.length} message${selectedReplyIds.length === 1 ? "" : "s"} selected for one reply`
-              : "Tap Include on messages to answer several at once"}
+            Long-press messages to add them, up to {maxReplyRefs}. Swipe left to add one more.
           </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Clear reply selection"
-            onPress={() => {
-              setSelectedReplyIds([]);
-              setReplySelectMode(false);
-            }}
-          >
-            <Text style={styles.clear}>Clear</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Finish selecting replies" onPress={() => onSelectingChange(false)}>
+            <Text style={styles.clear}>Done</Text>
           </Pressable>
         </View>
-      )}
+      ) : null}
+
+      {replyPreview.length > 0 ? (
+        <View style={styles.quoteStack} accessibilityLabel="Quoted messages">
+          {replyPreview.map((message) => (
+            <View key={message.id} style={styles.quoteCard}>
+              <View style={styles.quoteMark} />
+              <Text style={styles.quoteText} numberOfLines={2}>
+                {message.fromMe ? "You" : "Member"} · {messagePreviewText(message.plaintext)}
+              </Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Remove quoted message" onPress={() => onRemoveReply(message.id)} style={styles.removeBtn}>
+                <Ionicons name="close" size={16} color={C.muted} />
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       {hasAttachment ? (
         <View style={styles.attachmentCard}>
@@ -338,7 +405,10 @@ export function NativeMediaComposer({
               ))}
             </ScrollView>
           ) : video ? (
-            <Text style={styles.attachmentLabel} numberOfLines={1}>{video.fileName || "Video"} · {Math.round(video.duration || 0)}s</Text>
+            <View style={styles.videoPreview}>
+              {videoPoster ? <Image source={{ uri: videoPoster }} style={styles.thumb} /> : null}
+              <Text style={styles.attachmentLabel} numberOfLines={1}>{video.fileName || "Video"} · {Math.round(video.duration || 0)}s</Text>
+            </View>
           ) : voice ? (
             <Text style={styles.attachmentLabel}>Voice note · {Math.floor(voice.duration)}s</Text>
           ) : file ? (
@@ -373,10 +443,16 @@ export function NativeMediaComposer({
 
       {menuOpen ? (
         <View style={styles.menu} accessibilityLabel="Choose attachment type">
-          <Pressable accessibilityRole="button" onPress={() => void pickPhotos()} style={styles.menuItem}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Take a photo" onPress={() => void capturePhoto()} style={styles.menuItem}>
+            <Text style={styles.menuText}>Take photo</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Choose photos" onPress={() => void pickPhotos()} style={styles.menuItem}>
             <Text style={styles.menuText}>Photos (1–{maxAlbumPhotos}, with editor)</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" onPress={() => void pickVideo()} style={styles.menuItem}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Record a video" onPress={() => void recordVideo()} style={styles.menuItem}>
+            <Text style={styles.menuText}>Record video</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Choose a video" onPress={() => void pickVideo()} style={styles.menuItem}>
             <Text style={styles.menuText}>Video (up to {maxVideoDurationSeconds}s)</Text>
           </Pressable>
           <Pressable accessibilityRole="button" onPress={() => void pickDocument()} style={styles.menuItem}>
@@ -385,6 +461,7 @@ export function NativeMediaComposer({
         </View>
       ) : null}
 
+      {recordingPreview ? <VoiceRecordingBar preview={recordingPreview} /> : null}
       <View style={styles.composer}>
         <Pressable
           accessibilityRole="button"
@@ -406,6 +483,7 @@ export function NativeMediaComposer({
           }}
           onError={setError}
           onRecordingChange={setRecording}
+          onPreview={setRecordingPreview}
         />
         <Pressable
           accessibilityRole="button"
@@ -448,7 +526,7 @@ export function NativeMediaComposer({
         </Pressable>
       </View>
 
-      {replySelectMode ? (
+      {selectingReplies ? (
         <ScrollView style={styles.replyList} nestedScrollEnabled>
           {messages.map((message) => {
             const selected = selectedReplyIds.includes(message.id);
@@ -459,14 +537,13 @@ export function NativeMediaComposer({
                 accessibilityState={{ checked: selected }}
                 accessibilityLabel="Include in reply"
                 disabled={!selected && selectedReplyIds.length >= maxReplyRefs}
-                onPress={() => toggleReply(message.id)}
+                onPress={() => onToggleReply(message.id)}
                 style={styles.replyRow}
               >
                 <View style={[styles.checkbox, selected && styles.checkboxOn]} />
                 <Text style={styles.replyRowText} numberOfLines={2}>
                   {message.fromMe ? "You" : "Member"} · {messagePreviewText(message.plaintext)}
                 </Text>
-                <Text style={styles.include}>Include</Text>
               </Pressable>
             );
           })}
@@ -488,9 +565,10 @@ export function NativeMediaComposer({
             setEditorOpen(false);
             setPhotos([]);
           }}
-          onSave={(asset) => {
+          onSave={(asset, overlayCaption) => {
             setPhotos([asset]);
             setEditorOpen(false);
+            if (overlayCaption && !draft.trim()) setDraft(overlayCaption);
           }}
         />
       ) : null}
@@ -521,6 +599,20 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: C.purple, borderColor: C.purple },
   chipText: { color: C.ink, fontSize: 12, fontWeight: "600" },
   chipTextActive: { color: "#FFFFFF" },
+  quoteStack: { gap: 6 },
+  quoteCard: {
+    minHeight: 40,
+    borderRadius: 12,
+    backgroundColor: C.lilac,
+    paddingStart: 8,
+    paddingEnd: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  quoteMark: { width: 3, alignSelf: "stretch", borderRadius: 2, backgroundColor: C.purple },
+  quoteText: { flex: 1, color: C.ink, fontSize: 12, lineHeight: 16 },
+  videoPreview: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
   replyCount: { color: C.purple, fontSize: 12, fontWeight: "600" },
   replyBanner: {
     borderRadius: 14,
