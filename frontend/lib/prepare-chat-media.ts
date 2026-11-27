@@ -1,0 +1,156 @@
+import { api } from "./api";
+import {
+  encodeAlbumPayload,
+  encodeFilePayload,
+  encodeImagePayload,
+  encodeVideoPayload,
+  encodeVoicePayload,
+  maxAlbumPhotos,
+} from "./chat-payload";
+import {
+  inspectAndEncryptFileAttachment,
+  type EncryptedFileAttachment,
+} from "./crypto/file-attachment";
+import { encryptPhotoFile } from "./crypto/media";
+import { encryptVideoFile } from "./crypto/video";
+import { encryptVoiceNoteBytes } from "./crypto/voice-note";
+import { assertOutgoingLinksSafe } from "./url-safety";
+
+export type PreparedChatMedia =
+  | { kind: "photo"; file: File; caption: string }
+  | { kind: "album"; files: File[]; caption: string }
+  | { kind: "video"; file: File; caption: string }
+  | { kind: "voice"; file: File; duration: number; caption: string }
+  | { kind: "file"; attachment: EncryptedFileAttachment; caption: string };
+
+async function uploadCiphertext(
+  conversationId: string,
+  ciphertext: Uint8Array,
+  kind: "photo" | "video" | "voice" | "file",
+) {
+  if (
+    ciphertext.byteOffset !== 0 ||
+    !(ciphertext.buffer instanceof ArrayBuffer) ||
+    ciphertext.byteLength !== ciphertext.buffer.byteLength
+  ) {
+    throw new Error("The encrypted attachment could not be uploaded safely.");
+  }
+  const upload = await api.mediaUpload(conversationId, ciphertext.byteLength, kind);
+  const response = await fetch(upload.uploadUrl, {
+    method: "PUT",
+    headers: upload.headers,
+    body: ciphertext.buffer,
+  });
+  if (!response.ok) {
+    throw new Error(`The encrypted ${kind} could not be uploaded.`);
+  }
+  return upload.mediaId;
+}
+
+/** Encrypt media on-device, upload ciphertext, return chat plaintext for E2EE send. */
+export async function prepareChatMediaPlaintext(
+  conversationId: string,
+  media: PreparedChatMedia,
+): Promise<string> {
+  await assertOutgoingLinksSafe(media.caption);
+  const caption = media.caption.trim();
+
+  if (media.kind === "album") {
+    if (media.files.length < 2) {
+      throw new Error("Choose at least two photos for an album.");
+    }
+    if (media.files.length > maxAlbumPhotos) {
+      throw new Error(`Albums can include at most ${maxAlbumPhotos} photos.`);
+    }
+    const items = [];
+    for (const file of media.files) {
+      const encrypted = await encryptPhotoFile(file);
+      const mediaId = await uploadCiphertext(conversationId, encrypted.ciphertext, "photo");
+      items.push({
+        id: mediaId,
+        k: encrypted.key,
+        n: encrypted.nonce,
+        mime: encrypted.mime,
+        w: encrypted.width,
+        h: encrypted.height,
+        bytes: encrypted.ciphertext.byteLength,
+      });
+    }
+    return encodeAlbumPayload({
+      items,
+      ...(caption ? { caption } : {}),
+    });
+  }
+
+  if (media.kind === "photo") {
+    const encrypted = await encryptPhotoFile(media.file);
+    const mediaId = await uploadCiphertext(conversationId, encrypted.ciphertext, "photo");
+    return encodeImagePayload({
+      id: mediaId,
+      k: encrypted.key,
+      n: encrypted.nonce,
+      mime: encrypted.mime,
+      w: encrypted.width,
+      h: encrypted.height,
+      bytes: encrypted.ciphertext.byteLength,
+      ...(caption ? { caption } : {}),
+    });
+  }
+
+  if (media.kind === "video") {
+    const encrypted = await encryptVideoFile(media.file);
+    const mediaId = await uploadCiphertext(conversationId, encrypted.ciphertext, "video");
+    return encodeVideoPayload({
+      id: mediaId,
+      k: encrypted.key,
+      n: encrypted.nonce,
+      mime: encrypted.mime,
+      duration: encrypted.duration,
+      bytes: encrypted.ciphertext.byteLength,
+      ...(caption ? { caption } : {}),
+    });
+  }
+
+  if (media.kind === "voice") {
+    const mime = media.file.type.includes("ogg")
+      ? "audio/ogg"
+      : media.file.type.includes("mp4")
+        ? "audio/mp4"
+        : "audio/webm";
+    const encrypted = await encryptVoiceNoteBytes(
+      new Uint8Array(await media.file.arrayBuffer()),
+      mime,
+      media.duration,
+    );
+    const mediaId = await uploadCiphertext(conversationId, encrypted.ciphertext, "voice");
+    return encodeVoicePayload({
+      id: mediaId,
+      k: encrypted.key,
+      n: encrypted.nonce,
+      mime: encrypted.mime,
+      duration: media.duration,
+      bytes: encrypted.ciphertext.byteLength,
+      ...(caption ? { caption } : {}),
+    });
+  }
+
+  const mediaId = await uploadCiphertext(
+    conversationId,
+    media.attachment.ciphertext,
+    "file",
+  );
+  return encodeFilePayload({
+    id: mediaId,
+    k: media.attachment.key,
+    n: media.attachment.nonce,
+    name: media.attachment.name,
+    mime: media.attachment.mime,
+    bytes: media.attachment.ciphertext.byteLength,
+    containsExternalLinks: media.attachment.containsExternalLinks,
+    ...(caption ? { caption } : {}),
+  });
+}
+
+export async function prepareFileAttachment(file: File): Promise<EncryptedFileAttachment> {
+  return inspectAndEncryptFileAttachment(file);
+}
