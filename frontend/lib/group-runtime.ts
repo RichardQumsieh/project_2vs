@@ -140,10 +140,15 @@ export async function syncGroup(input: {
   }
   const retried = await flushOutbox(record, input.post);
   record = retried.record;
-  if (retried.conflict) {
+  if (retried.stalePlaintext.length > 0) {
+    for (const plaintext of retried.stalePlaintext) {
+      record = await queueGroupMessage(record, plaintext);
+    }
+  }
+  if (retried.conflict || retried.stalePlaintext.length > 0) {
     return {
       record,
-      messages: [],
+      messages: carried,
       selfRemoved: isRemoved(record),
       error: "Another member committed first. Sync again to retry.",
     };
@@ -154,6 +159,24 @@ export async function syncGroup(input: {
     selfRemoved: isRemoved(record),
     error: retried.error,
   };
+}
+
+/** True when a later sync should reload MLS blobs and retry once. */
+export function shouldReloadGroupBlobs(result: {
+  error: string | null;
+  record: GroupRecord;
+}): boolean {
+  if (
+    result.error &&
+    (/MLS epoch/i.test(result.error) ||
+      /committed first/i.test(result.error) ||
+      /Sync again/i.test(result.error))
+  ) {
+    return true;
+  }
+  return result.record.outbox.some(
+    (item) => item.kind === "application" || item.kind === "commit",
+  );
 }
 
 async function runSyncPass(
@@ -171,6 +194,9 @@ async function runSyncPass(
   conflict: boolean;
   reverted: GroupOutboxItem[];
 }> {
+  // Flush protocol/outbox first so concurrent commits can resolve via conflict
+  // recovery. Application ciphertext that fails with mls_epoch_order is resealed
+  // after ingesting the commits that advanced the epoch.
   const flushed = await flushOutbox(record, input.post);
   record = flushed.record;
   if (flushed.conflict) {
@@ -188,6 +214,7 @@ async function runSyncPass(
     for (const plaintext of flushed.stalePlaintext) {
       record = await queueGroupMessage(record, plaintext);
     }
+    record = await resealPendingApplications(record);
   } catch (error) {
     return {
       record,
@@ -216,6 +243,12 @@ async function runSyncPass(
   if (posted.conflict) {
     return { record, messages, error: null, conflict: true, reverted: posted.reverted };
   }
+  if (posted.stalePlaintext.length > 0) {
+    for (const plaintext of posted.stalePlaintext) {
+      record = await queueGroupMessage(record, plaintext);
+    }
+    return { record, messages, error: null, conflict: true, reverted: [] };
+  }
   return {
     record,
     messages: [...messages, ...messagesFrom(record, posted.delivered)],
@@ -223,6 +256,25 @@ async function runSyncPass(
     conflict: false,
     reverted: [],
   };
+}
+
+async function resealPendingApplications(record: GroupRecord): Promise<GroupRecord> {
+  if (!record.session) return record;
+  const kept: GroupOutboxItem[] = [];
+  const plaintexts: string[] = [];
+  for (const item of record.outbox) {
+    if (item.kind === "application" && item.plaintext !== undefined) {
+      plaintexts.push(item.plaintext);
+    } else {
+      kept.push(item);
+    }
+  }
+  if (plaintexts.length === 0) return record;
+  let next: GroupRecord = { ...record, outbox: kept };
+  for (const plaintext of plaintexts) {
+    next = await queueGroupMessage(next, plaintext);
+  }
+  return next;
 }
 
 function messagesFrom(
@@ -345,14 +397,26 @@ async function flushOutbox(
       applied.push(posted.id);
       delivered.push({ ...item, serverId: posted.id, createdAt: new Date().toISOString() });
     } catch (cause) {
-      if (item.kind === "commit" && deliveryCode(cause) === "mls_epoch_conflict" && item.priorState && session) {
+      const code = deliveryCode(cause);
+      // Behind or raced on this epoch: restore pre-commit state and let sync
+      // ingest the winner, then retry membership work from reverted items.
+      if (
+        item.kind === "commit" &&
+        (code === "mls_epoch_conflict" || code === "mls_epoch_order") &&
+        item.priorState &&
+        session
+      ) {
         session = sessionFromEncodedState(record.device, item.priorState, [...session.trustedKeyPackages]);
         conflict = true;
         conflictBatch = item.batchId ?? item.clientId;
         reverted.push(item);
         continue;
       }
-      if (item.kind === "application" && item.plaintext && deliveryCode(cause) === "mls_epoch_order") {
+      if (item.kind === "proposal" && code === "mls_epoch_order") {
+        conflict = true;
+        continue;
+      }
+      if (item.kind === "application" && item.plaintext && code === "mls_epoch_order") {
         stalePlaintext.push(item.plaintext);
         continue;
       }

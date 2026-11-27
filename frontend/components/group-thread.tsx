@@ -19,7 +19,9 @@ import {
   queueGroupMessage,
   queueMemberRemoval,
   queueSelfRemoval,
+  shouldReloadGroupBlobs,
   syncGroup,
+  type GroupPost,
   type GroupSyncMessage,
 } from "@/lib/group-runtime";
 import { loadSealedGroup, saveLocalMessage, saveSealedGroup, listLocalMessages } from "@/lib/idb";
@@ -654,17 +656,25 @@ async function refreshGroup(
     };
   }
   const deviceId = currentDeviceId();
-  const role = conversation.members?.find((member) => member.userId === userId)?.role === "ADMIN"
-    ? "admin"
-    : "member";
-  const [devices, blobs, sealed] = await Promise.all([
+  const role: GroupRole =
+    conversation.members?.find((member) => member.userId === userId)?.role === "ADMIN"
+      ? "admin"
+      : "member";
+  const [devices, initialBlobs, sealed] = await Promise.all([
     api.groupDevices(conversation.id),
     loadBlobs(conversation.id, deviceId),
     loadSealedGroup(userId, conversation.id),
   ]);
   const existing = sealed ? await openGroupRecord(key, userId, conversation.id, sealed) : null;
-  const result = await syncGroup({
-    record: existing,
+  const directory = devices.devices.map((device) => ({
+    userId: device.userId,
+    deviceId: device.deviceId,
+    signingPublicKey: b64ToBytes(device.signingPublicKey),
+    role: device.role,
+  }));
+  const post = (body: GroupPost) =>
+    api.postGroupMls(conversation.id, { ...body, senderDeviceId: deviceId });
+  const syncInput = {
     userId,
     deviceId,
     role,
@@ -672,15 +682,24 @@ async function refreshGroup(
     signingPrivateJwk: signing.privateJwk,
     signingPublicKey: signing.publicKey,
     memberUserIds: conversation.memberUserIds ?? [userId],
-    directory: devices.devices.map((device) => ({
-      userId: device.userId,
-      deviceId: device.deviceId,
-      signingPublicKey: b64ToBytes(device.signingPublicKey),
-      role: device.role,
-    })),
+    directory,
+    post,
+  } as const;
+  let blobs = initialBlobs;
+  let result = await syncGroup({
+    ...syncInput,
+    record: existing,
     blobs,
-    post: (body) => api.postGroupMls(conversation.id, { ...body, senderDeviceId: deviceId }),
   });
+  // Epoch can move between the first blob fetch and upload; reload once.
+  if (shouldReloadGroupBlobs(result)) {
+    blobs = await loadBlobs(conversation.id, deviceId);
+    result = await syncGroup({
+      ...syncInput,
+      record: result.record,
+      blobs,
+    });
+  }
   await saveSealedGroup(
     userId,
     conversation.id,
