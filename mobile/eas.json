@@ -9,6 +9,10 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.sophia-build.com",
+        "EXPO_PUBLIC_SOPHIA_WEB_URL": "https://sophia.apps.grok.bot"
       }
     },
     "preview": {
@@ -16,10 +20,29 @@
       "autoIncrement": true,
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.sophia-build.com",
+        "EXPO_PUBLIC_SOPHIA_WEB_URL": "https://sophia.apps.grok.bot"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.sophia-build.com",
+        "EXPO_PUBLIC_SOPHIA_WEB_URL": "https://sophia.apps.grok.bot"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft"
+      },
+      "ios": {
+        "ascAppId": "REPLACE_WITH_APP_STORE_CONNECT_APP_ID"
+      }
     }
   }
 }
