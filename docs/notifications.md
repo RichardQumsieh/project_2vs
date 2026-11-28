@@ -20,9 +20,9 @@ Generate a pair with `npx web-push generate-vapid-keys`. The browser reads the p
 
 The app registers an Expo push token. Delivery uses Expo's push service, which uses Firebase Cloud Messaging on Android.
 
-Upload these in EAS. Do not commit them:
+Do not commit Firebase files.
 
-- `google-services.json` from the Firebase Android app. Place it at `mobile/google-services.json` for a local prebuild. It is gitignored. Prebuild still succeeds when the file is absent, and push will not be delivered until it exists.
+- `google-services.json` from the Firebase Android app (`com.sophia.messenger`). EAS builds read it from a file environment variable named `GOOGLE_SERVICES_JSON` on the `preview` and `production` environments. On those builds `process.env.GOOGLE_SERVICES_JSON` is the filesystem path to the file. Prebuild prefers that path when it exists, and otherwise uses `mobile/google-services.json`. The `preview` and `production` profiles in `mobile/eas.json` set `environment` so EAS injects those variables. The development profile uses the `development` environment. For a local prebuild, place the file at `mobile/google-services.json`, or point `GOOGLE_SERVICES_JSON` at a copy. It is gitignored. Prebuild still succeeds when the file is absent, and push will not be delivered until it exists. When the file is present, prebuild registers the Firebase messaging service and Expo applies the Google services Gradle plugin.
 - The FCM V1 service account key, through `eas credentials`. It is not an environment variable in this repo.
 
 The Expo project id is the `extra.eas.projectId` already in `mobile/app.json`.

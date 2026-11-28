@@ -5,6 +5,7 @@
   },
   "build": {
     "development": {
+      "environment": "development",
       "developmentClient": true,
       "distribution": "internal",
       "android": {
@@ -16,6 +17,7 @@
       }
     },
     "preview": {
+      "environment": "preview",
       "distribution": "internal",
       "autoIncrement": true,
       "android": {
@@ -27,6 +29,7 @@
       }
     },
     "production": {
+      "environment": "production",
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.sophia-build.com",
