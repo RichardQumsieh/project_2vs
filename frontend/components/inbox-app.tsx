@@ -8,6 +8,8 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { ChatPresence } from "@/components/avatar/chat-presence";
+import { PersonAvatar } from "@/components/avatar/person-avatar";
 import { ExperimentalBadge } from "@/components/experimental-badge";
 import { outgoingTextDestination } from "@/lib/ai/chat-route";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -759,12 +761,11 @@ export function InboxShell({
                   : "border-white/10 bg-white/[0.02] hover:border-cyan-300/25 hover:bg-white/[0.05]"
               }`}
             >
-              <span
-                aria-hidden="true"
-                className="grid size-9 shrink-0 place-items-center rounded-full border border-cyan-300/20 bg-cyan-300/10 text-xs font-semibold text-cyan-50"
-              >
-                {label.slice(0, 1).toUpperCase()}
-              </span>
+              <PersonAvatar
+                person={conversation.type === "GROUP" ? null : conversation.peer}
+                title={label.slice(0, 1).toUpperCase()}
+                size={36}
+              />
               <span className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium tracking-tight"><BidiText>{label}</BidiText></p>
                 <p className="mt-0.5 truncate text-xs text-white/40">
@@ -3517,6 +3518,17 @@ function ThreadConversation({
           >
             <ArrowLeft aria-hidden="true" className="size-4 rtl-flip" />
           </Button>
+          {conversation.peer && conversation.lastMessageAt ? (
+            <ChatPresence
+              person={conversation.peer}
+              contactId={conversation.peer.id}
+              conversationId={conversation.id}
+              isNew={false}
+              size={40}
+            />
+          ) : conversation.peer ? (
+            <PersonAvatar person={conversation.peer} size={40} />
+          ) : null}
           <div className="min-w-0">
           <p className="truncate text-sm font-medium"><BidiText>{conversation.peer?.displayName}</BidiText></p>
             <p className="truncate text-xs text-white/40">
@@ -4343,10 +4355,22 @@ function ThreadConversation({
             Beginning of conversation
           </p>
         ) : null}
+        {conversation.peer && !conversation.lastMessageAt ? (
+          <div className="flex justify-center py-8">
+            <ChatPresence
+              person={conversation.peer}
+              contactId={conversation.peer.id}
+              conversationId={conversation.id}
+              isNew
+              size={148}
+            />
+          </div>
+        ) : null}
         {activitySheet ? null : (
           <ThreadMessageList
             messages={visibleMessages}
             conversationId={conversationId}
+            peer={conversation.peer}
             replySelectMode={replySelectMode}
             selectedReplyIds={selectedReplyIds}
             confirmDeleteId={confirmDeleteId}

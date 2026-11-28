@@ -113,6 +113,9 @@ export type PublicUser = {
   username: string;
   displayName: string | null;
   avatarUrl: string | null;
+  avatarConfig?: unknown;
+  greetingText?: string | null;
+  greetingAnimation?: string | null;
 };
 
 export type AccountActivityEvent = {
@@ -190,6 +193,9 @@ export type Conversation = {
     username: string;
     displayName: string | null;
     avatarUrl?: string | null;
+    avatarConfig?: unknown;
+    greetingText?: string | null;
+    greetingAnimation?: string | null;
     role: "ADMIN" | "MEMBER";
     readCursor?: { blobId: string; createdAt: string } | null;
   }[];
@@ -364,6 +370,16 @@ export const api = {
     }>("/me/profile", {
       method: "PATCH",
       body: JSON.stringify({ interests }),
+    }),
+
+  updateAvatar: (body: {
+    avatarConfig: unknown;
+    greetingText: string | null;
+    greetingAnimation: string | null;
+  }) =>
+    request<{ user: PublicUser }>("/me/avatar", {
+      method: "PATCH",
+      body: JSON.stringify(body),
     }),
 
   lookupPeople: (query: string) =>

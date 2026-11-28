@@ -64,6 +64,7 @@ import { addReplyTarget, removeReplyTarget, toggleReplyTarget } from "./reply-se
 import { SwipeableMessage } from "./swipeable-message";
 import { buildThreadRows, type ThreadRow } from "./thread-rows";
 import { useColors } from "./theme";
+import { ChatGreeting } from "./chat-greeting";
 import { ActionButton, C, Input, Notice } from "./ui";
 
 type Props = { conversation: Conversation; cookie: string };
@@ -793,6 +794,15 @@ export function NativeThread({ conversation, cookie }: Props) {
     {conversation.type === "GROUP" && groupStatus && !groupStatus.joined && <View style={styles.inlineNotice}><Notice text="This device is waiting for an existing group member to add it securely. Group history already available to your account can still be restored." tone="info" /></View>}
     {conversation.type === "GROUP" && groupStatus?.error && <View style={styles.inlineNotice}><Notice text={groupStatus.error} tone="info" /></View>}
     {!!leftNotice && <View style={styles.inlineNotice}><Notice text={leftNotice} tone="info" /></View>}
+    {conversation.type === "DIRECT" && conversation.peer ? (
+      <ChatGreeting
+        person={conversation.peer}
+        contactId={conversation.peer.id}
+        conversationId={conversation.id}
+        isNew={!conversation.lastMessageAt}
+        size={conversation.lastMessageAt ? 64 : 150}
+      />
+    ) : null}
     {conversation.type === "GROUP" ? (
       <Pressable accessibilityRole="button" accessibilityLabel={t("groupInfo")} onPress={() => setInfoOpen(true)} style={styles.groupHeader}>
         <View style={[styles.groupAvatar, { backgroundColor: memberColor(conversation.id) }]}>

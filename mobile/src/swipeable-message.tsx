@@ -4,7 +4,8 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { I18nManager, Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { memberColor, memberInitials } from "../../frontend/lib/group-presentation";
+import { memberColor } from "../../frontend/lib/group-presentation";
+import { PersonBadge } from "./person-badge";
 import type { LocalMessage } from "../../frontend/lib/crypto/types";
 import type { Conversation } from "./api";
 import { t } from "./i18n";
@@ -168,11 +169,15 @@ export function SwipeableMessage({
             style={[styles.line, mine ? styles.lineMine : styles.linePeer]}
           >
             {selecting ? <View style={[styles.checkbox, { borderColor: colors.line, backgroundColor: colors.paper }, selected && { backgroundColor: colors.purple, borderColor: colors.purple }]} /> : null}
-            {group && !mine ? (
+            {!mine && (group || conversation.type === "DIRECT") ? (
               showSender ? (
-                <View style={[styles.avatar, { backgroundColor: color }]} accessibilityElementsHidden>
-                  <Text style={styles.avatarText}>{memberInitials(name)}</Text>
-                </View>
+                <PersonBadge
+                  person={conversation.type === "DIRECT"
+                    ? conversation.peer
+                    : conversation.members?.find((member) => member.userId === message.senderUserId)}
+                  title={name}
+                  size={28}
+                />
               ) : <View style={styles.avatarSpacer} />
             ) : null}
             <View

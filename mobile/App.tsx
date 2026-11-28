@@ -36,6 +36,8 @@ import { t } from "./src/i18n";
 import { wipeDecryptedCache } from "./src/media-cache";
 import { NativeThread } from "./src/native-thread";
 import { useColors } from "./src/theme";
+import { AvatarCreator } from "./src/avatar-creator";
+import { PersonBadge } from "./src/person-badge";
 import { ActionButton, Avatar, C, Card, EmptyState, Eyebrow, FadeIn, Heading, Input, LoadingLine, Notice, RoundAction } from "./src/ui";
 
 const NativeWebView: any = WebView;
@@ -166,7 +168,7 @@ function AppContent() {
       {isSubpage ? <Text numberOfLines={1} style={[styles.subpageTitle, themedChrome && { color: colors.ink }]}>{title}</Text> : <Text style={styles.headerWordmark}>sophia</Text>}
       {page === "chat" && activeConversation ? <ChatHeaderActions conversation={activeConversation} /> :
         <Pressable accessibilityRole="button" accessibilityLabel="Open your profile" onPress={() => navigate("you")} style={styles.profileButton}>
-          <Avatar title={profile.displayName || profile.username} size={36} />
+          <PersonBadge person={profile} size={36} />
         </Pressable>}
     </View>
 
@@ -175,7 +177,7 @@ function AppContent() {
       {page === "inbox" && <Inbox cookie={cookie} onOpen={openConversation} />}
       {page === "plan" && <Plan cookie={cookie} />}
       {page === "spaces" && <Spaces cookie={cookie} myUserId={profile.id} onOpenConversation={openConversation} />}
-      {page === "you" && <You profile={profile} onSignOut={signOut} onAsk={() => navigate("assistant")} onTools={() => navigate("web")} />}
+      {page === "you" && cookie && <You profile={profile} cookie={cookie} onProfile={setProfile} onSignOut={signOut} onAsk={() => navigate("assistant")} onTools={() => navigate("web")} />}
       {page === "assistant" && <AskSophia cookie={cookie} />}
       {page === "chat" && activeConversation && <NativeChat conversation={activeConversation} cookie={cookie} />}
       {page === "web" && <NativeWebPage path="/settings/integrations" />}
@@ -484,7 +486,7 @@ function ConversationRow({ conversation, preview, onPress }: { conversation: Con
   const group = conversation.type === "GROUP";
   const subtitle = preview || (group ? "Family & team space" : conversation.peer?.username ? `@${conversation.peer.username}` : "Private conversation");
   return <Pressable accessibilityRole="button" accessibilityLabel={name} onPress={onPress} style={({ pressed }) => [styles.conversationRow, pressed && styles.rowPressed]}>
-    <Avatar title={name} group={group} size={52} />
+    {group ? <Avatar title={name} group size={52} /> : <PersonBadge person={conversation.peer} title={name} size={52} />}
     <View style={styles.conversationCopy}><View style={styles.conversationTitleRow}><Text numberOfLines={1} style={[styles.conversationTitle, { color: colors.ink }]}>{name}</Text><Text style={[styles.conversationTime, { color: colors.faint }]}>{conversation.lastMessageAt ? prettyTime(conversation.lastMessageAt) : ""}</Text></View>
       <View style={styles.conversationSubRow}><Text style={[styles.conversationSubtitle, { color: colors.muted }]} numberOfLines={1}>{subtitle}</Text>{!!conversation.unreadCount && <View style={styles.unreadBadge}><Text style={styles.unreadText}>{conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}</Text></View>}</View>
     </View>
@@ -543,7 +545,7 @@ function PeopleSheet({ visible, cookie, onClose, onOpen }: { visible: boolean; c
         {busy ? <LoadingLine label="Finding people" /> : error ? <Notice text={error} /> : query.trim().length < 2 ? <Text style={styles.searchHint}>{mode === "group" ? "Choose at least two people. Groups can have up to eight members including you." : "Enter at least two characters to search."}</Text> : people.length ? people.map((person) => {
           const selected = selectedPeople.some((item) => item.id === person.id);
           return <Pressable key={person.id} onPress={() => mode === "group" ? toggleGroupMember(person) : void start(person)} style={styles.personRow}>
-          <Avatar title={person.displayName || person.username} size={45} /><View style={{ flex: 1 }}><Text style={styles.personName}>{person.displayName || person.username}</Text><Text style={styles.personUsername}>@{person.username}</Text></View>{mode === "group" ? <View style={[styles.memberCheck, selected && styles.memberCheckOn]}>{selected && <Ionicons name="checkmark" size={15} color="white" />}</View> : starting === person.id ? <ActivityIndicator color={C.purple} /> : <Ionicons name="arrow-forward-circle-outline" size={23} color={C.purple} />}
+          <PersonBadge person={person} size={45} /><View style={{ flex: 1 }}><Text style={styles.personName}>{person.displayName || person.username}</Text><Text style={styles.personUsername}>@{person.username}</Text></View>{mode === "group" ? <View style={[styles.memberCheck, selected && styles.memberCheckOn]}>{selected && <Ionicons name="checkmark" size={15} color="white" />}</View> : starting === person.id ? <ActivityIndicator color={C.purple} /> : <Ionicons name="arrow-forward-circle-outline" size={23} color={C.purple} />}
         </Pressable>;
         }) : <Text style={styles.searchHint}>No one found yet. Check the spelling and try again.</Text>}
       </View>
@@ -804,18 +806,25 @@ function Spaces({ cookie, myUserId, onOpenConversation }: { cookie: string; myUs
   </ScrollPage>;
 }
 
-function You({ profile, onSignOut, onAsk, onTools }: { profile: SessionUser; onSignOut: () => void; onAsk: () => void; onTools: () => void }) {
+function You({ profile, cookie, onProfile, onSignOut, onAsk, onTools }: { profile: SessionUser; cookie: string; onProfile: (user: SessionUser) => void; onSignOut: () => void; onAsk: () => void; onTools: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [editingAvatar, setEditingAvatar] = useState(false);
   async function signOut() {
     setBusy(true);
     try { await onSignOut(); } finally { setBusy(false); }
   }
   return <ScrollPage>
     <FadeIn><Heading title="A space that’s yours." subtitle="Your account, privacy, and Sophia." />
-      <Card style={styles.profileCard}><Avatar title={profile.displayName || profile.username} size={62} />
+      <Card style={styles.profileCard}><PersonBadge person={profile} size={62} />
         <View style={{ flex: 1 }}><Text style={styles.profileName}>{profile.displayName || profile.username}</Text><Text style={styles.profileHandle}>@{profile.username}</Text></View>
         <View style={styles.verifiedMark}><Ionicons name="shield-checkmark" size={17} color={C.green} /></View>
       </Card>
+      <Pressable style={styles.settingRow} onPress={() => setEditingAvatar(true)}><View style={[styles.settingIcon,{backgroundColor:C.lilac}]}><Ionicons name="person-circle-outline" size={18} color={C.purple} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>3D avatar</Text><Text style={styles.settingMeta}>Portrait, greeting, and motion</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>
+      <Modal visible={editingAvatar} animationType="slide" onRequestClose={() => setEditingAvatar(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
+          <AvatarCreator cookie={cookie} profile={profile} onSaved={onProfile} onClose={() => setEditingAvatar(false)} />
+        </SafeAreaView>
+      </Modal>
       <Eyebrow>YOUR SOPHIA</Eyebrow>
       <Pressable style={styles.settingRow} onPress={onAsk}><View style={[styles.settingIcon,{backgroundColor:C.lilac}]}><Ionicons name="sparkles-outline" size={18} color={C.purple} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>Cloud Sophia</Text><Text style={styles.settingMeta}>Consent and personal context</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>
       <Pressable style={styles.settingRow} onPress={() => Alert.alert("Your privacy", "Sophia stores encrypted message content. Your message text stays on your devices; the server routes encrypted envelopes.")}><View style={[styles.settingIcon,{backgroundColor:C.greenWash}]}><Ionicons name="lock-closed-outline" size={18} color={C.green} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>Privacy & security</Text><Text style={styles.settingMeta}>End-to-end encrypted conversations</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>

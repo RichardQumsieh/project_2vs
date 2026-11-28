@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { ChatPresence } from "@/components/avatar/chat-presence";
+import { PersonAvatar } from "@/components/avatar/person-avatar";
 import { GroupMessageBody } from "@/components/group-message-body";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +39,7 @@ export function GroupInfo({
   const [title, setTitle] = useState(conversation.title ?? "");
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<PublicUser[]>([]);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const media = mediaMessages(messages);
   const members = conversation.members ?? [];
@@ -101,15 +104,22 @@ export function GroupInfo({
         ) : null}
         <section>
           <h3 className="text-xs font-medium uppercase tracking-wide text-white/45">{t("group.members")}</h3>
+          {focusedId ? (
+            <div className="mt-4 flex justify-center">
+              <ChatPresence
+                person={members.find((member) => member.userId === focusedId)}
+                contactId={focusedId}
+                size={140}
+              />
+            </div>
+          ) : null}
           <ul className="mt-3 space-y-2">
             {members.map((member) => {
               const label = memberLabel(member);
               return (
                 <li key={member.userId} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-full text-xs font-semibold text-white" style={{ background: memberColor(member.userId) }}>
-                      {memberInitials(label)}
-                    </span>
+                  <button type="button" className="flex min-w-0 items-center gap-2 text-start" onClick={() => setFocusedId((current) => current === member.userId ? null : member.userId)}>
+                    <PersonAvatar person={member} title={memberInitials(label)} size={36} />
                     <span className="min-w-0">
                       <span className="block truncate"><BidiText>{label}</BidiText></span>
                       <span className="block truncate text-xs text-white/40">
@@ -118,7 +128,7 @@ export function GroupInfo({
                         {member.role === "ADMIN" ? t("group.admin") : t("group.member")}
                       </span>
                     </span>
-                  </span>
+                  </button>
                   {canAdminister && member.userId !== selfUserId ? (
                     <span className="flex shrink-0 gap-1">
                       <Button type="button" size="sm" variant="ghost" onClick={() => void onSetRole(member.userId, member.role === "ADMIN" ? "MEMBER" : "ADMIN")}>

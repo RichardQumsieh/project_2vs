@@ -34,6 +34,7 @@ export default function SettingsPage() {
           body={t("settings.plans.body")}
         />
         <ModuleCard href="/sophia" title={t("settings.studio.title")} body={t("settings.studio.body")} />
+        <ModuleCard href="/settings/avatar" title={t("settings.avatar.title")} body={t("settings.avatar.body")} />
       </div>
     </ProductShell>
   );

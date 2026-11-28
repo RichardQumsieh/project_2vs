@@ -52,7 +52,7 @@
         {
           "android": {
             "minSdkVersion": 33,
-            "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**"
+            "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class expo.modules.gl.** { *; }\n-keep class expo.modules.speech.** { *; }"
           }
         }
       ],

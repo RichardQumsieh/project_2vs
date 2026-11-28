@@ -95,12 +95,20 @@ export async function request<T>(path: string, options: RequestInit = {}, cookie
   return data as T;
 }
 
-export type User = { id: string; username: string; displayName: string | null; avatarUrl: string | null };
+export type User = {
+  id: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  avatarConfig?: unknown;
+  greetingText?: string | null;
+  greetingAnimation?: string | null;
+};
 export type TotpSetup = { setupRequired: true; setupToken: string; secret: string; otpauthUrl: string };
 export type SessionUser = User & { vaultVersion: number; interests: string[] };
 export type Conversation = {
   id: string; type: "DIRECT" | "GROUP"; title?: string | null; createdAt?: string; memberUserIds?: string[];
-  members?: { userId: string; username: string; displayName: string | null; avatarUrl?: string | null; role: "ADMIN" | "MEMBER"; readCursor?: { blobId: string; createdAt: string } | null }[];
+  members?: { userId: string; username: string; displayName: string | null; avatarUrl?: string | null; avatarConfig?: unknown; greetingText?: string | null; greetingAnimation?: string | null; role: "ADMIN" | "MEMBER"; readCursor?: { blobId: string; createdAt: string } | null }[];
   updatedAt: string; peer: User | null; lastMessageAt: string | null; unreadCount?: number;
 };
 export type Task = {
@@ -137,6 +145,8 @@ export const api = {
   confirmTotp: (body: { setupToken: string; code: string }) =>
     request<{ user: User; recoveryCodes: string[] }>("/auth/totp/confirm", { method: "POST", body: JSON.stringify(body) }),
   me: (cookie: string) => request<{ user: SessionUser; devices: { id: string; deviceName: string }[] }>("/me", {}, cookie),
+  updateAvatar: (cookie: string, body: { avatarConfig: unknown; greetingText: string | null; greetingAnimation: string | null }) =>
+    request<{ user: User }>("/me/avatar", { method: "PATCH", body: JSON.stringify(body) }, cookie),
   logout: (cookie: string) => request("/auth/logout", { method: "POST" }, cookie),
   conversations: (cookie: string) => request<{ conversations: Conversation[] }>("/conversations", {}, cookie),
   lookupPeople: (cookie: string, query: string) => request<{ users: User[] }>(`/users/lookup?q=${encodeURIComponent(query)}`, {}, cookie),

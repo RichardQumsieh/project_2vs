@@ -3,6 +3,8 @@ import React, { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { mediaMessages, memberColor, memberInitials, memberLabel } from "../../frontend/lib/group-presentation";
 import type { LocalMessage } from "../../frontend/lib/crypto/types";
+import { ChatGreeting } from "./chat-greeting";
+import { PersonBadge } from "./person-badge";
 import { api, type Conversation } from "./api";
 import { NativeMessageBody } from "./message-body";
 import { t } from "./i18n";
@@ -34,6 +36,7 @@ export function GroupInfoScreen({
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [members, setMembers] = useState(conversation.members ?? []);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   useEffect(() => {
     setMembers(conversation.members ?? []);
     setTitle(conversation.title ?? "");
@@ -73,6 +76,9 @@ export function GroupInfoScreen({
         username: person.username,
         displayName: person.displayName,
         avatarUrl: person.avatarUrl,
+        avatarConfig: person.avatarConfig,
+        greetingText: person.greetingText,
+        greetingAnimation: person.greetingAnimation,
         role: "MEMBER" as const,
       }]);
       setQuery("");
@@ -108,13 +114,14 @@ export function GroupInfoScreen({
             </View>
           ) : null}
           <Text style={[styles.section, { color: colors.muted }]}>{t("members")}</Text>
+          {focusedId ? <ChatGreeting person={members.find((member) => member.userId === focusedId)} contactId={focusedId} size={140} /> : null}
           {members.map((member) => {
             const label = memberLabel(member);
             return (
               <View key={member.userId} style={styles.member}>
-                <View style={[styles.smallAvatar, { backgroundColor: memberColor(member.userId) }]}>
-                  <Text style={styles.avatarText}>{memberInitials(label)}</Text>
-                </View>
+                <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={() => setFocusedId((current) => current === member.userId ? null : member.userId)}>
+                  <PersonBadge person={member} title={label} size={36} />
+                </Pressable>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.ink, fontWeight: "700" }}>{label}</Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>@{member.username} · {member.role === "ADMIN" ? "Admin" : "Member"}</Text>

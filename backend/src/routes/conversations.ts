@@ -847,7 +847,15 @@ export function serializeConversation(
       userId: string;
       role?: "ADMIN" | "MEMBER";
       groupReadBlobId?: string | null;
-      user: { id: string; username: string; displayName: string | null; avatarUrl: string | null };
+      user: {
+        id: string;
+        username: string;
+        displayName: string | null;
+        avatarUrl: string | null;
+        avatarConfig?: unknown;
+        greetingText?: string | null;
+        greetingAnimation?: string | null;
+      };
     }[];
     messages?: { createdAt: Date }[];
   },
@@ -863,16 +871,22 @@ export function serializeConversation(
     ...(conversation.createdAt ? { createdAt: conversation.createdAt.toISOString() } : {}),
     memberUserIds: conversation.members.map((member) => member.userId).sort(),
     members: conversation.members
-      .map((member) => ({
+      .map((member) => {
+        const profile = publicUser(member.user);
+        return {
         userId: member.userId,
-        username: member.user.username,
-        displayName: member.user.displayName,
-        avatarUrl: member.user.avatarUrl,
+        username: profile.username,
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+        avatarConfig: profile.avatarConfig,
+        greetingText: profile.greetingText,
+        greetingAnimation: profile.greetingAnimation,
         role: member.role ?? "MEMBER",
         ...(conversation.type === "GROUP"
           ? { readCursor: readCursors?.get(member.userId) ?? null }
           : {}),
-      }))
+        };
+      })
       .sort((left, right) => left.username.localeCompare(right.username)),
     updatedAt: conversation.updatedAt.toISOString(),
     peer: peer ? publicUser(peer) : null,

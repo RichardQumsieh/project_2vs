@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
+import { PersonAvatar } from "@/components/avatar/person-avatar";
 import { GroupComposer } from "@/components/group-composer";
 import { GroupInfo } from "@/components/group-info";
 import { GroupMessageBody } from "@/components/group-message-body";
@@ -458,9 +459,7 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
               className={`flex max-w-[36rem] items-end gap-2 ${message.fromMe ? "ms-auto flex-row-reverse" : ""} ${row.cluster === "middle" || row.cluster === "first" ? "mb-0.5" : "mb-2"}`}
             >
               {row.showSender ? (
-                <span className="grid size-8 shrink-0 place-items-center rounded-full text-[11px] font-semibold text-white" style={{ background: color }} aria-hidden="true">
-                  {memberInitials(name)}
-                </span>
+                <PersonAvatar person={sender} title={memberInitials(name)} size={32} />
               ) : <span className="size-8 shrink-0" aria-hidden="true" />}
               <div className={`min-w-0 rounded-2xl px-3 py-2 text-sm ${message.fromMe ? "bg-cyan-300/15" : "bg-white/[0.04]"}`}>
                 {row.showSender ? <p className="mb-1 text-[11px] font-semibold" style={{ color }}><BidiText>{name}</BidiText></p> : null}
