@@ -227,9 +227,15 @@ async function readZipEntry(
   if (typeof DecompressionStream === "undefined") {
     throw new Error("This browser cannot safely verify Office files. Try an up-to-date browser.");
   }
-  const stream = new Blob([asBufferSource(compressed)])
-    .stream()
-    .pipeThrough(new DecompressionStream("deflate-raw"));
+  const source = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(compressed));
+      controller.close();
+    },
+  });
+  const stream = source.pipeThrough(
+    new DecompressionStream("deflate-raw") as ReadableWritablePair<Uint8Array, Uint8Array>,
+  );
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;

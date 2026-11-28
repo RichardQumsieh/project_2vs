@@ -261,7 +261,8 @@ export function CallProvider({ cookie, userId, children }: { cookie: string; use
   }, [publishIce, showError, updateCall]);
 
   const openStream = useCallback(async (mode: Mode) => {
-    const stream = await mediaDevices.getUserMedia({ audio: true, video: mode === "video" });
+    const { withExternalActivity } = await import("./app-lock");
+    const stream = await withExternalActivity(() => mediaDevices.getUserMedia({ audio: true, video: mode === "video" }));
     localStreamRef.current = stream;
     setLocalUrl(stream.toURL());
     const manager = inCallManager();

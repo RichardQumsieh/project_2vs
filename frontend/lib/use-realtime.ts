@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { wsUrl, type Conversation } from "./api";
 import { groupAlertDecision } from "./group-alerts";
+import { attachTypingSocket, noteGroupTyping } from "./group-typing-client";
 import { useI18n } from "./i18n/locale";
 import {
   applyRemoteMessageDeletion,
@@ -29,6 +30,7 @@ export function useRealtime(unlocked: boolean, userId: string | null) {
     const connect = () => {
       if (stopped) return;
       socket = new WebSocket(wsUrl());
+      attachTypingSocket(socket);
       socket.onmessage = async (event) => {
         const payload = JSON.parse(event.data) as
           | { type: "hello" }
@@ -39,7 +41,8 @@ export function useRealtime(unlocked: boolean, userId: string | null) {
               logicalMessageId: string;
               messageRecordIds: string[];
             }
-          | { type: "group_mls"; conversationId: string; kind?: string };
+          | { type: "group_mls"; conversationId: string; kind?: string }
+          | { type: "group_typing"; conversationId: string; userId: string };
         if (payload.type === "message_deleted") {
           await applyRemoteMessageDeletion(
             payload.conversationId,
@@ -57,6 +60,12 @@ export function useRealtime(unlocked: boolean, userId: string | null) {
               queryKey: ["local-messages", userId, payload.conversationId],
             }),
           ]);
+          return;
+        }
+        if (payload.type === "group_typing") {
+          if (payload.userId && payload.conversationId) {
+            noteGroupTyping({ conversationId: payload.conversationId, userId: payload.userId });
+          }
           return;
         }
         if (payload.type === "group_mls") {
@@ -121,6 +130,7 @@ export function useRealtime(unlocked: boolean, userId: string | null) {
     return () => {
       stopped = true;
       if (retryTimer) clearTimeout(retryTimer);
+      attachTypingSocket(null);
       socket?.close();
     };
   }, [queryClient, unlocked, userId]);

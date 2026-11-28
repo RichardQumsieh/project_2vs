@@ -95,12 +95,20 @@ export async function request<T>(path: string, options: RequestInit = {}, cookie
   return data as T;
 }
 
-export type User = { id: string; username: string; displayName: string | null; avatarUrl: string | null };
+export type User = {
+  id: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  avatarConfig?: unknown;
+  greetingText?: string | null;
+  greetingAnimation?: string | null;
+};
 export type TotpSetup = { setupRequired: true; setupToken: string; secret: string; otpauthUrl: string };
 export type SessionUser = User & { vaultVersion: number; interests: string[] };
 export type Conversation = {
-  id: string; type: "DIRECT" | "GROUP"; title?: string | null; memberUserIds?: string[];
-  members?: { userId: string; username: string; displayName: string | null; role: "ADMIN" | "MEMBER" }[];
+  id: string; type: "DIRECT" | "GROUP"; title?: string | null; createdAt?: string; memberUserIds?: string[];
+  members?: { userId: string; username: string; displayName: string | null; avatarUrl?: string | null; avatarConfig?: unknown; greetingText?: string | null; greetingAnimation?: string | null; role: "ADMIN" | "MEMBER"; readCursor?: { blobId: string; createdAt: string } | null }[];
   updatedAt: string; peer: User | null; lastMessageAt: string | null; unreadCount?: number;
 };
 export type Task = {
@@ -137,14 +145,21 @@ export const api = {
   confirmTotp: (body: { setupToken: string; code: string }) =>
     request<{ user: User; recoveryCodes: string[] }>("/auth/totp/confirm", { method: "POST", body: JSON.stringify(body) }),
   me: (cookie: string) => request<{ user: SessionUser; devices: { id: string; deviceName: string }[] }>("/me", {}, cookie),
+  updateAvatar: (cookie: string, body: { avatarConfig: unknown; greetingText: string | null; greetingAnimation: string | null }) =>
+    request<{ user: User }>("/me/avatar", { method: "PATCH", body: JSON.stringify(body) }, cookie),
   logout: (cookie: string) => request("/auth/logout", { method: "POST" }, cookie),
   conversations: (cookie: string) => request<{ conversations: Conversation[] }>("/conversations", {}, cookie),
   lookupPeople: (cookie: string, query: string) => request<{ users: User[] }>(`/users/lookup?q=${encodeURIComponent(query)}`, {}, cookie),
+  searchPeople: (query: string) => request<{ users: User[] }>(`/users/lookup?q=${encodeURIComponent(query)}`),
+  addGroupMember: (conversationId: string, userId: string) => request<{ ok: true }>(`/conversations/${encodeURIComponent(conversationId)}/members`, { method: "POST", body: JSON.stringify({ userId }) }),
+  removeGroupMember: (conversationId: string, userId: string) => request<{ ok: true }>(`/conversations/${encodeURIComponent(conversationId)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" }),
+  setGroupMemberRole: (conversationId: string, userId: string, role: "ADMIN" | "MEMBER") => request<{ ok: true }>(`/conversations/${encodeURIComponent(conversationId)}/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ role }) }),
   createDirect: (cookie: string, username: string) => request<Conversation>("/conversations/direct", { method: "POST", body: JSON.stringify({ username }) }, cookie),
   createGroup: (cookie: string, body: { memberUserIds: string[]; title?: string }) => request<Conversation>("/conversations/group", { method: "POST", body: JSON.stringify(body) }, cookie),
   groupDevices: (conversationId: string) => request<{ devices: { userId: string; deviceId: string; signingPublicKey: string; role: "admin" | "member"; username: string; displayName: string | null }[] }>(`/conversations/${encodeURIComponent(conversationId)}/group-devices`),
   groupMls: (conversationId: string, deviceId: string, after?: string) => request<{ blobs: { id: string; clientId: string | null; kind: "key_package" | "welcome" | "commit" | "proposal" | "application"; senderDeviceId: string; recipientDeviceId: string | null; payload: string; bindingSignature: string | null; createdAt: string }[] }>(`/conversations/${encodeURIComponent(conversationId)}/mls?deviceId=${encodeURIComponent(deviceId)}&limit=100${after ? `&after=${encodeURIComponent(after)}` : ""}`),
-  postGroupMls: (conversationId: string, body: { senderDeviceId: string; clientId?: string; kind: "key_package" | "welcome" | "commit" | "proposal" | "application"; payload: string; recipientDeviceId?: string; bindingSignature?: string }) => request<{ id: string; kind: string; payload: string }>(`/conversations/${encodeURIComponent(conversationId)}/mls`, { method: "POST", body: JSON.stringify(body) }),
+  postGroupMls: (conversationId: string, body: { senderDeviceId: string; clientId?: string; kind: "key_package" | "welcome" | "commit" | "proposal" | "application"; payload: string; recipientDeviceId?: string; bindingSignature?: string }) => request<{ id: string; kind: string; payload: string; createdAt?: string }>(`/conversations/${encodeURIComponent(conversationId)}/mls`, { method: "POST", body: JSON.stringify(body) }),
+  renameGroup: (conversationId: string, title: string) => request<{ ok: true; title: string }>(`/conversations/${encodeURIComponent(conversationId)}`, { method: "PATCH", body: JSON.stringify({ title }) }),
   markGroupRead: (conversationId: string, blobId?: string) => request<{ ok: true; blobId: string | null }>(`/conversations/${encodeURIComponent(conversationId)}/read`, { method: "POST", body: JSON.stringify(blobId ? { blobId } : {}) }),
   messages: (conversationId: string, deviceId: string, before?: { createdAt: string; id: string }, fromStart = false, after?: string, limit = 50) => {
     const query = new URLSearchParams({ deviceId, limit: String(limit) });

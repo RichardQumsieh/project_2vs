@@ -5,6 +5,7 @@ import {
   AppState,
   FlatList,
   Keyboard,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -17,7 +18,10 @@ import * as Haptics from "expo-haptics";
 import type { LocalMessage } from "../../frontend/lib/crypto/types";
 import { b64ToBytes } from "../../frontend/lib/crypto/bytes";
 import { openGroupRecord, sealGroupRecord } from "../../frontend/lib/crypto/group-store";
-import { queueGroupMessage, syncGroup, type GroupWireBlob } from "../../frontend/lib/group-runtime";
+import { listMembers } from "../../frontend/lib/crypto/group-mls";
+import { memberColor, memberInitials, memberLabel, readByLabel, readersOfMessage, typingLabel } from "../../frontend/lib/group-presentation";
+import { ackGroupDeliveries, mlsHistoryCursor, queueGroupMessage, queueMemberRemoval, queueSelfRemoval, syncGroup, type GroupWireBlob } from "../../frontend/lib/group-runtime";
+import { attachTypingSocket, noteGroupTyping, subscribeGroupTyping } from "../../frontend/lib/group-typing-client";
 import {
   archiveGroupMessages,
   acknowledgeArchiveRecoveryCode,
@@ -47,16 +51,23 @@ import {
   saveWireCursor,
   type PendingDirectSend,
 } from "../../frontend/lib/idb";
-import { api, setApiCookie, type Conversation } from "./api";
+import { api, openSignalingSocket, setApiCookie, type Conversation } from "./api";
+import { asActivityState, currentLockDelayMs, createLockController, externalActivityActive, subscribeExternalActivity } from "./app-lock";
 import { registerCallLogSender, takeQueuedCallLogs } from "./call-log-bridge";
-import { useCallControls } from "./call-session";
 import { consumeQuickReply } from "../../frontend/lib/notifications/reply-store";
+import { appLocale, t } from "./i18n";
+import { sweepDecryptedCache, wipeDecryptedCache } from "./media-cache";
+import { GroupInfoScreen } from "./group-info";
 import { NativeMediaComposer } from "./media-composer";
 import { screenColors } from "./theme-surface";
 import { useMobileTheme } from "./theme-provider";
 import { deleteScopes, type DeleteScope } from "./message-actions";
+import { encodeSystemPayload, encodeWaitingPayload, isSystemPlaintext, isWaitingPlaintext, messagePreviewText } from "../../frontend/lib/chat-payload";
 import { addReplyTarget, removeReplyTarget, toggleReplyTarget } from "./reply-selection";
 import { SwipeableMessage } from "./swipeable-message";
+import { buildThreadRows, type ThreadRow } from "./thread-rows";
+import { useColors } from "./theme";
+import { ChatGreeting } from "./chat-greeting";
 import { ActionButton, C, Input, Notice } from "./ui";
 
 type Props = { conversation: Conversation; cookie: string };
@@ -99,10 +110,13 @@ function mergeMessages(current: LocalMessage[], next: LocalMessage[]) {
 }
 
 export function NativeThread({ conversation, cookie }: Props) {
+  const colors = useColors();
   const mobileTheme = useMobileTheme();
   const screen = screenColors(mobileTheme.theme, mobileTheme.scheme);
   const [replySeed, setReplySeed] = useState<string | null>(null);
-  const [unlocked, setUnlocked] = useState(isUnlocked());
+  const initiallyOpen = isUnlocked();
+  const hasSession = useRef(initiallyOpen);
+  const [locked, setLocked] = useState(!initiallyOpen);
   const [vaultPassword, setVaultPassword] = useState("");
   const [historyRecoveryInput, setHistoryRecoveryInput] = useState("");
   const [unlocking, setUnlocking] = useState(false);
@@ -124,23 +138,39 @@ export function NativeThread({ conversation, cookie }: Props) {
   const [replyIds, setReplyIds] = useState<string[]>([]);
   const [selectingReplies, setSelectingReplies] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<LocalMessage | null>(null);
+  const [menuMessage, setMenuMessage] = useState<LocalMessage | null>(null);
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
+  const [unreadBelow, setUnreadBelow] = useState(0);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [undo, setUndo] = useState<{ message: LocalMessage; scope: DeleteScope; pending: boolean } | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [typingNames, setTypingNames] = useState<string[]>([]);
+  const [leftNotice, setLeftNotice] = useState("");
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listRef = useRef<FlatList<LocalMessage>>(null);
-  const calls = useCallControls();
+  const listRef = useRef<FlatList<ThreadRow>>(null);
+  const awayRef = useRef(false);
+  const seenNewest = useRef<string | null>(null);
   const autoScroll = useRef(true);
   const refreshInFlight = useRef(false);
   const groupHistorySynced = useRef(new Set<string>());
 
   useEffect(() => { setApiCookie(cookie); }, [cookie]);
   useEffect(() => {
-    setUnlocked(isUnlocked());
     setReplyIds([]);
     setSelectingReplies(false);
     setDeleteTarget(null);
+    setMenuMessage(null);
     setHiddenIds([]);
     setUndo(null);
+    setInfoOpen(false);
+    setTypingNames([]);
+    setLeftNotice("");
+    setMessages([]);
+    setPendingSends([]);
+    setAwayFromLatest(false);
+    setUnreadBelow(0);
+    seenNewest.current = null;
+    setLocked(!isUnlocked());
   }, [conversation.id]);
 
   const myUserId = currentUserId();
@@ -156,8 +186,23 @@ export function NativeThread({ conversation, cookie }: Props) {
       plaintext: send.plaintext,
       createdAt: send.createdAt,
     }));
-    return mergeMessages(messages, pending).filter((message) => !hidden.has(message.id));
-  }, [hiddenIds, messages, myUserId, pendingSends]);
+    const visible = mergeMessages(messages, pending).filter((message) => !hidden.has(message.id));
+    if (conversation.type !== "GROUP" || !conversation.createdAt) return visible;
+    if (visible.some((message) => isSystemPlaintext(message.plaintext) && message.plaintext.includes("\"created\""))) return visible;
+    const admin = conversation.members?.find((member) => member.role === "ADMIN");
+    return [{
+      id: `created:${conversation.id}`,
+      conversationId: conversation.id,
+      senderDeviceId: "system",
+      fromMe: false,
+      plaintext: encodeSystemPayload({
+        event: "created",
+        actor: admin?.displayName?.trim() || admin?.username || "Someone",
+        title: conversation.title ?? undefined,
+      }),
+      createdAt: conversation.createdAt,
+    }, ...visible];
+  }, [conversation, hiddenIds, messages, myUserId, pendingSends]);
 
   const refreshLocal = useCallback(async () => {
     const [recent, pending] = await Promise.all([
@@ -181,9 +226,7 @@ export function NativeThread({ conversation, cookie }: Props) {
       loadSealedGroup(userId, conversation.id),
     ]);
     const existing = sealed ? await openGroupRecord(vaultKey, userId, conversation.id, sealed) : null;
-    const after = existing
-      ? existing.appliedBlobIds[existing.appliedBlobIds.length - 1]
-      : undefined;
+    const after = mlsHistoryCursor(existing);
     const blobs = await loadGroupBlobs(conversation.id, deviceId, after);
     const member = conversation.members?.find((item) => item.userId === userId);
     const directory = devices.devices.map((device) => ({
@@ -191,6 +234,7 @@ export function NativeThread({ conversation, cookie }: Props) {
       deviceId: device.deviceId,
       signingPublicKey: b64ToBytes(device.signingPublicKey),
       role: device.role,
+      label: device.displayName?.trim() || device.username,
     }));
     const role = member?.role === "ADMIN" || (!member && directory.some((device) => device.userId === userId && device.role === "admin"))
       ? "admin"
@@ -210,8 +254,9 @@ export function NativeThread({ conversation, cookie }: Props) {
       post: (body) => api.postGroupMls(conversation.id, { ...body, senderDeviceId: deviceId }),
     });
 
-    await saveSealedGroup(userId, conversation.id, await sealGroupRecord(vaultKey, userId, conversation.id, result.record));
-    const newlyDecrypted: LocalMessage[] = result.messages.map((message) => {
+    const newlyDecrypted: LocalMessage[] = result.messages
+      .filter((message) => !isWaitingPlaintext(message.plaintext))
+      .map((message) => {
       const sender = devices.devices.find((device) => device.deviceId === message.senderDeviceId);
       return {
         id: message.id,
@@ -224,6 +269,23 @@ export function NativeThread({ conversation, cookie }: Props) {
       };
     });
     for (const message of newlyDecrypted) await saveLocalMessage(message);
+    if (result.pending) {
+      const sender = devices.devices.find((device) => device.deviceId === result.pending?.senderDeviceId);
+      await saveLocalMessage({
+        id: result.pending.id,
+        conversationId: conversation.id,
+        senderDeviceId: result.pending.senderDeviceId,
+        senderUserId: sender?.userId,
+        fromMe: result.pending.senderDeviceId === deviceId,
+        plaintext: encodeWaitingPayload({ id: result.pending.id }),
+        createdAt: result.pending.createdAt,
+      });
+    }
+    await saveSealedGroup(
+      userId,
+      conversation.id,
+      await sealGroupRecord(vaultKey, userId, conversation.id, ackGroupDeliveries(result.record, newlyDecrypted.map((message) => message.id))),
+    );
     if (newlyDecrypted.length) await archiveGroupMessages(newlyDecrypted);
 
     const latestBlob = blobs[blobs.length - 1]?.id;
@@ -239,6 +301,7 @@ export function NativeThread({ conversation, cookie }: Props) {
         setHistoryError(friendlyError(error));
       }
     }
+    return result;
   }, [conversation, refreshLocal]);
 
   const refreshConversation = useCallback(async () => {
@@ -277,6 +340,42 @@ export function NativeThread({ conversation, cookie }: Props) {
     }
   }, [conversation.id, conversation.type, refreshLocal, syncGroupConversation]);
 
+  useEffect(() => {
+    if (conversation.type !== "GROUP" || locked) return;
+    const socket = openSignalingSocket();
+    attachTypingSocket(socket);
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(String(event.data)) as { type?: string; conversationId?: string; userId?: string };
+        if (payload.type === "group_typing" && payload.conversationId && payload.userId) {
+          noteGroupTyping({ conversationId: payload.conversationId, userId: payload.userId });
+        }
+      } catch {
+        // Presence frames are optional.
+      }
+    };
+    return () => {
+      attachTypingSocket(null);
+      socket.close();
+    };
+  }, [conversation.id, conversation.type, locked]);
+
+  useEffect(() => {
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    return subscribeGroupTyping((event) => {
+      if (event.conversationId !== conversation.id || event.userId === currentUserId()) return;
+      const member = conversation.members?.find((item) => item.userId === event.userId);
+      const name = memberLabel(member);
+      setTypingNames((current) => current.includes(name) ? current : [...current, name]);
+      const existing = timers.get(event.userId);
+      if (existing) clearTimeout(existing);
+      timers.set(event.userId, setTimeout(() => {
+        timers.delete(event.userId);
+        setTypingNames((current) => current.filter((item) => item !== name));
+      }, 4_000));
+    });
+  }, [conversation.id, conversation.members]);
+
   const unlock = useCallback(async () => {
     const password = vaultPassword;
     if (!password) return;
@@ -299,7 +398,8 @@ export function NativeThread({ conversation, cookie }: Props) {
       if (setup.archiveRecoveryCode) setRecoveryCode(setup.archiveRecoveryCode);
       setVaultPassword("");
       setHistoryRecoveryInput("");
-      setUnlocked(true);
+      hasSession.current = true;
+      setLocked(false);
       updateStep("loading local messages");
       await refreshLocal();
       setHistoryBusy(true);
@@ -361,7 +461,7 @@ export function NativeThread({ conversation, cookie }: Props) {
   }, [conversation.id, conversation.type, sendPending]);
 
   useEffect(() => {
-    if (!unlocked || !isUnlocked()) return;
+    if (locked || !isUnlocked()) return;
     let active = true;
     const run = async () => {
       if (!active) return;
@@ -373,25 +473,58 @@ export function NativeThread({ conversation, cookie }: Props) {
     const timer = setInterval(() => {
       if (AppState.currentState === "active") void run();
     }, 5000);
-    const appState = AppState.addEventListener("change", (state) => {
-      if (state === "active") void run();
-      else {
-        setUnlocked(false);
-        setMessages([]);
-        setPendingSends([]);
-        void lockDevice();
-      }
-    });
     return () => {
       active = false;
       clearInterval(timer);
-      appState.remove();
     };
-  }, [flushPending, refreshConversation, refreshLocal, unlocked]);
+  }, [flushPending, locked, refreshConversation, refreshLocal]);
+
+  useEffect(() => {
+    let alive = true;
+    const run = async () => {
+      if (!alive || locked || !isUnlocked()) return;
+      await flushPending();
+      await refreshConversation();
+    };
+    const controller = createLockController({
+      now: () => Date.now(),
+      delayMs: () => currentLockDelayMs(),
+      externalActivity: externalActivityActive,
+      appState: () => asActivityState(AppState.currentState),
+      onLock: () => {
+        if (!alive || !isUnlocked()) return;
+        Keyboard.dismiss();
+        void wipeDecryptedCache();
+        void lockDevice().finally(() => {
+          if (alive) setLocked(true);
+        });
+      },
+      schedule: (lockAt, fire) => {
+        const timer = setTimeout(fire, Math.max(0, lockAt - Date.now()));
+        return () => clearTimeout(timer);
+      },
+    });
+    const appState = AppState.addEventListener("change", (state) => {
+      controller.evaluate(asActivityState(state));
+      if (state === "active") {
+        void sweepDecryptedCache();
+        void run();
+      }
+    });
+    const unsubscribe = subscribeExternalActivity(() => {
+      controller.evaluate(asActivityState(AppState.currentState));
+    });
+    return () => {
+      alive = false;
+      appState.remove();
+      unsubscribe();
+      controller.dispose();
+    };
+  }, [flushPending, locked, refreshConversation]);
 
   async function sendPlaintext(plaintext: string) {
     const text = plaintext.trim();
-    if (!text || sending || !unlocked) return;
+    if (!text || sending || locked || !isUnlocked()) return;
     setSending(true);
     setSendError("");
     setSendQueued(false);
@@ -423,7 +556,7 @@ export function NativeThread({ conversation, cookie }: Props) {
         await refreshConversation();
       }
       autoScroll.current = true;
-      listRef.current?.scrollToEnd({ animated: true });
+      listRef.current?.scrollToOffset({ offset: 0, animated: true });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
       setReplyIds([]);
       setSelectingReplies(false);
@@ -436,14 +569,89 @@ export function NativeThread({ conversation, cookie }: Props) {
     }
   }
 
-  useEffect(() => {
-    if (!unlocked) return;
-    const text = consumeQuickReply(conversation.id);
-    if (text) setReplySeed(text);
-  }, [unlocked, conversation.id]);
+  async function openWritableGroup() {
+    const userId = currentUserId();
+    const vaultKey = currentVaultKey();
+    if (!userId || !vaultKey) throw new Error("Unlock this device to use group chat.");
+    const sealed = await loadSealedGroup(userId, conversation.id);
+    if (!sealed) throw new Error("This device is waiting for an existing group member to add it.");
+    const record = await openGroupRecord(vaultKey, userId, conversation.id, sealed);
+    return { userId, vaultKey, record };
+  }
+
+  async function removeGroupMember(memberUserId: string, label: string) {
+    const { userId, vaultKey, record: opened } = await openWritableGroup();
+    let record = opened;
+    const devices = await api.groupDevices(conversation.id);
+    const roster = record.session ? new Set(listMembers(record.session).map((leaf) => leaf.deviceId)) : new Set<string>();
+    const actor = conversation.members?.find((member) => member.userId === userId);
+    for (const device of devices.devices) {
+      if (device.userId !== memberUserId || !roster.has(device.deviceId)) continue;
+      record = await queueMemberRemoval(record, device.deviceId, {
+        actor: actor?.displayName?.trim() || actor?.username || "Admin",
+        target: label,
+        targetId: memberUserId,
+      });
+      roster.delete(device.deviceId);
+    }
+    await saveSealedGroup(userId, conversation.id, await sealGroupRecord(vaultKey, userId, conversation.id, record));
+    await syncGroupConversation();
+    await api.removeGroupMember(conversation.id, memberUserId);
+    await refreshLocal();
+  }
+
+  async function leaveGroup(actor: string) {
+    const userId = currentUserId();
+    if (!userId) return;
+    try {
+      const others = (conversation.members ?? []).filter((member) => member.userId !== userId);
+      const admins = (conversation.members ?? []).filter((member) => member.role === "ADMIN");
+      if (admins.length === 1 && admins[0]?.userId === userId && others.length > 0) {
+        setSendError("Choose another admin before leaving this group.");
+        return;
+      }
+      if (others.length === 0) {
+        await api.removeGroupMember(conversation.id, userId);
+        setLeftNotice("You left this group.");
+        setInfoOpen(false);
+        return;
+      }
+      const { vaultKey, record } = await openWritableGroup();
+      const queued = await queueSelfRemoval(record, { actor });
+      await saveSealedGroup(userId, conversation.id, await sealGroupRecord(vaultKey, userId, conversation.id, queued));
+      const result = await syncGroupConversation();
+      if (!result.selfRemoved) {
+        setSendError("Leave is waiting for the group to confirm. Keep this chat open until it finishes.");
+        setInfoOpen(false);
+        return;
+      }
+      await api.removeGroupMember(conversation.id, userId);
+      setLeftNotice("You left this group.");
+      setInfoOpen(false);
+    } catch (error) {
+      setSendError(friendlyError(error));
+    }
+  }
+
+  async function announceRename(title: string) {
+    const userId = currentUserId();
+    const actor = conversation.members?.find((member) => member.userId === userId);
+    await sendPlaintext(encodeSystemPayload({
+      event: "renamed",
+      actor: actor?.displayName?.trim() || actor?.username || "Someone",
+      actorId: userId ?? undefined,
+      title,
+    }));
+  }
 
   useEffect(() => {
-    if (!unlocked) return;
+    if (locked || !isUnlocked()) return;
+    const text = consumeQuickReply(conversation.id);
+    if (text) setReplySeed(text);
+  }, [locked, conversation.id]);
+
+  useEffect(() => {
+    if (locked || !isUnlocked()) return;
     const unregister = registerCallLogSender(async (conversationId, plaintext) => {
       if (conversationId !== conversation.id) return;
       await sendPlaintext(plaintext);
@@ -451,7 +659,7 @@ export function NativeThread({ conversation, cookie }: Props) {
     const queued = takeQueuedCallLogs(conversation.id);
     for (const item of queued) void sendPlaintext(item.plaintext).catch(() => undefined);
     return unregister;
-  }, [conversation.id, unlocked]);
+  }, [conversation.id, locked]);
 
   async function finalizeDelete(message: LocalMessage, scope: DeleteScope, pending: boolean) {
     const logicalId = message.logicalMessageId ?? message.id;
@@ -511,16 +719,43 @@ export function NativeThread({ conversation, cookie }: Props) {
     }
   }
 
+  const rows = useMemo(
+    () => [...buildThreadRows(displayMessages, new Date(), appLocale())].reverse(),
+    [displayMessages],
+  );
+
+  useEffect(() => {
+    const newest = displayMessages[displayMessages.length - 1];
+    if (!newest) return;
+    if (seenNewest.current && seenNewest.current !== newest.id && awayRef.current) {
+      const previousIndex = displayMessages.findIndex((item) => item.id === seenNewest.current);
+      const arrived = previousIndex === -1 ? 1 : displayMessages.length - 1 - previousIndex;
+      if (arrived > 0) setUnreadBelow((count) => count + arrived);
+    }
+    seenNewest.current = newest.id;
+  }, [displayMessages]);
+
   function onScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    autoScroll.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 80;
+    const atLatest = event.nativeEvent.contentOffset.y < 80;
+    autoScroll.current = atLatest;
+    awayRef.current = !atLatest;
+    setAwayFromLatest(!atLatest);
+    if (atLatest) setUnreadBelow(0);
   }
 
-  if (!unlocked) {
-    return <View style={styles.unlockRoot}>
+  async function copyMessage(message: LocalMessage) {
+    const text = messagePreviewText(message.plaintext);
+    if (!text.trim()) return;
+    const clipboard = await import("expo-clipboard");
+    await clipboard.setStringAsync(text);
+    void Haptics.selectionAsync().catch(() => undefined);
+  }
+
+  const unlockView = (
+    <View style={[styles.unlockRoot, { backgroundColor: colors.bg }]}>
       <View style={styles.unlockIcon}><Ionicons name="lock-closed" size={23} color={C.green} /></View>
-      <Text style={styles.unlockTitle}>Unlock your encrypted chats</Text>
-      <Text style={styles.unlockCopy}>Enter your Sophia messaging vault password. This device will join your secure account and restore the history available to you.</Text>
+      <Text style={[styles.unlockTitle, { color: colors.ink }]}>Unlock your encrypted chats</Text>
+      <Text style={[styles.unlockCopy, { color: colors.muted }]}>Enter your Sophia messaging vault password. This device will join your secure account and restore the history available to you.</Text>
       <Input
         label="MESSAGING VAULT PASSWORD"
         value={vaultPassword}
@@ -547,10 +782,16 @@ export function NativeThread({ conversation, cookie }: Props) {
       {unlocking && !!unlockStep && <Text accessibilityLiveRegion="polite" style={styles.unlockFoot}>{unlockStep}…</Text>}
       <ActionButton title="Unlock secure messages" icon="lock-open-outline" onPress={() => void unlock()} busy={unlocking} disabled={!vaultPassword} />
       <Text style={styles.unlockFoot}>Message keys and chat history are encrypted on this device. Sophia's servers only receive encrypted content.</Text>
-    </View>;
-  }
+    </View>
+  );
 
-  return <View style={[styles.root, screen && { backgroundColor: screen.backgroundColor }]}>
+if (locked && !hasSession.current) return unlockView;
+
+  const deleteEveryone = deleteTarget
+    ? deleteScopes({ fromMe: Boolean(deleteTarget.fromMe), pending: pendingSends.some((send) => send.id === deleteTarget.id) }).includes("everyone")
+    : false;
+
+  return <View style={[styles.root, { backgroundColor: screen?.backgroundColor ?? colors.bg }]}>
     {!!recoveryCode && <View style={styles.recoveryCard}>
       <View style={styles.recoveryTitleRow}><Ionicons name="key-outline" size={17} color={C.amber} /><Text style={styles.recoveryTitle}>Save your history recovery code</Text></View>
       <Text style={styles.recoveryCopy}>Keep this code somewhere private. It can restore your encrypted chat history if you forget your messaging vault password. Press and hold the code to copy it.</Text>
@@ -564,84 +805,104 @@ export function NativeThread({ conversation, cookie }: Props) {
     {!!syncError && <View style={styles.inlineNotice}><Notice text={syncError} tone="info" />{!!unlockDiagnostic && <Text selectable style={styles.unlockDiagnostic}>{unlockDiagnostic}</Text>}</View>}
     {conversation.type === "GROUP" && groupStatus && !groupStatus.joined && <View style={styles.inlineNotice}><Notice text="This device is waiting for an existing group member to add it securely. Group history already available to your account can still be restored." tone="info" /></View>}
     {conversation.type === "GROUP" && groupStatus?.error && <View style={styles.inlineNotice}><Notice text={groupStatus.error} tone="info" /></View>}
-    {!!sendError && <View style={styles.inlineNotice}><Notice text={sendQueued ? `Message safely queued. Sophia will retry when the connection returns. ${sendError}` : sendError} tone="info" /></View>}
-    <View style={styles.callBar}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Start voice call" onPress={() => void calls.startCall(conversation, "audio")} style={styles.callButton}>
-        <Ionicons name="call-outline" size={16} color={C.purple} />
-        <Text style={styles.callText}>Voice</Text>
-      </Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="Start video call" onPress={() => void calls.startCall(conversation, "video")} style={styles.callButton}>
-        <Ionicons name="videocam-outline" size={16} color={C.purple} />
-        <Text style={styles.callText}>Video</Text>
-      </Pressable>
-    </View>
-    {deleteTarget ? (
-      <View style={styles.deleteCard}>
-        <Text style={styles.deleteTitle}>Delete this message?</Text>
-        <View style={styles.deleteActions}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Delete for me" onPress={() => confirmDelete("me")} style={styles.deleteChoice}>
-            <Text style={styles.deleteChoiceText}>Delete for me</Text>
-          </Pressable>
-          {deleteScopes({ fromMe: Boolean(deleteTarget.fromMe), pending: pendingSends.some((send) => send.id === deleteTarget.id) }).includes("everyone") ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Delete for everyone" onPress={() => confirmDelete("everyone")} style={styles.deleteChoice}>
-              <Text style={styles.deleteChoiceText}>Delete for everyone</Text>
-            </Pressable>
-          ) : null}
-          <Pressable accessibilityRole="button" accessibilityLabel="Cancel delete" onPress={() => setDeleteTarget(null)} style={styles.deleteChoice}>
-            <Text style={styles.deleteCancel}>Cancel</Text>
-          </Pressable>
-        </View>
-      </View>
+    {!!leftNotice && <View style={styles.inlineNotice}><Notice text={leftNotice} tone="info" /></View>}
+    {conversation.type === "DIRECT" && conversation.peer ? (
+      <ChatGreeting
+        person={conversation.peer}
+        contactId={conversation.peer.id}
+        conversationId={conversation.id}
+        isNew={!conversation.lastMessageAt}
+        size={conversation.lastMessageAt ? 64 : 150}
+      />
     ) : null}
+    {conversation.type === "GROUP" ? (
+      <Pressable accessibilityRole="button" accessibilityLabel={t("groupInfo")} onPress={() => setInfoOpen(true)} style={styles.groupHeader}>
+        <View style={[styles.groupAvatar, { backgroundColor: memberColor(conversation.id) }]}>
+          <Text style={styles.groupAvatarText}>{memberInitials(conversation.title?.trim() || "Group")}</Text>
+        </View>
+        <View style={styles.groupHeaderText}>
+          <Text numberOfLines={1} style={[styles.groupTitle, { color: colors.ink }]}>{conversation.title?.trim() || "Group"}</Text>
+          <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{typingLabel(typingNames) ?? `${conversation.members?.length ?? 0} members`}</Text>
+        </View>
+      </Pressable>
+    ) : null}
+    {!!sendError && <View style={styles.inlineNotice}><Notice text={sendQueued ? `Message safely queued. Sophia will retry when the connection returns. ${sendError}` : sendError} tone="info" /></View>}
+    <View style={styles.listWrap}>
+      <FlatList
+        ref={listRef}
+        inverted
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        data={rows}
+        keyExtractor={(item) => item.id}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        removeClippedSubviews={false}
+        onEndReachedThreshold={0.2}
+        onEndReached={() => {
+          if (hasEarlier && !loadingEarlier) void loadEarlier();
+        }}
+        maintainVisibleContentPosition={{ minIndexForVisible: 1, autoscrollToTopThreshold: 48 }}
+        ListFooterComponent={hasEarlier ? <Pressable style={styles.earlierButton} onPress={() => void loadEarlier()} disabled={loadingEarlier}>
+          {loadingEarlier ? <ActivityIndicator size="small" color={colors.purple} /> : <Ionicons name="chevron-up" size={15} color={colors.purple} />}
+          <Text style={[styles.earlierText, { color: colors.purple }]}>{loadingEarlier ? t("loadingEarlier") : t("loadEarlier")}</Text>
+        </Pressable> : undefined}
+        ListEmptyComponent={<View style={styles.emptyMessages}><View style={[styles.emptyIcon, { backgroundColor: colors.lilac }]}><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.purple} /></View><Text style={[styles.emptyTitle, { color: colors.ink }]}>{t("emptyTitle")}</Text><Text style={[styles.emptyCopy, { color: colors.muted }]}>{t("emptyCopy")}</Text></View>}
+        renderItem={({ item }) => item.kind === "date" ? (
+          <View style={styles.dateRow} accessibilityRole="header">
+            <View style={[styles.datePill, { backgroundColor: colors.lilac }]}><Text style={[styles.dateText, { color: colors.muted }]}>{item.label}</Text></View>
+          </View>
+        ) : isSystemPlaintext(item.message.plaintext) ? (
+          <View style={styles.dateRow} accessibilityRole="text">
+            <View style={[styles.datePill, { backgroundColor: colors.lilac }]}><Text style={[styles.dateText, { color: colors.muted }]}>{messagePreviewText(item.message.plaintext)}</Text></View>
+          </View>
+        ) : (
+          <SwipeableMessage
+            message={item.message}
+            conversation={conversation}
+            pending={pendingSends.some((send) => send.id === item.message.id)}
+            selecting={selectingReplies}
+            selected={replyIds.includes(item.message.id)}
+            cluster={item.cluster}
+            showSender={item.showSender}
+            readLabel={conversation.type === "GROUP" && item.message.fromMe ? readByLabel(readersOfMessage(item.message, conversation.members ?? [], myUserId)) : null}
+            onReply={(message) => setReplyIds((current) => addReplyTarget(current, message.id))}
+            onToggleSelect={(message) => setReplyIds((current) => toggleReplyTarget(current, message.id))}
+            onOpenMenu={setMenuMessage}
+            onDelete={setDeleteTarget}
+            onRetry={isWaitingPlaintext(item.message.plaintext) ? () => { void refreshConversation(); } : undefined}
+          />
+        )}
+      />
+      {awayFromLatest ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={t("scrollToLatest")} onPress={() => {
+          setUnreadBelow(0);
+          setAwayFromLatest(false);
+          awayRef.current = false;
+          listRef.current?.scrollToOffset({ offset: 0, animated: true });
+        }} style={[styles.jump, { backgroundColor: colors.paper, borderColor: colors.line }]}>
+          <Ionicons name="chevron-down" size={18} color={colors.purple} />
+          {unreadBelow > 0 ? <View style={[styles.jumpBadge, { backgroundColor: colors.purple }]}><Text style={styles.jumpBadgeText}>{unreadBelow > 99 ? "99+" : unreadBelow}</Text></View> : null}
+        </Pressable>
+      ) : null}
+    </View>
     {undo ? (
       <View style={styles.undoBar}>
-        <Text style={styles.undoText}>{undo.scope === "everyone" ? "Deleting for everyone" : "Deleted for you"}</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Undo delete" onPress={undoDelete}>
-          <Text style={styles.undoAction}>Undo</Text>
+        <Text style={styles.undoText}>{undo.scope === "everyone" ? t("deletingForEveryone") : t("deletedForYou")}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("undo")} onPress={undoDelete} style={styles.undoButton}>
+          <Text style={styles.undoAction}>{t("undo")}</Text>
         </Pressable>
       </View>
     ) : null}
-    <FlatList
-      ref={listRef}
-      style={styles.list}
-      contentContainerStyle={styles.listContent}
-      data={displayMessages}
-      keyExtractor={(item) => item.id}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-      onScroll={onScroll}
-      scrollEventThrottle={100}
-      onContentSizeChange={() => {
-        if (autoScroll.current) listRef.current?.scrollToEnd({ animated: true });
-      }}
-      ListHeaderComponent={hasEarlier ? <Pressable style={styles.earlierButton} onPress={() => void loadEarlier()} disabled={loadingEarlier}>
-        {loadingEarlier ? <ActivityIndicator size="small" color={C.purple} /> : <Ionicons name="chevron-up" size={15} color={C.purple} />}
-        <Text style={styles.earlierText}>{loadingEarlier ? "Loading earlier messages" : "Load earlier messages"}</Text>
-      </Pressable> : undefined}
-      ListEmptyComponent={<View style={styles.emptyMessages}><View style={styles.emptyIcon}><Ionicons name="chatbubble-ellipses-outline" size={21} color={C.purple} /></View><Text style={styles.emptyTitle}>A fresh start</Text><Text style={styles.emptyCopy}>Messages are private to the people in this conversation. Send the first note when you're ready.</Text></View>}
-      renderItem={({ item }) => (
-        <SwipeableMessage
-          message={item}
-          conversation={conversation}
-          pending={pendingSends.some((send) => send.id === item.id)}
-          selecting={selectingReplies}
-          selected={replyIds.includes(item.id)}
-          onReply={(message) => setReplyIds((current) => addReplyTarget(current, message.id))}
-          onToggleSelect={(message) => setReplyIds((current) => toggleReplyTarget(current, message.id))}
-          onBeginSelect={(message) => {
-            setSelectingReplies(true);
-            setReplyIds((current) => addReplyTarget(current, message.id));
-          }}
-          onDelete={setDeleteTarget}
-        />
-      )}
-    />
     {conversation.type === "GROUP" && groupStatus && !groupStatus.joined ? null : (
       <NativeMediaComposer
+        key={conversation.id}
         conversationId={conversation.id}
         joined={conversation.type !== "GROUP" || Boolean(groupStatus?.joined)}
         messages={displayMessages}
-        disabled={sending || !unlocked}
+        disabled={sending || locked}
         placeholder={conversation.type === "GROUP" ? "Message your group…" : "Write a message…"}
         replyIds={replyIds}
         selectingReplies={selectingReplies}
@@ -650,8 +911,73 @@ export function NativeThread({ conversation, cookie }: Props) {
         onSelectingChange={setSelectingReplies}
         onSendPlaintext={sendPlaintext}
         seed={replySeed}
+        members={conversation.members}
+        conversationType={conversation.type}
       />
     )}
+    {conversation.type === "GROUP" ? (
+      <GroupInfoScreen
+        conversation={conversation}
+        messages={displayMessages}
+        selfUserId={myUserId}
+        visible={infoOpen}
+        onClose={() => setInfoOpen(false)}
+        onChanged={() => { void refreshConversation(); }}
+        onLeave={(actor) => leaveGroup(actor)}
+        onRemoveMember={(userId, label) => removeGroupMember(userId, label)}
+        onRenamed={(title) => announceRename(title)}
+      />
+    ) : null}
+    {locked ? <View style={[styles.lockOverlay, { backgroundColor: colors.bg }]}>{unlockView}</View> : null}
+    <Modal visible={Boolean(deleteTarget)} transparent animationType="slide" onRequestClose={() => setDeleteTarget(null)}>
+      <Pressable style={[styles.scrim, { backgroundColor: colors.scrim }]} onPress={() => setDeleteTarget(null)} />
+      <View style={[styles.sheet, { backgroundColor: colors.paper }]}>
+        <View style={[styles.sheetHandle, { backgroundColor: colors.line }]} />
+        <Text style={[styles.sheetTitle, { color: colors.ink }]}>{t("deleteTitle")}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("deleteForMe")} onPress={() => confirmDelete("me")} style={styles.sheetButton}>
+          <Text style={styles.sheetDanger}>{t("deleteForMe")}</Text>
+        </Pressable>
+        {deleteEveryone ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={t("deleteForEveryone")} onPress={() => confirmDelete("everyone")} style={styles.sheetButton}>
+            <Text style={styles.sheetDanger}>{t("deleteForEveryone")}</Text>
+          </Pressable>
+        ) : null}
+        <Pressable accessibilityRole="button" accessibilityLabel={t("cancel")} onPress={() => setDeleteTarget(null)} style={styles.sheetButton}>
+          <Text style={[styles.sheetCancel, { color: colors.muted }]}>{t("cancel")}</Text>
+        </Pressable>
+      </View>
+    </Modal>
+    <Modal visible={Boolean(menuMessage)} transparent animationType="slide" onRequestClose={() => setMenuMessage(null)}>
+      <Pressable style={[styles.scrim, { backgroundColor: colors.scrim }]} onPress={() => setMenuMessage(null)} />
+      <View style={[styles.sheet, { backgroundColor: colors.paper }]}>
+        <View style={[styles.sheetHandle, { backgroundColor: colors.line }]} />
+        <Pressable accessibilityRole="button" accessibilityLabel={t("reply")} onPress={() => {
+          if (!menuMessage) return;
+          setReplyIds((current) => addReplyTarget(current, menuMessage.id));
+          setMenuMessage(null);
+        }} style={styles.sheetButton}><Text style={[styles.sheetLabel, { color: colors.ink }]}>{t("reply")}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("copy")} onPress={() => {
+          if (!menuMessage) return;
+          const target = menuMessage;
+          setMenuMessage(null);
+          void copyMessage(target);
+        }} style={styles.sheetButton}><Text style={[styles.sheetLabel, { color: colors.ink }]}>{t("copy")}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("select")} onPress={() => {
+          if (!menuMessage) return;
+          setSelectingReplies(true);
+          setReplyIds((current) => addReplyTarget(current, menuMessage.id));
+          setMenuMessage(null);
+        }} style={styles.sheetButton}><Text style={[styles.sheetLabel, { color: colors.ink }]}>{t("select")}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("delete")} onPress={() => {
+          if (!menuMessage) return;
+          setDeleteTarget(menuMessage);
+          setMenuMessage(null);
+        }} style={styles.sheetButton}><Text style={styles.sheetDanger}>{t("delete")}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("cancel")} onPress={() => setMenuMessage(null)} style={styles.sheetButton}>
+          <Text style={[styles.sheetCancel, { color: colors.muted }]}>{t("cancel")}</Text>
+        </Pressable>
+      </View>
+    </Modal>
   </View>;
 }
 
@@ -683,8 +1009,30 @@ const styles = StyleSheet.create({
   undoBar: { marginHorizontal: 12, marginTop: 8, minHeight: 40, borderRadius: 14, backgroundColor: "#241C33", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   undoText: { color: "#FFFFFF", fontSize: 12 },
   undoAction: { color: "#E4D7FF", fontSize: 12, fontWeight: "800" },
+  listWrap: { flex: 1 },
   list: { flex: 1 },
-  listContent: { flexGrow: 1, justifyContent: "flex-end", paddingHorizontal: 15, paddingTop: 10, paddingBottom: 18 },
+  listContent: { flexGrow: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12 },
+  groupHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  groupAvatar: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  groupAvatarText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+  groupHeaderText: { flex: 1 },
+  groupTitle: { fontSize: 16, fontWeight: "700" },
+  dateRow: { alignItems: "center", marginVertical: 10 },
+  datePill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  dateText: { fontSize: 12, fontWeight: "700" },
+  jump: { position: "absolute", end: 16, bottom: 12, width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  jumpBadge: { position: "absolute", top: -4, end: -4, minWidth: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
+  jumpBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700" },
+  lockOverlay: { ...StyleSheet.absoluteFill },
+  scrim: { flex: 1 },
+  sheet: { borderTopStartRadius: 22, borderTopEndRadius: 22, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24 },
+  sheetHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 12 },
+  sheetTitle: { fontSize: 16, fontWeight: "700", textAlign: "center", marginBottom: 8 },
+  sheetButton: { minHeight: 48, alignItems: "center", justifyContent: "center" },
+  sheetLabel: { fontSize: 16, fontWeight: "600" },
+  sheetDanger: { color: "#B42318", fontSize: 16, fontWeight: "700" },
+  sheetCancel: { fontSize: 16, fontWeight: "600" },
+  undoButton: { minHeight: 44, justifyContent: "center", paddingHorizontal: 8 },
   earlierButton: { alignSelf: "center", minHeight: 36, paddingHorizontal: 12, marginBottom: 12, flexDirection: "row", alignItems: "center", gap: 6 },
   earlierText: { color: C.purple, fontSize: 12, fontWeight: "600" },
   emptyMessages: { alignItems: "center", justifyContent: "center", paddingHorizontal: 36, paddingVertical: 54, flexGrow: 1 },

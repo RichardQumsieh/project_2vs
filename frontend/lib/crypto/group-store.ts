@@ -32,12 +32,28 @@ export type GroupOutboxItem = {
   removeDeviceId?: string;
 };
 
+/** Plaintext the sender already uploaded. Kept until the client stores it locally. */
+export type GroupDeliveredMessage = {
+  id: string;
+  senderDeviceId: string;
+  plaintext: string;
+  createdAt: string;
+};
+
 export type GroupRecord = {
   device: GroupDevice;
   session: GroupSession | null;
   appliedBlobIds: string[];
   keyPackages: PublishedKeyPackage[];
   outbox: GroupOutboxItem[];
+  /**
+   * Last MLS blob id this device has walked in server order without a gap.
+   * Not the same as the last applied id: a locally posted blob can be newer
+   * than a remote blob this device has not fetched yet.
+   */
+  serverCursor?: string;
+  /** Sender plaintext for uploads that are not in the local message store yet. */
+  delivered?: GroupDeliveredMessage[];
   /** Private key for a role Update that an admin has not committed yet. Never uploaded. */
   pendingLeaf?: { publicKey: string; privateKey: string };
 };
@@ -66,6 +82,8 @@ type StoredMeta = {
     removeDeviceId?: string;
   }>;
   hasSession: boolean;
+  serverCursor?: string;
+  delivered?: GroupDeliveredMessage[];
   pendingLeaf?: { publicKey: string; privateKey: string };
 };
 
@@ -153,6 +171,8 @@ export function encodeGroupRecord(record: GroupRecord): Uint8Array {
       ...(item.removeDeviceId ? { removeDeviceId: item.removeDeviceId } : {}),
     })),
     hasSession: record.session !== null,
+    ...(record.serverCursor ? { serverCursor: record.serverCursor } : {}),
+    ...(record.delivered?.length ? { delivered: record.delivered } : {}),
     ...(record.pendingLeaf ? { pendingLeaf: record.pendingLeaf } : {}),
   };
   const priv = record.device.privatePackage;
@@ -224,6 +244,8 @@ export function decodeGroupRecord(bytes: Uint8Array): GroupRecord {
       ...(item.batchId ? { batchId: item.batchId } : {}),
       ...(item.removeDeviceId ? { removeDeviceId: item.removeDeviceId } : {}),
     })),
+    ...(meta.serverCursor ? { serverCursor: meta.serverCursor } : {}),
+    ...(meta.delivered?.length ? { delivered: meta.delivered } : {}),
     ...(meta.pendingLeaf ? { pendingLeaf: meta.pendingLeaf } : {}),
   };
 }

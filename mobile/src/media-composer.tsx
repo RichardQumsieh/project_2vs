@@ -24,6 +24,8 @@ import { maxFileAttachmentBytes, sanitizeAttachmentName } from "../../frontend/l
 import { maxVideoDurationSeconds, maxEncryptedVideoBytes } from "../../frontend/lib/crypto/video";
 import type { LocalMessage } from "../../frontend/lib/crypto/types";
 import type { EncryptedFileAttachment } from "../../frontend/lib/crypto/file-attachment";
+import { withExternalActivity } from "./app-lock";
+import { t } from "./i18n";
 import { readUriBytes } from "./media-io";
 import { NativePhotoEditor } from "./photo-editor";
 import {
@@ -32,6 +34,8 @@ import {
   type NativeMediaAsset,
 } from "./prepare-chat-media";
 import { assertOutgoingLinksSafe } from "./url-safety";
+import { applyMention, memberLabel, mentionQuery, mentionSuggestions, type MentionMember } from "../../frontend/lib/group-presentation";
+import { sendGroupTyping } from "../../frontend/lib/group-typing-client";
 import { encodeMultiQuote } from "./reply-selection";
 import { NativeVoiceRecorder, VoiceRecordingBar } from "./voice-recorder";
 import { C } from "./ui";
@@ -57,6 +61,8 @@ type Props = {
   onSelectingChange: (selecting: boolean) => void;
   onSendPlaintext: (plaintext: string) => Promise<void>;
   seed?: string | null;
+  members?: readonly (MentionMember & { userId: string })[];
+  conversationType?: "DIRECT" | "GROUP";
 };
 
 export function NativeMediaComposer({
@@ -72,8 +78,11 @@ export function NativeMediaComposer({
   onSelectingChange,
   onSendPlaintext,
   seed,
+  members = [],
+  conversationType = "DIRECT",
 }: Props) {
   const [draft, setDraft] = useState("");
+  const [caret, setCaret] = useState(0);
   useEffect(() => {
     if (seed) setDraft(seed);
   }, [seed]);
@@ -120,17 +129,20 @@ export function NativeMediaComposer({
   async function pickPhotos() {
     setMenuOpen(false);
     setError("");
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
+    const result = await withExternalActivity(async () => {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) return null;
+      return ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsMultipleSelection: true,
+        selectionLimit: maxAlbumPhotos,
+        quality: 0.92,
+      });
+    });
+    if (!result) {
       setError("Photo library permission is required.");
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsMultipleSelection: true,
-      selectionLimit: maxAlbumPhotos,
-      quality: 0.92,
-    });
     if (result.canceled || !result.assets.length) return;
     try {
       const assets: NativeMediaAsset[] = [];
@@ -159,17 +171,20 @@ export function NativeMediaComposer({
   async function pickVideo() {
     setMenuOpen(false);
     setError("");
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
+    const result = await withExternalActivity(async () => {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) return null;
+      return ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["videos"],
+        allowsMultipleSelection: false,
+        videoMaxDuration: maxVideoDurationSeconds,
+        quality: 1,
+      });
+    });
+    if (!result) {
       setError("Media library permission is required for videos.");
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["videos"],
-      allowsMultipleSelection: false,
-      videoMaxDuration: maxVideoDurationSeconds,
-      quality: 1,
-    });
     if (result.canceled || !result.assets[0]) return;
     try {
       const item = result.assets[0];
@@ -203,12 +218,15 @@ export function NativeMediaComposer({
   async function capturePhoto() {
     setMenuOpen(false);
     setError("");
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
+    const result = await withExternalActivity(async () => {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) return null;
+      return ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.92 });
+    });
+    if (!result) {
       setError("Camera permission is required to take a photo.");
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.92 });
     if (result.canceled || !result.assets[0]) return;
     const item = result.assets[0];
     try {
@@ -232,17 +250,20 @@ export function NativeMediaComposer({
   async function recordVideo() {
     setMenuOpen(false);
     setError("");
-    const camera = await ImagePicker.requestCameraPermissionsAsync();
-    const microphone = await requestRecordingPermissionsAsync();
-    if (!camera.granted || !microphone.granted) {
+    const result = await withExternalActivity(async () => {
+      const camera = await ImagePicker.requestCameraPermissionsAsync();
+      const microphone = await requestRecordingPermissionsAsync();
+      if (!camera.granted || !microphone.granted) return null;
+      return ImagePicker.launchCameraAsync({
+        mediaTypes: ["videos"],
+        videoMaxDuration: maxVideoDurationSeconds,
+        quality: 1,
+      });
+    });
+    if (!result) {
       setError("Camera and microphone permission are required to record a video.");
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["videos"],
-      videoMaxDuration: maxVideoDurationSeconds,
-      quality: 1,
-    });
     if (result.canceled || !result.assets[0]) return;
     const item = result.assets[0];
     try {
@@ -277,7 +298,7 @@ export function NativeMediaComposer({
     setMenuOpen(false);
     setError("");
     try {
-      const result = await DocumentPicker.getDocumentAsync({
+      const result = await withExternalActivity(() => DocumentPicker.getDocumentAsync({
         multiple: false,
         copyToCacheDirectory: true,
         type: [
@@ -288,7 +309,7 @@ export function NativeMediaComposer({
           "application/vnd.openxmlformats-officedocument.presentationml.presentation",
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ],
-      });
+      }));
       if (result.canceled || !result.assets[0]) return;
       const item = result.assets[0];
       if (!item.size || item.size > maxFileAttachmentBytes) {
@@ -352,7 +373,10 @@ export function NativeMediaComposer({
       } else if (selectedReplyIds.length > 0) {
         if (hasAttachment) throw new Error("Send the reply or the attachment separately.");
         await assertOutgoingLinksSafe(caption);
-        plaintext = encodeMultiQuote(messages, selectedReplyIds, caption);
+        plaintext = encodeMultiQuote(messages, selectedReplyIds, caption, (message) => {
+          if (message.fromMe) return undefined;
+          return memberLabel(members.find((member) => member.userId === message.senderUserId), "Member");
+        });
       } else {
         if (!caption) return;
         await assertOutgoingLinksSafe(caption);
@@ -502,9 +526,39 @@ export function NativeMediaComposer({
         >
           <Ionicons name="happy-outline" size={20} color={C.muted} />
         </Pressable>
+        {conversationType === "GROUP" && (() => {
+          const query = mentionQuery(draft, caret || draft.length);
+          const matches = query ? mentionSuggestions(members, query.query) : [];
+          if (!query || matches.length === 0) return null;
+          return (
+            <View style={styles.mentions}>
+              {matches.map((member) => (
+                <Pressable
+                  key={member.username}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Mention @${member.username}`}
+                  onPress={() => {
+                    const next = applyMention(draft, query.start, caret || draft.length, member.username);
+                    setDraft(next.text);
+                    setCaret(next.caret);
+                  }}
+                  style={styles.mentionRow}
+                >
+                  <Text style={styles.mentionName}>{member.displayName?.trim() || member.username}</Text>
+                  <Text style={styles.mentionUser}>@{member.username}</Text>
+                </Pressable>
+              ))}
+            </View>
+          );
+        })()}
         <TextInput
           value={draft}
-          onChangeText={setDraft}
+          onSelectionChange={(event) => setCaret(event.nativeEvent.selection.start)}
+          onChangeText={(value) => {
+            setDraft(value);
+            setCaret(value.length);
+            if (conversationType === "GROUP" && value.trim()) sendGroupTyping(conversationId);
+          }}
           placeholder={
             hasAttachment
               ? "Add a caption…"
@@ -557,7 +611,7 @@ export function NativeMediaComposer({
 
       <View style={styles.footer}>
         <Ionicons name="lock-closed" size={12} color={C.green} />
-        <Text style={styles.footerText}>End-to-end encrypted</Text>
+        <Text style={styles.footerText}>{t("endToEnd")}</Text>
         <Text style={styles.charCount}>{draft.length}/8000</Text>
       </View>
       {sending ? <Text style={styles.status}>Encrypting and sending…</Text> : null}
@@ -683,10 +737,10 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     gap: 4,
   },
-  iconBtn: { width: 36, height: 36, marginBottom: 5, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   disabled: { opacity: 0.42 },
   input: { flex: 1, minHeight: 44, maxHeight: 120, paddingTop: 12, paddingBottom: 11, color: C.ink, fontSize: 15, lineHeight: 20 },
-  sendButton: { width: 36, height: 36, borderRadius: 13, marginBottom: 5, backgroundColor: C.purple, alignItems: "center", justifyContent: "center" },
+  sendButton: { width: 44, height: 44, borderRadius: 15, backgroundColor: C.purple, alignItems: "center", justifyContent: "center" },
   sendDisabled: { opacity: 0.42 },
   replyList: { maxHeight: 160, borderRadius: 14, borderWidth: 1, borderColor: C.line, backgroundColor: C.bg },
   replyRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
@@ -696,7 +750,11 @@ const styles = StyleSheet.create({
   include: { color: C.faint, fontSize: 11 },
   footer: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 5 },
   footerText: { color: C.muted, fontSize: 10 },
-  charCount: { color: C.faint, fontSize: 10, marginLeft: "auto" },
+  charCount: { color: C.faint, fontSize: 10, marginStart: "auto" },
   status: { color: C.muted, fontSize: 11, textAlign: "center" },
   error: { color: "#B42318", fontSize: 12, textAlign: "center" },
+  mentions: { maxHeight: 160, borderRadius: 14, borderWidth: 1, borderColor: C.line, backgroundColor: C.paper, overflow: "hidden" },
+  mentionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
+  mentionName: { color: C.ink, fontSize: 14, fontWeight: "600" },
+  mentionUser: { color: C.muted, fontSize: 12 },
 });

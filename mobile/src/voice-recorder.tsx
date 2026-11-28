@@ -3,6 +3,7 @@ import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, 
 import React, { useEffect, useRef, useState } from "react";
 import { I18nManager, Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { withExternalActivity } from "./app-lock";
 import { readUriBytes } from "./media-io";
 import type { NativeMediaAsset } from "./prepare-chat-media";
 import { C } from "./ui";
@@ -59,7 +60,7 @@ export function NativeVoiceRecorder({ disabled, onRecorded, onError, onRecording
   async function start() {
     if (disabled || holdingRef.current) return;
     try {
-      const permission = await requestRecordingPermissionsAsync();
+      const permission = await withExternalActivity(() => requestRecordingPermissionsAsync());
       if (!permission.granted) throw new Error("Microphone permission is required for voice notes.");
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync(voiceNoteOptions);
@@ -156,8 +157,8 @@ export function VoiceRecordingBar({ preview }: { preview: { duration: number; le
 
 const styles = StyleSheet.create({
   button: {
-    minWidth: 36,
-    height: 36,
+    minWidth: 44,
+    height: 44,
     borderRadius: 13,
     marginBottom: 5,
     paddingHorizontal: 8,
