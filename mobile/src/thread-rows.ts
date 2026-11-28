@@ -1,3 +1,4 @@
+import { isSystemPlaintext, isWaitingPlaintext } from "../../frontend/lib/chat-payload";
 import type { LocalMessage } from "../../frontend/lib/crypto/types";
 
 export type MessageCluster = "single" | "first" | "middle" | "last";
@@ -28,6 +29,8 @@ export function formatThreadDay(iso: string, now: Date, locale = "en") {
 
 function sameGroup(previous: LocalMessage | undefined, message: LocalMessage) {
   if (!previous) return false;
+  if (isSystemPlaintext(previous.plaintext) || isSystemPlaintext(message.plaintext)) return false;
+  if (isWaitingPlaintext(previous.plaintext) || isWaitingPlaintext(message.plaintext)) return false;
   if (Boolean(previous.fromMe) !== Boolean(message.fromMe)) return false;
   if ((previous.senderUserId ?? "") !== (message.senderUserId ?? "")) return false;
   const delta = new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime();

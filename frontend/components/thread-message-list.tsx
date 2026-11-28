@@ -124,6 +124,10 @@ const MessageRow = memo(function MessageRow({
         <ReplyQuoteBlock payload={payload} fromMe={message.fromMe} />
       ) : payload.type === "call" ? (
         <CallLogBlock payload={payload} />
+      ) : payload.type === "system" ? (
+        <p>{payload.actor ? `${payload.actor}: ` : ""}{payload.event}</p>
+      ) : payload.type === "waiting" ? (
+        <p>Waiting for this message</p>
       ) : (
         <LinkSafetyText text={payload.text} />
       )}

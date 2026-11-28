@@ -39,6 +39,17 @@ const en = {
   couldNotSave: "This photo could not be saved.",
   couldNotShare: "This photo could not be shared.",
   encryptedPreview: "Encrypted message",
+  waitingMessage: "Waiting for this message",
+  sent: "Sent",
+  groupInfo: "Group info",
+  members: "Members",
+  media: "Media",
+  leaveGroup: "Leave group",
+  addMember: "Add member",
+  removeMember: "Remove",
+  saveName: "Save name",
+  noMedia: "No photos, videos, or files in this group yet.",
+  typing: "is typing",
 };
 
 const ar: typeof en = {
@@ -80,6 +91,17 @@ const ar: typeof en = {
   couldNotSave: "تعذر حفظ هذه الصورة.",
   couldNotShare: "تعذر مشاركة هذه الصورة.",
   encryptedPreview: "رسالة مشفرة",
+  waitingMessage: "بانتظار هذه الرسالة",
+  sent: "أُرسلت",
+  groupInfo: "معلومات المجموعة",
+  members: "الأعضاء",
+  media: "الوسائط",
+  leaveGroup: "مغادرة المجموعة",
+  addMember: "إضافة عضو",
+  removeMember: "إزالة",
+  saveName: "حفظ الاسم",
+  noMedia: "لا توجد صور أو فيديو أو ملفات في هذه المجموعة بعد.",
+  typing: "يكتب الآن",
 };
 
 export type CopyKey = keyof typeof en;

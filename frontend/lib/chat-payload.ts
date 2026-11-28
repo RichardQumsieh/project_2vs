@@ -9,6 +9,8 @@ export const locationPayloadPrefix = "PM1LOC:";
 export const albumPayloadPrefix = "PM1ALB:";
 export const replyPayloadPrefix = "PM1RPL:";
 export const callPayloadPrefix = "PM1CALL:";
+export const systemPayloadPrefix = "PM1SYS:";
+export const waitingPayloadPrefix = "PM1WAIT:";
 export const maxAlbumPhotos = 10;
 export const maxReplyRefs = 8;
 export const maxFileAttachmentBytes = 450_000_000;
@@ -100,11 +102,25 @@ const replyRefSchema = z.object({
   id: z.string().min(1).max(120),
   preview: z.string().min(1).max(280),
   fromMe: z.boolean(),
+  sender: z.string().min(1).max(80).optional(),
 });
 
 const replyPayloadSchema = z.object({
   refs: z.array(replyRefSchema).min(1).max(maxReplyRefs),
   body: z.string().min(1).max(4000),
+});
+
+const systemPayloadSchema = z.object({
+  event: z.enum(["created", "added", "removed", "left", "renamed"]),
+  actor: z.string().min(1).max(80).optional(),
+  actorId: z.string().min(1).max(80).optional(),
+  target: z.string().min(1).max(80).optional(),
+  targetId: z.string().min(1).max(80).optional(),
+  title: z.string().min(1).max(80).optional(),
+});
+
+const waitingPayloadSchema = z.object({
+  id: z.string().min(1).max(80),
 });
 
 const callPayloadSchema = z.object({
@@ -147,6 +163,14 @@ export type CallChatPayload = z.infer<typeof callPayloadSchema> & {
   type: "call";
 };
 
+export type SystemChatPayload = z.infer<typeof systemPayloadSchema> & {
+  type: "system";
+};
+
+export type WaitingChatPayload = z.infer<typeof waitingPayloadSchema> & {
+  type: "waiting";
+};
+
 export type ChatPayload =
   | { type: "text"; text: string }
   | ImageChatPayload
@@ -156,7 +180,9 @@ export type ChatPayload =
   | LocationChatPayload
   | AlbumChatPayload
   | ReplyChatPayload
-  | CallChatPayload;
+  | CallChatPayload
+  | SystemChatPayload
+  | WaitingChatPayload;
 
 export function callLogLabel(payload: Omit<CallChatPayload, "type" | "callId" | "at">) {
   const kind = payload.mode === "video" ? "video call" : "voice call";
@@ -218,6 +244,37 @@ export function encodeCallPayload(
   return `${callPayloadPrefix}${JSON.stringify(payload)}`;
 }
 
+export function encodeSystemPayload(
+  payload: Omit<SystemChatPayload, "type">,
+) {
+  return `${systemPayloadPrefix}${JSON.stringify(payload)}`;
+}
+
+export function encodeWaitingPayload(
+  payload: Omit<WaitingChatPayload, "type">,
+) {
+  return `${waitingPayloadPrefix}${JSON.stringify(payload)}`;
+}
+
+export function isSystemPlaintext(plaintext: string) {
+  return plaintext.startsWith(systemPayloadPrefix);
+}
+
+export function isWaitingPlaintext(plaintext: string) {
+  return plaintext.startsWith(waitingPayloadPrefix);
+}
+
+export function systemMessageText(payload: Omit<SystemChatPayload, "type">) {
+  const actor = payload.actor?.trim() || "Someone";
+  const target = payload.target?.trim() || "a member";
+  if (payload.event === "created") return `${actor} created this group`;
+  if (payload.event === "added") return `${actor} added ${target}`;
+  if (payload.event === "removed") return `${actor} removed ${target}`;
+  if (payload.event === "left") return `${actor} left`;
+  const title = payload.title?.trim();
+  return title ? `${actor} named the group “${title}”` : `${actor} changed the group name`;
+}
+
 export function parseChatPayload(plaintext: string): ChatPayload {
   if (
     !plaintext.startsWith(imagePayloadPrefix) &&
@@ -227,7 +284,9 @@ export function parseChatPayload(plaintext: string): ChatPayload {
     !plaintext.startsWith(locationPayloadPrefix) &&
     !plaintext.startsWith(albumPayloadPrefix) &&
     !plaintext.startsWith(replyPayloadPrefix) &&
-    !plaintext.startsWith(callPayloadPrefix)
+    !plaintext.startsWith(callPayloadPrefix) &&
+    !plaintext.startsWith(systemPayloadPrefix) &&
+    !plaintext.startsWith(waitingPayloadPrefix)
   ) {
     return { type: "text", text: plaintext };
   }
@@ -282,6 +341,20 @@ export function parseChatPayload(plaintext: string): ChatPayload {
       return { type: "call", ...parsed };
     }
 
+    if (plaintext.startsWith(systemPayloadPrefix)) {
+      const parsed = systemPayloadSchema.parse(
+        JSON.parse(plaintext.slice(systemPayloadPrefix.length)),
+      );
+      return { type: "system", ...parsed };
+    }
+
+    if (plaintext.startsWith(waitingPayloadPrefix)) {
+      const parsed = waitingPayloadSchema.parse(
+        JSON.parse(plaintext.slice(waitingPayloadPrefix.length)),
+      );
+      return { type: "waiting", ...parsed };
+    }
+
     const parsed = filePayloadSchema.parse(
       JSON.parse(plaintext.slice(filePayloadPrefix.length)),
     );
@@ -315,6 +388,10 @@ export function messagePreviewText(plaintext: string) {
       return payload.caption?.trim() || payload.name || "File attachment";
     case "call":
       return callLogLabel(payload);
+    case "system":
+      return systemMessageText(payload);
+    case "waiting":
+      return "Waiting for this message";
   }
 }
 
@@ -325,6 +402,12 @@ export function assistantVisibleText(plaintext: string) {
   }
   if (payload.type === "call") {
     return callLogLabel(payload);
+  }
+  if (payload.type === "system") {
+    return systemMessageText(payload);
+  }
+  if (payload.type === "waiting") {
+    return "";
   }
   if (
     payload.type === "image" ||
@@ -363,7 +446,9 @@ export function assistantVisibleText(plaintext: string) {
     plaintext.startsWith(locationPayloadPrefix) ||
     plaintext.startsWith(albumPayloadPrefix) ||
     plaintext.startsWith(replyPayloadPrefix) ||
-    plaintext.startsWith(callPayloadPrefix)
+    plaintext.startsWith(callPayloadPrefix) ||
+    plaintext.startsWith(systemPayloadPrefix) ||
+    plaintext.startsWith(waitingPayloadPrefix)
   ) {
     return "";
   }

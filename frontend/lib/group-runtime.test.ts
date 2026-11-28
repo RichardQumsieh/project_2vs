@@ -4,6 +4,8 @@ import { generateEd25519 } from "./crypto/keys";
 import { openGroupRecord, sealGroupRecord, type GroupRecord } from "./crypto/group-store";
 import { deriveVaultKey } from "./crypto/kdf";
 import {
+  ackGroupDeliveries,
+  mlsHistoryCursor,
   queueGroupMessage,
   queueMemberRemoval,
   queueSelfRemoval,
@@ -434,6 +436,90 @@ describe("group runtime", { timeout: 30_000 }, () => {
       error: null,
       record: stale,
     })).toBe(false);
+  });
+
+  it("keeps the sender plaintext and leaves an undecryptable message pending", async () => {
+    const aliceKeys = await generateEd25519();
+    const bobKeys = await generateEd25519();
+    const log: GroupWireBlob[] = [];
+    let stamp = 0;
+    const post = (senderDeviceId: string) => async (body: {
+      clientId: string;
+      kind: GroupWireBlob["kind"];
+      payload: string;
+      recipientDeviceId?: string;
+      bindingSignature?: string;
+    }) => {
+      stamp += 1;
+      const id = `00000000-0000-4000-8000-${String(stamp).padStart(12, "0")}`;
+      log.push({
+        id,
+        kind: body.kind,
+        senderDeviceId,
+        recipientDeviceId: body.recipientDeviceId ?? null,
+        payload: body.payload,
+        bindingSignature: body.bindingSignature ?? null,
+        createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, stamp)).toISOString(),
+      });
+      return { id, createdAt: log[log.length - 1]?.createdAt };
+    };
+    const directory = (records: Array<GroupRecord | null>): DirectoryDevice[] =>
+      records.flatMap((record) => record
+        ? [{
+            userId: record.device.ref.userId,
+            deviceId: record.device.ref.deviceId,
+            signingPublicKey: record.device.sophiaSigningPublicKey,
+            role: record.device.role,
+          }]
+        : []);
+    let alice: GroupRecord | null = null;
+    let bob: GroupRecord | null = null;
+    const run = (who: "alice" | "bob", record: GroupRecord | null) => syncGroup({
+      record,
+      userId: who === "alice" ? aliceUser : bobUser,
+      deviceId: who === "alice" ? alicePhone : bobPhone,
+      role: who === "alice" ? "admin" : "member",
+      conversationId: groupId,
+      signingPrivateJwk: who === "alice" ? aliceKeys.privateJwk : bobKeys.privateJwk,
+      signingPublicKey: who === "alice" ? aliceKeys.publicKey : bobKeys.publicKey,
+      memberUserIds: [aliceUser, bobUser],
+      directory: directory([alice, bob, record]),
+      blobs: log,
+      post: post(who === "alice" ? alicePhone : bobPhone),
+    });
+
+    alice = (await run("alice", alice)).record;
+    bob = (await run("bob", bob)).record;
+    alice = (await run("alice", alice)).record;
+    bob = (await run("bob", bob)).record;
+
+    alice = await queueGroupMessage(alice, SECRET);
+    const sent = await run("alice", alice);
+    expect(sent.messages.map((message) => message.plaintext)).toContain(SECRET);
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveVaultKey("shared-device-password", salt);
+    const reopened = await openGroupRecord(key, aliceUser, groupId, await sealGroupRecord(key, aliceUser, groupId, sent.record));
+    expect(reopened.delivered?.map((message) => message.plaintext)).toContain(SECRET);
+    expect(reopened.serverCursor).toBe(sent.record.serverCursor);
+    alice = ackGroupDeliveries(sent.record, sent.messages.map((message) => message.id));
+    expect(alice.delivered ?? []).toEqual([]);
+
+    stamp += 1;
+    const badId = `00000000-0000-4000-8000-${String(stamp).padStart(12, "0")}`;
+    log.push({
+      id: badId,
+      kind: "application",
+      senderDeviceId: alicePhone,
+      recipientDeviceId: null,
+      payload: "AAAA",
+      bindingSignature: null,
+      createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, stamp)).toISOString(),
+    });
+    const waiting = await run("bob", bob);
+    expect(waiting.pending?.id).toBe(badId);
+    expect(waiting.record.appliedBlobIds).not.toContain(badId);
+    expect(mlsHistoryCursor(waiting.record)).not.toBe(badId);
+    expect(waiting.messages.map((message) => message.plaintext)).not.toContain("AAAA");
   });
 });
 

@@ -4,10 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { GroupComposer } from "@/components/group-composer";
+import { GroupInfo } from "@/components/group-info";
 import { GroupMessageBody } from "@/components/group-message-body";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApiError, api, type Conversation, type PublicUser } from "@/lib/api";
+import { encodeSystemPayload, encodeWaitingPayload, isWaitingPlaintext } from "@/lib/chat-payload";
 import { b64ToBytes } from "@/lib/crypto/bytes";
 import { openGroupRecord, sealGroupRecord } from "@/lib/crypto/group-store";
 import { listMembers, listRoster, type GroupRole } from "@/lib/crypto/group-mls";
@@ -15,6 +17,7 @@ import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
 import { useI18n, type MessageKey } from "@/lib/i18n/locale";
 import { memberSearchNeedle } from "@/lib/people";
 import {
+  ackGroupDeliveries,
   queueGroupMessage,
   queueMemberRemoval,
   queueSelfRemoval,
@@ -23,6 +26,8 @@ import {
   type GroupPost,
   type GroupSyncMessage,
 } from "@/lib/group-runtime";
+import { buildGroupRows, memberColor, memberInitials, memberLabel as presentationLabel, readByLabel, readersOfMessage, typingLabel } from "@/lib/group-presentation";
+import { subscribeGroupTyping } from "@/lib/group-typing-client";
 import { loadSealedGroup, saveLocalMessage, saveSealedGroup, listLocalMessages } from "@/lib/idb";
 import {
   currentDeviceId,
@@ -183,11 +188,11 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { t } = useI18n();
-  const [username, setUsername] = useState("");
-  const [addMatches, setAddMatches] = useState<PublicUser[]>([]);
   const [actionError, setActionError] = useState<MessageKey | null>(null);
   const [notice, setNotice] = useState<MessageKey | null>(null);
   const [sending, setSending] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [typingNames, setTypingNames] = useState<string[]>([]);
   const userId = currentUserId();
   const me = conversation.members?.find((member) => member.userId === userId);
   const isAdmin = me?.role === "ADMIN";
@@ -218,6 +223,36 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
       : sync.error
         ? t("group.syncFailed")
         : null;
+
+  useEffect(() => {
+    const timers = new Map<string, number>();
+    return subscribeGroupTyping((event) => {
+      if (event.conversationId !== conversation.id || event.userId === userId) return;
+      const member = conversation.members?.find((item) => item.userId === event.userId);
+      const name = presentationLabel(member, t("group.member"));
+      setTypingNames((current) => current.includes(name) ? current : [...current, name]);
+      const existing = timers.get(event.userId);
+      if (existing) window.clearTimeout(existing);
+      timers.set(event.userId, window.setTimeout(() => {
+        timers.delete(event.userId);
+        setTypingNames((current) => current.filter((item) => item !== name));
+      }, 4_000));
+    });
+  }, [conversation.id, conversation.members, t, userId]);
+
+  async function renameGroup(title: string) {
+    if (!title || !userId) return;
+    setActionError(null);
+    try {
+      await api.renameGroup(conversation.id, title);
+      const actor = me?.displayName?.trim() || me?.username || "Someone";
+      await sendPlaintext(encodeSystemPayload({ event: "renamed", actor, actorId: userId, title }));
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (cause) {
+      setActionError("group.sendFailed");
+      console.warn("Could not rename the group", cause);
+    }
+  }
 
   function requestGroupNotifications() {
     if (typeof Notification === "undefined" || Notification.permission !== "default") return;
@@ -259,34 +294,8 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
     setNotice(null);
     try {
       await api.addGroupMember(conversation.id, { userId: person.id });
-      setUsername("");
-      setAddMatches([]);
       await queryClient.invalidateQueries({ queryKey: ["conversations"] });
       await queryClient.invalidateQueries({ queryKey: ["group-sync", conversation.id] });
-    } catch (cause) {
-      setActionError("group.addFailed");
-      console.warn("Could not add the group member", cause);
-    }
-  }
-
-  async function addMember(event: FormEvent) {
-    event.preventDefault();
-    const needle = memberSearchNeedle(username);
-    if (needle.length < 2) return;
-    setActionError(null);
-    setNotice(null);
-    try {
-      const page = await api.lookupPeople(needle);
-      const exact = page.users.find((user) => (
-        user.username === needle || (user.displayName ?? "").trim().toLowerCase() === needle
-      ));
-      const person = exact ?? (page.users.length === 1 ? page.users[0] : null);
-      if (!person) {
-        setAddMatches(page.users);
-        if (page.users.length === 0) setActionError("group.noMatch");
-        return;
-      }
-      await addPerson(person);
     } catch (cause) {
       setActionError("group.addFailed");
       console.warn("Could not add the group member", cause);
@@ -320,7 +329,11 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
         const roster = record.session ? new Set(listMembers(record.session).map((leaf) => leaf.deviceId)) : new Set<string>();
         for (const device of devices.devices) {
           if (device.userId !== memberUserId || !roster.has(device.deviceId)) continue;
-          record = await queueMemberRemoval(record, device.deviceId);
+          record = await queueMemberRemoval(record, device.deviceId, {
+            actor: me?.displayName?.trim() || me?.username || "Admin",
+            target: device.displayName?.trim() || device.username || "A member",
+            targetId: device.userId,
+          });
           roster.delete(device.deviceId);
         }
         await saveSealedGroup(
@@ -374,7 +387,9 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
         router.push("/inbox");
         return;
       }
-      const queued = await queueSelfRemoval(record);
+      const queued = await queueSelfRemoval(record, {
+        actor: me?.displayName?.trim() || me?.username || "A member",
+      });
       await saveSealedGroup(userId, conversation.id, await sealGroupRecord(key, userId, conversation.id, queued));
       const result = await refreshGroup(conversation, queryClient);
       if (result.selfRemoved) {
@@ -391,139 +406,106 @@ export function GroupThread({ conversation }: { conversation: Conversation }) {
     }
   }
 
+  const titleText = conversation.title?.trim() || t("group.fallbackTitle");
+  const usernames = (conversation.members ?? []).map((member) => member.username);
+  const rows = buildGroupRows(messages, new Date(), undefined, conversation.createdAt ? {
+    at: conversation.createdAt,
+    title: conversation.title,
+    actor: conversation.members?.find((member) => member.role === "ADMIN")?.displayName
+      || conversation.members?.find((member) => member.role === "ADMIN")?.username,
+  } : null);
+  const typing = typingLabel(typingNames);
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
-        <div className="min-w-0">
-          <h1 className="truncate text-sm font-medium">
-            <BidiText>{conversation.title?.trim() || t("group.fallbackTitle")}</BidiText>
-          </h1>
-          <p className="truncate text-xs text-white/45">
-            <BidiText>{t("group.encryptedLine", { count: (conversation.members ?? []).length })}</BidiText>
-          </p>
-        </div>
-        <Button type="button" size="sm" variant="outline" title={t("group.leave")} aria-label={t("group.leave")} onClick={() => void leaveGroup()}>
-          {t("group.leave")}
-        </Button>
+    <div className="relative flex h-full min-h-0 flex-col">
+      <header className="border-b border-white/10 px-2 py-2">
+        <button
+          type="button"
+          className="flex w-full items-center gap-3 rounded-2xl px-2 py-1.5 text-start hover:bg-white/[0.04]"
+          onClick={() => setInfoOpen(true)}
+          title={t("group.info")}
+          aria-label={t("group.info")}
+        >
+          <span className="grid size-10 shrink-0 place-items-center rounded-full text-sm font-semibold text-white" style={{ background: memberColor(conversation.id) }}>
+            {memberInitials(titleText)}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium"><BidiText>{titleText}</BidiText></span>
+            <span className="block truncate text-xs text-white/45">
+              <BidiText>{typing || t("group.encryptedLine", { count: (conversation.members ?? []).length })}</BidiText>
+            </span>
+          </span>
+        </button>
       </header>
-      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_16rem]">
-        <div className="flex min-h-0 flex-col">
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-4" aria-live="polite">
-            {messages.length === 0 ? (
-              <p className="text-sm text-white/45">
-                {joined ? t("group.empty") : status}
-              </p>
-            ) : messages.map((message) => (
-              <article
-                key={message.id}
-                className={`max-w-[36rem] rounded-2xl px-3 py-2 text-sm ${
-                  message.fromMe ? "ms-auto bg-cyan-300/15" : "bg-white/[0.04]"
-                }`}
-              >
-                <p className="mb-1 text-[11px] text-white/40">
-                  <BidiText>
-                    {message.fromMe ? t("group.you") : memberLabel(conversation, message, t("group.member"))}
-                  </BidiText>
-                </p>
+      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-4 py-4" aria-live="polite">
+        {rows.length === 0 ? (
+          <p className="text-sm text-white/45">{joined ? t("group.empty") : status}</p>
+        ) : rows.map((row) => {
+          if (row.kind === "date") {
+            return <p key={row.id} className="py-2 text-center text-[11px] font-medium text-white/45">{row.label}</p>;
+          }
+          if (row.kind === "system") {
+            return <p key={row.id} className="py-1 text-center text-xs text-white/50">{row.text}</p>;
+          }
+          const message = row.message;
+          const sender = conversation.members?.find((member) => member.userId === message.senderUserId);
+          const name = message.fromMe ? t("group.you") : presentationLabel(sender, t("group.member"));
+          const color = memberColor(message.senderUserId || message.senderDeviceId);
+          const readers = message.fromMe ? readByLabel(readersOfMessage(message, conversation.members ?? [], userId)) : null;
+          return (
+            <article
+              key={row.id}
+              className={`flex max-w-[36rem] items-end gap-2 ${message.fromMe ? "ms-auto flex-row-reverse" : ""} ${row.cluster === "middle" || row.cluster === "first" ? "mb-0.5" : "mb-2"}`}
+            >
+              {row.showSender ? (
+                <span className="grid size-8 shrink-0 place-items-center rounded-full text-[11px] font-semibold text-white" style={{ background: color }} aria-hidden="true">
+                  {memberInitials(name)}
+                </span>
+              ) : <span className="size-8 shrink-0" aria-hidden="true" />}
+              <div className={`min-w-0 rounded-2xl px-3 py-2 text-sm ${message.fromMe ? "bg-cyan-300/15" : "bg-white/[0.04]"}`}>
+                {row.showSender ? <p className="mb-1 text-[11px] font-semibold" style={{ color }}><BidiText>{name}</BidiText></p> : null}
                 <GroupMessageBody
                   conversationId={conversation.id}
                   plaintext={message.plaintext}
-                  fromMe={message.fromMe}
+                  fromMe={Boolean(message.fromMe)}
+                  usernames={usernames}
+                  onRetry={() => void queryClient.invalidateQueries({ queryKey: ["group-sync", conversation.id] })}
                 />
-              </article>
-            ))}
-          </div>
-          <GroupComposer
-            conversationId={conversation.id}
-            joined={joined}
-            messages={messages}
-            disabled={sending}
-            onSendPlaintext={sendPlaintext}
-          />
-        </div>
-        <aside className="border-t border-white/10 p-4 md:border-t-0 md:border-s">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-white/45">{t("group.members")}</h2>
-          <ul className="mt-3 space-y-2">
-            {(conversation.members ?? []).map((member) => (
-              <li key={member.userId} className="flex items-center justify-between gap-2 text-sm">
-                <span className="min-w-0">
-                  <span className="block truncate">
-                    <BidiText>{member.displayName?.trim() || member.username}</BidiText>
-                  </span>
-                  <span className="block truncate text-xs text-white/40">
-                    <LtrIsolate>@{member.username}</LtrIsolate>
-                    {" · "}
-                    {member.role === "ADMIN" ? t("group.admin") : t("group.member")}
-                  </span>
-                </span>
-                {canAdminister && member.userId !== userId ? (
-                  <span className="flex shrink-0 gap-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      title={member.role === "ADMIN" ? t("group.demote") : t("group.promote")}
-                      aria-label={`${member.role === "ADMIN" ? t("group.demote") : t("group.promote")} @${member.username}`}
-                      onClick={() => void setMemberRole(member.userId, member.role === "ADMIN" ? "MEMBER" : "ADMIN")}
-                    >
-                      {member.role === "ADMIN" ? t("group.demote") : t("group.promote")}
-                    </Button>
-                    <Button type="button" size="sm" variant="ghost" title={t("group.remove")} aria-label={`${t("group.remove")} @${member.username}`} onClick={() => void removeMember(member.userId)}>
-                      {t("group.remove")}
-                    </Button>
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          {canAdminister ? (
-            <form className="mt-4 space-y-2" onSubmit={(event) => void addMember(event)}>
-              <Input
-                aria-label={t("group.usernames")}
-                title={t("group.usernames")}
-                placeholder={t("group.usernames")}
-                value={username}
-                onChange={(event) => {
-                  setUsername(event.target.value);
-                  setAddMatches([]);
-                }}
-                dir="ltr"
-              />
-              {addMatches.length > 0 ? (
-                <ul className="space-y-1">
-                  {addMatches.map((person) => {
-                    const label = person.displayName?.trim() || person.username;
-                    return (
-                      <li key={person.id}>
-                        <button
-                          type="button"
-                          className="w-full rounded-xl px-2 py-1 text-start text-xs text-white/80 hover:bg-white/10"
-                          title={t("group.pick", { name: label })}
-                          aria-label={t("group.pick", { name: `${label} @${person.username}` })}
-                          onClick={() => void addPerson(person)}
-                        >
-                          <BidiText>{label}</BidiText> <LtrIsolate>@{person.username}</LtrIsolate>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-              <Button type="submit" size="sm" variant="outline" title={t("group.add")} aria-label={t("group.add")}>{t("group.add")}</Button>
-            </form>
-          ) : null}
-          {status && joined ? <p className="mt-3 text-xs text-white/45">{status}</p> : null}
-          {notice ? <p className="mt-3 text-xs text-white/55">{t(notice)}</p> : null}
-          {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
-        </aside>
+                <p className="mt-1 text-end text-[10px] text-white/40">
+                  {readers || (message.fromMe ? t("group.sent") : "")}
+                </p>
+              </div>
+            </article>
+          );
+        })}
       </div>
+      {status && joined ? <p className="px-4 text-xs text-white/45">{status}</p> : null}
+      {notice ? <p className="px-4 text-xs text-white/55">{t(notice)}</p> : null}
+      {error ? <p className="px-4 text-sm text-red-300">{error}</p> : null}
+      <GroupComposer
+        conversationId={conversation.id}
+        joined={joined}
+        messages={messages}
+        members={conversation.members}
+        disabled={sending}
+        onSendPlaintext={sendPlaintext}
+      />
+      {infoOpen ? (
+        <GroupInfo
+          conversation={conversation}
+          messages={messages}
+          canAdminister={canAdminister}
+          selfUserId={userId}
+          onClose={() => setInfoOpen(false)}
+          onRename={renameGroup}
+          onAdd={addPerson}
+          onRemove={removeMember}
+          onSetRole={setMemberRole}
+          onLeave={async () => { await leaveGroup(); }}
+        />
+      ) : null}
     </div>
   );
-}
-
-function memberLabel(conversation: Conversation, message: LocalMessage, fallback: string) {
-  const member = conversation.members?.find((item) => item.userId === message.senderUserId);
-  return member?.displayName?.trim() || (member ? `@${member.username}` : fallback);
 }
 
 function requireVault() {
@@ -648,6 +630,7 @@ async function runGroupRefresh(
     deviceId: device.deviceId,
     signingPublicKey: b64ToBytes(device.signingPublicKey),
     role: device.role,
+    label: device.displayName?.trim() || device.username,
   }));
   const post = (body: GroupPost) =>
     api.postGroupMls(conversation.id, { ...body, senderDeviceId: deviceId });
@@ -692,22 +675,35 @@ async function runGroupRefresh(
     }
   }
 
-  await saveSealedGroup(
-    userId,
-    conversation.id,
-    await sealGroupRecord(key, userId, conversation.id, result.record),
-  );
-
   const newlyDecrypted: LocalMessage[] = [];
   const seen = new Set<string>();
   for (const message of decryptedWire) {
-    if (seen.has(message.id)) continue;
+    if (seen.has(message.id) || isWaitingPlaintext(message.plaintext)) continue;
     seen.add(message.id);
     const sender = devices.devices.find((device) => device.deviceId === message.senderDeviceId);
     const local = localFrom(conversation.id, message, deviceId, sender?.userId);
     newlyDecrypted.push(local);
     await saveLocalMessage(local);
   }
+  const pending = result.pending;
+  if (pending && !seen.has(pending.id)) {
+    const sender = devices.devices.find((device) => device.deviceId === pending.senderDeviceId);
+    await saveLocalMessage({
+      id: pending.id,
+      conversationId: conversation.id,
+      senderDeviceId: pending.senderDeviceId,
+      senderUserId: sender?.userId,
+      fromMe: pending.senderDeviceId === deviceId,
+      plaintext: encodeWaitingPayload({ id: pending.id }),
+      createdAt: pending.createdAt,
+    });
+  }
+  const storedRecord = ackGroupDeliveries(result.record, newlyDecrypted.map((message) => message.id));
+  await saveSealedGroup(
+    userId,
+    conversation.id,
+    await sealGroupRecord(key, userId, conversation.id, storedRecord),
+  );
   try {
     await archiveGroupMessages(newlyDecrypted);
   } catch (cause) {

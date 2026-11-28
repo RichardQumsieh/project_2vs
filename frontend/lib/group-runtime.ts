@@ -1,3 +1,4 @@
+import { encodeSystemPayload } from "./chat-payload";
 import { b64ToBytes, bytesToB64, equalBytes } from "./crypto/bytes";
 import {
   addDevice,
@@ -24,7 +25,7 @@ import {
   withLeafPrivateKey,
   type GroupRole,
 } from "./crypto/group-mls";
-import type { GroupOutboxItem, GroupRecord } from "./crypto/group-store";
+import type { GroupDeliveredMessage, GroupOutboxItem, GroupRecord } from "./crypto/group-store";
 
 export type GroupWireBlob = {
   id: string;
@@ -41,12 +42,16 @@ export type DirectoryDevice = {
   deviceId: string;
   signingPublicKey: Uint8Array;
   role: GroupRole;
+  /** Display name used only for a membership system message. Omitted in tests. */
+  label?: string;
 };
 
-export type GroupSyncMessage = {
+export type GroupSyncMessage = GroupDeliveredMessage;
+
+/** An application blob this device could not open yet. It is not marked applied. */
+export type GroupPendingMessage = {
   id: string;
   senderDeviceId: string;
-  plaintext: string;
   createdAt: string;
 };
 
@@ -69,10 +74,11 @@ export async function syncGroup(input: {
   memberUserIds: readonly string[];
   directory: readonly DirectoryDevice[];
   blobs: readonly GroupWireBlob[];
-  post: (body: GroupPost) => Promise<{ id: string }>;
+  post: (body: GroupPost) => Promise<{ id: string; createdAt?: string }>;
 }): Promise<{
   record: GroupRecord;
   messages: GroupSyncMessage[];
+  pending: GroupPendingMessage | null;
   selfRemoved: boolean;
   error: string | null;
 }> {
@@ -108,7 +114,8 @@ export async function syncGroup(input: {
   if (!first.conflict) {
     return {
       record,
-      messages: first.messages,
+      messages: visibleMessages(record, first.messages),
+      pending: first.pending,
       selfRemoved: isRemoved(record),
       error: first.error,
     };
@@ -119,6 +126,15 @@ export async function syncGroup(input: {
     const ingested = await ingestBlobs(record, input);
     record = ingested.record;
     carried = [...first.messages, ...ingested.messages];
+    if (ingested.pending) {
+      return {
+        record,
+        messages: visibleMessages(record, carried),
+        pending: ingested.pending,
+        selfRemoved: isRemoved(record),
+        error: null,
+      };
+    }
     for (const item of first.reverted) {
       if (
         item.removeDeviceId &&
@@ -133,9 +149,10 @@ export async function syncGroup(input: {
   } catch (error) {
     return {
       record,
-      messages: [],
+      messages: visibleMessages(record, carried),
+      pending: null,
       selfRemoved: isRemoved(record),
-      error: error instanceof Error ? error.message : "Could not recover the group fork",
+      error: friendlySyncError(error),
     };
   }
   const retried = await flushOutbox(record, input.post);
@@ -148,17 +165,47 @@ export async function syncGroup(input: {
   if (retried.conflict || retried.stalePlaintext.length > 0) {
     return {
       record,
-      messages: carried,
+      messages: visibleMessages(record, carried),
+      pending: null,
       selfRemoved: isRemoved(record),
       error: "Another member committed first. Sync again to retry.",
     };
   }
   return {
     record,
-    messages: [...carried, ...messagesFrom(record, retried.delivered)],
+    messages: visibleMessages(record, [...carried, ...messagesFrom(record, retried.delivered)]),
+    pending: null,
     selfRemoved: isRemoved(record),
     error: retried.error,
   };
+}
+
+/** Blob id to pass as `after` when paging MLS history. Undefined means start over. */
+export function mlsHistoryCursor(record: GroupRecord | null | undefined): string | undefined {
+  return record?.serverCursor;
+}
+
+/** Drop sender plaintext that the local message store has now saved. */
+export function ackGroupDeliveries(record: GroupRecord, ids: readonly string[]): GroupRecord {
+  if (!record.delivered?.length || ids.length === 0) return record;
+  const drop = new Set(ids);
+  const delivered = record.delivered.filter((item) => !drop.has(item.id));
+  if (delivered.length === record.delivered.length) return record;
+  return { ...record, delivered: delivered.length > 0 ? delivered : undefined };
+}
+
+function visibleMessages(record: GroupRecord, messages: readonly GroupSyncMessage[]): GroupSyncMessage[] {
+  const merged = new Map<string, GroupSyncMessage>();
+  for (const message of record.delivered ?? []) merged.set(message.id, message);
+  for (const message of messages) merged.set(message.id, message);
+  return [...merged.values()];
+}
+
+function friendlySyncError(error: unknown): string {
+  if (error instanceof GroupCryptoError && error.code === "not_member") {
+    return "This device is no longer a member of the group.";
+  }
+  return "This group update is not available yet. Retry in a moment.";
 }
 
 /**
@@ -184,11 +231,12 @@ async function runSyncPass(
     directory: readonly DirectoryDevice[];
     blobs: readonly GroupWireBlob[];
     memberUserIds: readonly string[];
-    post: (body: GroupPost) => Promise<{ id: string }>;
+    post: (body: GroupPost) => Promise<{ id: string; createdAt?: string }>;
   },
 ): Promise<{
   record: GroupRecord;
   messages: GroupSyncMessage[];
+  pending: GroupPendingMessage | null;
   error: string | null;
   conflict: boolean;
   reverted: GroupOutboxItem[];
@@ -196,29 +244,43 @@ async function runSyncPass(
   // Flush protocol/outbox first so concurrent commits can resolve via conflict
   // recovery. Application ciphertext that fails with mls_epoch_order is resealed
   // after ingesting the commits that advanced the epoch.
+  // Sender plaintext from this flush must be returned: ingest skips our own
+  // application blobs because MLS already consumed that generation on seal.
   const flushed = await flushOutbox(record, input.post);
   record = flushed.record;
+  const sent = messagesFrom(record, flushed.delivered);
   if (flushed.conflict) {
-    return { record, messages: [], error: null, conflict: true, reverted: flushed.reverted };
+    return { record, messages: sent, pending: null, error: null, conflict: true, reverted: flushed.reverted };
   }
   if (flushed.error) {
-    return { record, messages: [], error: flushed.error, conflict: false, reverted: [] };
+    return { record, messages: sent, pending: null, error: flushed.error, conflict: false, reverted: [] };
   }
 
-  let messages: GroupSyncMessage[] = [];
+  let messages: GroupSyncMessage[] = sent;
   try {
     const ingested = await ingestBlobs(record, input);
     record = ingested.record;
-    messages = ingested.messages;
+    messages = [...sent, ...ingested.messages];
     for (const plaintext of flushed.stalePlaintext) {
       record = await queueGroupMessage(record, plaintext);
     }
     record = await resealPendingApplications(record);
+    if (ingested.pending) {
+      return {
+        record,
+        messages,
+        pending: ingested.pending,
+        error: null,
+        conflict: false,
+        reverted: [],
+      };
+    }
   } catch (error) {
     return {
       record,
       messages,
-      error: error instanceof Error ? error.message : "Could not apply a group update",
+      pending: null,
+      error: friendlySyncError(error),
       conflict: false,
       reverted: [],
     };
@@ -231,7 +293,8 @@ async function runSyncPass(
     return {
       record,
       messages,
-      error: error instanceof Error ? error.message : "Could not update group membership",
+      pending: null,
+      error: friendlySyncError(error),
       conflict: false,
       reverted: [],
     };
@@ -239,18 +302,20 @@ async function runSyncPass(
 
   const posted = await flushOutbox(record, input.post);
   record = posted.record;
+  const postedMessages = messagesFrom(record, posted.delivered);
   if (posted.conflict) {
-    return { record, messages, error: null, conflict: true, reverted: posted.reverted };
+    return { record, messages: [...messages, ...postedMessages], pending: null, error: null, conflict: true, reverted: posted.reverted };
   }
   if (posted.stalePlaintext.length > 0) {
     for (const plaintext of posted.stalePlaintext) {
       record = await queueGroupMessage(record, plaintext);
     }
-    return { record, messages, error: null, conflict: true, reverted: [] };
+    return { record, messages: [...messages, ...postedMessages], pending: null, error: null, conflict: true, reverted: [] };
   }
   return {
     record,
-    messages: [...messages, ...messagesFrom(record, posted.delivered)],
+    messages: [...messages, ...postedMessages],
+    pending: null,
     error: posted.error,
     conflict: false,
     reverted: [],
@@ -309,40 +374,92 @@ export async function queueGroupMessage(record: GroupRecord, plaintext: string):
   };
 }
 
-export async function queueMemberRemoval(record: GroupRecord, deviceId: string): Promise<GroupRecord> {
+export async function queueMemberRemoval(
+  record: GroupRecord,
+  deviceId: string,
+  notice?: { actor: string; target: string; targetId?: string },
+): Promise<GroupRecord> {
   if (!record.session) {
     throw new GroupCryptoError("This device has not joined the group yet", "not_member");
   }
   const priorState = encodeSessionState(record.session);
   const removed = await removeDevice(record.session, deviceId);
-  return {
-    ...record,
-    session: removed.session,
-    outbox: [...record.outbox, {
-      clientId: crypto.randomUUID(),
-      kind: "commit",
-      payload: removed.commit,
-      priorState,
-      batchId: crypto.randomUUID(),
-      removeDeviceId: deviceId.toLowerCase(),
-    }],
-  };
+  const batchId = crypto.randomUUID();
+  let session = removed.session;
+  const outbox: GroupOutboxItem[] = [...record.outbox, {
+    clientId: crypto.randomUUID(),
+    kind: "commit",
+    payload: removed.commit,
+    priorState,
+    batchId,
+    removeDeviceId: deviceId.toLowerCase(),
+  }];
+  if (notice?.actor && notice.target) {
+    const noted = await membershipNotice(session, encodeSystemPayload({
+      event: "removed",
+      actor: notice.actor,
+      actorId: record.device.ref.userId,
+      target: notice.target,
+      targetId: notice.targetId,
+    }));
+    if (noted) {
+      session = noted.session;
+      outbox.push(noted.item);
+    }
+  }
+  return { ...record, session, outbox };
 }
 
-export async function queueSelfRemoval(record: GroupRecord): Promise<GroupRecord> {
+export async function queueSelfRemoval(
+  record: GroupRecord,
+  notice?: { actor: string },
+): Promise<GroupRecord> {
   if (!record.session) {
     throw new GroupCryptoError("This device has not joined the group yet", "not_member");
   }
-  const proposed = await proposeSelfRemoval(record.session);
+  let session = record.session;
+  const outbox: GroupOutboxItem[] = [...record.outbox];
+  if (notice?.actor) {
+    const noted = await membershipNotice(session, encodeSystemPayload({
+      event: "left",
+      actor: notice.actor,
+      actorId: record.device.ref.userId,
+    }));
+    if (noted) {
+      session = noted.session;
+      outbox.push(noted.item);
+    }
+  }
+  const proposed = await proposeSelfRemoval(session);
   return {
     ...record,
     session: proposed.session,
-    outbox: [...record.outbox, {
+    outbox: [...outbox, {
       clientId: crypto.randomUUID(),
       kind: "proposal",
       payload: proposed.proposal,
     }],
   };
+}
+
+async function membershipNotice(
+  session: NonNullable<GroupRecord["session"]>,
+  plaintext: string,
+): Promise<{ session: NonNullable<GroupRecord["session"]>; item: GroupOutboxItem } | null> {
+  try {
+    const sealed = await sealMessage(session, plaintext);
+    return {
+      session: sealed.session,
+      item: {
+        clientId: crypto.randomUUID(),
+        kind: "application",
+        payload: sealed.message,
+        plaintext,
+      },
+    };
+  } catch {
+    return null;
+  }
 }
 
 function isRemoved(record: GroupRecord): boolean {
@@ -357,7 +474,7 @@ function deliveryCode(error: unknown): string | null {
 
 async function flushOutbox(
   record: GroupRecord,
-  post: (body: GroupPost) => Promise<{ id: string }>,
+  post: (body: GroupPost) => Promise<{ id: string; createdAt?: string }>,
 ): Promise<{
   record: GroupRecord;
   delivered: Array<GroupOutboxItem & { serverId: string; createdAt: string }>;
@@ -368,6 +485,7 @@ async function flushOutbox(
 }> {
   const applied = [...record.appliedBlobIds];
   const delivered: Array<GroupOutboxItem & { serverId: string; createdAt: string }> = [];
+  const remembered: GroupDeliveredMessage[] = [...(record.delivered ?? [])];
   const remaining: GroupOutboxItem[] = [];
   const reverted: GroupOutboxItem[] = [];
   const stalePlaintext: string[] = [];
@@ -393,8 +511,17 @@ async function flushOutbox(
         ...(item.recipientDeviceId ? { recipientDeviceId: item.recipientDeviceId } : {}),
         ...(item.bindingSignature ? { bindingSignature: bytesToB64(item.bindingSignature) } : {}),
       });
+      const createdAt = posted.createdAt ?? new Date().toISOString();
       applied.push(posted.id);
-      delivered.push({ ...item, serverId: posted.id, createdAt: new Date().toISOString() });
+      delivered.push({ ...item, serverId: posted.id, createdAt });
+      if (item.kind === "application" && item.plaintext !== undefined && !remembered.some((saved) => saved.id === posted.id)) {
+        remembered.push({
+          id: posted.id,
+          senderDeviceId: record.device.ref.deviceId,
+          plaintext: item.plaintext,
+          createdAt,
+        });
+      }
     } catch (cause) {
       const code = deliveryCode(cause);
       // Behind or raced on this epoch: restore pre-commit state and let sync
@@ -424,7 +551,13 @@ async function flushOutbox(
     }
   }
   return {
-    record: { ...record, session, appliedBlobIds: applied, outbox: remaining },
+    record: {
+      ...record,
+      session,
+      appliedBlobIds: applied,
+      outbox: remaining,
+      delivered: remembered.length > 0 ? remembered : undefined,
+    },
     delivered,
     error,
     conflict,
@@ -440,7 +573,7 @@ async function ingestBlobs(
     blobs: readonly GroupWireBlob[];
     memberUserIds: readonly string[];
   },
-): Promise<{ record: GroupRecord; messages: GroupSyncMessage[] }> {
+): Promise<{ record: GroupRecord; messages: GroupSyncMessage[]; pending: GroupPendingMessage | null }> {
   const applied = new Set(record.appliedBlobIds);
   const messages: GroupSyncMessage[] = [];
   const ordered = [...input.blobs].sort((left, right) =>
@@ -449,23 +582,41 @@ async function ingestBlobs(
       : left.createdAt.localeCompare(right.createdAt),
   );
   let next = record;
-  const beforeJoin: string[] = [];
+  let contiguous = record.serverCursor;
+  let pending: GroupPendingMessage | null = null;
   for (const blob of ordered) {
-    if (applied.has(blob.id)) continue;
-    const welcomeForMe = blob.kind === "welcome" && blob.recipientDeviceId === next.device.ref.deviceId;
-    if (!next.session && blob.kind !== "key_package" && !welcomeForMe) {
-      beforeJoin.push(blob.id);
+    if (applied.has(blob.id)) {
+      contiguous = blob.id;
       continue;
     }
-    next = await ingestOne(next, blob, input.directory, input.memberUserIds, messages);
-    applied.add(blob.id);
-    if (next.session && beforeJoin.length > 0) {
-      for (const id of beforeJoin) applied.add(id);
-      beforeJoin.length = 0;
+    const welcomeForMe = blob.kind === "welcome" && blob.recipientDeviceId === next.device.ref.deviceId;
+    // History from before this device's Welcome cannot be opened. Mark it seen so a
+    // long log still advances to the Welcome instead of stalling on the first page.
+    if (!next.session && blob.kind !== "key_package" && !welcomeForMe) {
+      applied.add(blob.id);
+      contiguous = blob.id;
+      next = { ...next, appliedBlobIds: [...applied] };
+      continue;
     }
+    try {
+      next = await ingestOne(next, blob, input.directory, input.memberUserIds, messages);
+    } catch (error) {
+      if (blob.kind === "application" && next.session && !(error instanceof GroupCryptoError && error.code === "not_member")) {
+        pending = {
+          id: blob.id,
+          senderDeviceId: blob.senderDeviceId,
+          createdAt: blob.createdAt,
+        };
+        break;
+      }
+      throw error;
+    }
+    applied.add(blob.id);
+    contiguous = blob.id;
     next = { ...next, appliedBlobIds: [...applied] };
   }
-  return { record: next, messages };
+  if (contiguous) next = { ...next, serverCursor: contiguous };
+  return { record: next, messages, pending };
 }
 
 async function ingestOne(
@@ -707,21 +858,33 @@ async function welcomeNext(
       const priorState = encodeSessionState(record.session);
       const added = await addDevice(record.session, published, device.signingPublicKey);
       const batchId = crypto.randomUUID();
-      return {
-        ...record,
-        session: added.session,
-        outbox: [
-          ...record.outbox,
-          { clientId: crypto.randomUUID(), kind: "commit", payload: added.commit, priorState, batchId },
-          {
-            clientId: crypto.randomUUID(),
-            kind: "welcome",
-            payload: added.welcome,
-            recipientDeviceId: device.deviceId,
-            batchId,
-          },
-        ],
-      };
+      let session = added.session;
+      const outbox: GroupOutboxItem[] = [
+        ...record.outbox,
+        { clientId: crypto.randomUUID(), kind: "commit", payload: added.commit, priorState, batchId },
+        {
+          clientId: crypto.randomUUID(),
+          kind: "welcome",
+          payload: added.welcome,
+          recipientDeviceId: device.deviceId,
+          batchId,
+        },
+      ];
+      if (device.label) {
+        const actor = directory.find((entry) => entry.deviceId === record.device.ref.deviceId)?.label || "Admin";
+        const noted = await membershipNotice(session, encodeSystemPayload({
+          event: "added",
+          actor,
+          actorId: record.device.ref.userId,
+          target: device.label,
+          targetId: device.userId,
+        }));
+        if (noted) {
+          session = noted.session;
+          outbox.push(noted.item);
+        }
+      }
+      return { ...record, session, outbox };
     } catch (error) {
       if (error instanceof GroupCryptoError) continue;
       throw error;

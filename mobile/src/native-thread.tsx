@@ -18,7 +18,10 @@ import * as Haptics from "expo-haptics";
 import type { LocalMessage } from "../../frontend/lib/crypto/types";
 import { b64ToBytes } from "../../frontend/lib/crypto/bytes";
 import { openGroupRecord, sealGroupRecord } from "../../frontend/lib/crypto/group-store";
-import { queueGroupMessage, syncGroup, type GroupWireBlob } from "../../frontend/lib/group-runtime";
+import { listMembers } from "../../frontend/lib/crypto/group-mls";
+import { memberColor, memberInitials, memberLabel, readByLabel, readersOfMessage, typingLabel } from "../../frontend/lib/group-presentation";
+import { ackGroupDeliveries, mlsHistoryCursor, queueGroupMessage, queueMemberRemoval, queueSelfRemoval, syncGroup, type GroupWireBlob } from "../../frontend/lib/group-runtime";
+import { attachTypingSocket, noteGroupTyping, subscribeGroupTyping } from "../../frontend/lib/group-typing-client";
 import {
   archiveGroupMessages,
   acknowledgeArchiveRecoveryCode,
@@ -48,14 +51,15 @@ import {
   saveWireCursor,
   type PendingDirectSend,
 } from "../../frontend/lib/idb";
-import { api, setApiCookie, type Conversation } from "./api";
+import { api, openSignalingSocket, setApiCookie, type Conversation } from "./api";
 import { asActivityState, currentLockDelayMs, createLockController, externalActivityActive, subscribeExternalActivity } from "./app-lock";
 import { registerCallLogSender, takeQueuedCallLogs } from "./call-log-bridge";
 import { appLocale, t } from "./i18n";
 import { sweepDecryptedCache, wipeDecryptedCache } from "./media-cache";
+import { GroupInfoScreen } from "./group-info";
 import { NativeMediaComposer } from "./media-composer";
 import { deleteScopes, type DeleteScope } from "./message-actions";
-import { messagePreviewText } from "../../frontend/lib/chat-payload";
+import { encodeSystemPayload, encodeWaitingPayload, isSystemPlaintext, isWaitingPlaintext, messagePreviewText } from "../../frontend/lib/chat-payload";
 import { addReplyTarget, removeReplyTarget, toggleReplyTarget } from "./reply-selection";
 import { SwipeableMessage } from "./swipeable-message";
 import { buildThreadRows, type ThreadRow } from "./thread-rows";
@@ -132,6 +136,9 @@ export function NativeThread({ conversation, cookie }: Props) {
   const [unreadBelow, setUnreadBelow] = useState(0);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [undo, setUndo] = useState<{ message: LocalMessage; scope: DeleteScope; pending: boolean } | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [typingNames, setTypingNames] = useState<string[]>([]);
+  const [leftNotice, setLeftNotice] = useState("");
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<FlatList<ThreadRow>>(null);
   const awayRef = useRef(false);
@@ -148,6 +155,9 @@ export function NativeThread({ conversation, cookie }: Props) {
     setMenuMessage(null);
     setHiddenIds([]);
     setUndo(null);
+    setInfoOpen(false);
+    setTypingNames([]);
+    setLeftNotice("");
     setMessages([]);
     setPendingSends([]);
     setAwayFromLatest(false);
@@ -169,8 +179,23 @@ export function NativeThread({ conversation, cookie }: Props) {
       plaintext: send.plaintext,
       createdAt: send.createdAt,
     }));
-    return mergeMessages(messages, pending).filter((message) => !hidden.has(message.id));
-  }, [hiddenIds, messages, myUserId, pendingSends]);
+    const visible = mergeMessages(messages, pending).filter((message) => !hidden.has(message.id));
+    if (conversation.type !== "GROUP" || !conversation.createdAt) return visible;
+    if (visible.some((message) => isSystemPlaintext(message.plaintext) && message.plaintext.includes("\"created\""))) return visible;
+    const admin = conversation.members?.find((member) => member.role === "ADMIN");
+    return [{
+      id: `created:${conversation.id}`,
+      conversationId: conversation.id,
+      senderDeviceId: "system",
+      fromMe: false,
+      plaintext: encodeSystemPayload({
+        event: "created",
+        actor: admin?.displayName?.trim() || admin?.username || "Someone",
+        title: conversation.title ?? undefined,
+      }),
+      createdAt: conversation.createdAt,
+    }, ...visible];
+  }, [conversation, hiddenIds, messages, myUserId, pendingSends]);
 
   const refreshLocal = useCallback(async () => {
     const [recent, pending] = await Promise.all([
@@ -194,9 +219,7 @@ export function NativeThread({ conversation, cookie }: Props) {
       loadSealedGroup(userId, conversation.id),
     ]);
     const existing = sealed ? await openGroupRecord(vaultKey, userId, conversation.id, sealed) : null;
-    const after = existing
-      ? existing.appliedBlobIds[existing.appliedBlobIds.length - 1]
-      : undefined;
+    const after = mlsHistoryCursor(existing);
     const blobs = await loadGroupBlobs(conversation.id, deviceId, after);
     const member = conversation.members?.find((item) => item.userId === userId);
     const directory = devices.devices.map((device) => ({
@@ -204,6 +227,7 @@ export function NativeThread({ conversation, cookie }: Props) {
       deviceId: device.deviceId,
       signingPublicKey: b64ToBytes(device.signingPublicKey),
       role: device.role,
+      label: device.displayName?.trim() || device.username,
     }));
     const role = member?.role === "ADMIN" || (!member && directory.some((device) => device.userId === userId && device.role === "admin"))
       ? "admin"
@@ -223,8 +247,9 @@ export function NativeThread({ conversation, cookie }: Props) {
       post: (body) => api.postGroupMls(conversation.id, { ...body, senderDeviceId: deviceId }),
     });
 
-    await saveSealedGroup(userId, conversation.id, await sealGroupRecord(vaultKey, userId, conversation.id, result.record));
-    const newlyDecrypted: LocalMessage[] = result.messages.map((message) => {
+    const newlyDecrypted: LocalMessage[] = result.messages
+      .filter((message) => !isWaitingPlaintext(message.plaintext))
+      .map((message) => {
       const sender = devices.devices.find((device) => device.deviceId === message.senderDeviceId);
       return {
         id: message.id,
@@ -237,6 +262,23 @@ export function NativeThread({ conversation, cookie }: Props) {
       };
     });
     for (const message of newlyDecrypted) await saveLocalMessage(message);
+    if (result.pending) {
+      const sender = devices.devices.find((device) => device.deviceId === result.pending?.senderDeviceId);
+      await saveLocalMessage({
+        id: result.pending.id,
+        conversationId: conversation.id,
+        senderDeviceId: result.pending.senderDeviceId,
+        senderUserId: sender?.userId,
+        fromMe: result.pending.senderDeviceId === deviceId,
+        plaintext: encodeWaitingPayload({ id: result.pending.id }),
+        createdAt: result.pending.createdAt,
+      });
+    }
+    await saveSealedGroup(
+      userId,
+      conversation.id,
+      await sealGroupRecord(vaultKey, userId, conversation.id, ackGroupDeliveries(result.record, newlyDecrypted.map((message) => message.id))),
+    );
     if (newlyDecrypted.length) await archiveGroupMessages(newlyDecrypted);
 
     const latestBlob = blobs[blobs.length - 1]?.id;
@@ -252,6 +294,7 @@ export function NativeThread({ conversation, cookie }: Props) {
         setHistoryError(friendlyError(error));
       }
     }
+    return result;
   }, [conversation, refreshLocal]);
 
   const refreshConversation = useCallback(async () => {
@@ -289,6 +332,42 @@ export function NativeThread({ conversation, cookie }: Props) {
       refreshInFlight.current = false;
     }
   }, [conversation.id, conversation.type, refreshLocal, syncGroupConversation]);
+
+  useEffect(() => {
+    if (conversation.type !== "GROUP" || locked) return;
+    const socket = openSignalingSocket();
+    attachTypingSocket(socket);
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(String(event.data)) as { type?: string; conversationId?: string; userId?: string };
+        if (payload.type === "group_typing" && payload.conversationId && payload.userId) {
+          noteGroupTyping({ conversationId: payload.conversationId, userId: payload.userId });
+        }
+      } catch {
+        // Presence frames are optional.
+      }
+    };
+    return () => {
+      attachTypingSocket(null);
+      socket.close();
+    };
+  }, [conversation.id, conversation.type, locked]);
+
+  useEffect(() => {
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    return subscribeGroupTyping((event) => {
+      if (event.conversationId !== conversation.id || event.userId === currentUserId()) return;
+      const member = conversation.members?.find((item) => item.userId === event.userId);
+      const name = memberLabel(member);
+      setTypingNames((current) => current.includes(name) ? current : [...current, name]);
+      const existing = timers.get(event.userId);
+      if (existing) clearTimeout(existing);
+      timers.set(event.userId, setTimeout(() => {
+        timers.delete(event.userId);
+        setTypingNames((current) => current.filter((item) => item !== name));
+      }, 4_000));
+    });
+  }, [conversation.id, conversation.members]);
 
   const unlock = useCallback(async () => {
     const password = vaultPassword;
@@ -483,6 +562,81 @@ export function NativeThread({ conversation, cookie }: Props) {
     }
   }
 
+  async function openWritableGroup() {
+    const userId = currentUserId();
+    const vaultKey = currentVaultKey();
+    if (!userId || !vaultKey) throw new Error("Unlock this device to use group chat.");
+    const sealed = await loadSealedGroup(userId, conversation.id);
+    if (!sealed) throw new Error("This device is waiting for an existing group member to add it.");
+    const record = await openGroupRecord(vaultKey, userId, conversation.id, sealed);
+    return { userId, vaultKey, record };
+  }
+
+  async function removeGroupMember(memberUserId: string, label: string) {
+    const { userId, vaultKey, record: opened } = await openWritableGroup();
+    let record = opened;
+    const devices = await api.groupDevices(conversation.id);
+    const roster = record.session ? new Set(listMembers(record.session).map((leaf) => leaf.deviceId)) : new Set<string>();
+    const actor = conversation.members?.find((member) => member.userId === userId);
+    for (const device of devices.devices) {
+      if (device.userId !== memberUserId || !roster.has(device.deviceId)) continue;
+      record = await queueMemberRemoval(record, device.deviceId, {
+        actor: actor?.displayName?.trim() || actor?.username || "Admin",
+        target: label,
+        targetId: memberUserId,
+      });
+      roster.delete(device.deviceId);
+    }
+    await saveSealedGroup(userId, conversation.id, await sealGroupRecord(vaultKey, userId, conversation.id, record));
+    await syncGroupConversation();
+    await api.removeGroupMember(conversation.id, memberUserId);
+    await refreshLocal();
+  }
+
+  async function leaveGroup(actor: string) {
+    const userId = currentUserId();
+    if (!userId) return;
+    try {
+      const others = (conversation.members ?? []).filter((member) => member.userId !== userId);
+      const admins = (conversation.members ?? []).filter((member) => member.role === "ADMIN");
+      if (admins.length === 1 && admins[0]?.userId === userId && others.length > 0) {
+        setSendError("Choose another admin before leaving this group.");
+        return;
+      }
+      if (others.length === 0) {
+        await api.removeGroupMember(conversation.id, userId);
+        setLeftNotice("You left this group.");
+        setInfoOpen(false);
+        return;
+      }
+      const { vaultKey, record } = await openWritableGroup();
+      const queued = await queueSelfRemoval(record, { actor });
+      await saveSealedGroup(userId, conversation.id, await sealGroupRecord(vaultKey, userId, conversation.id, queued));
+      const result = await syncGroupConversation();
+      if (!result.selfRemoved) {
+        setSendError("Leave is waiting for the group to confirm. Keep this chat open until it finishes.");
+        setInfoOpen(false);
+        return;
+      }
+      await api.removeGroupMember(conversation.id, userId);
+      setLeftNotice("You left this group.");
+      setInfoOpen(false);
+    } catch (error) {
+      setSendError(friendlyError(error));
+    }
+  }
+
+  async function announceRename(title: string) {
+    const userId = currentUserId();
+    const actor = conversation.members?.find((member) => member.userId === userId);
+    await sendPlaintext(encodeSystemPayload({
+      event: "renamed",
+      actor: actor?.displayName?.trim() || actor?.username || "Someone",
+      actorId: userId ?? undefined,
+      title,
+    }));
+  }
+
   useEffect(() => {
     if (locked || !isUnlocked()) return;
     const unregister = registerCallLogSender(async (conversationId, plaintext) => {
@@ -638,6 +792,18 @@ export function NativeThread({ conversation, cookie }: Props) {
     {!!syncError && <View style={styles.inlineNotice}><Notice text={syncError} tone="info" />{!!unlockDiagnostic && <Text selectable style={styles.unlockDiagnostic}>{unlockDiagnostic}</Text>}</View>}
     {conversation.type === "GROUP" && groupStatus && !groupStatus.joined && <View style={styles.inlineNotice}><Notice text="This device is waiting for an existing group member to add it securely. Group history already available to your account can still be restored." tone="info" /></View>}
     {conversation.type === "GROUP" && groupStatus?.error && <View style={styles.inlineNotice}><Notice text={groupStatus.error} tone="info" /></View>}
+    {!!leftNotice && <View style={styles.inlineNotice}><Notice text={leftNotice} tone="info" /></View>}
+    {conversation.type === "GROUP" ? (
+      <Pressable accessibilityRole="button" accessibilityLabel={t("groupInfo")} onPress={() => setInfoOpen(true)} style={styles.groupHeader}>
+        <View style={[styles.groupAvatar, { backgroundColor: memberColor(conversation.id) }]}>
+          <Text style={styles.groupAvatarText}>{memberInitials(conversation.title?.trim() || "Group")}</Text>
+        </View>
+        <View style={styles.groupHeaderText}>
+          <Text numberOfLines={1} style={[styles.groupTitle, { color: colors.ink }]}>{conversation.title?.trim() || "Group"}</Text>
+          <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{typingLabel(typingNames) ?? `${conversation.members?.length ?? 0} members`}</Text>
+        </View>
+      </Pressable>
+    ) : null}
     {!!sendError && <View style={styles.inlineNotice}><Notice text={sendQueued ? `Message safely queued. Sophia will retry when the connection returns. ${sendError}` : sendError} tone="info" /></View>}
     <View style={styles.listWrap}>
       <FlatList
@@ -666,6 +832,10 @@ export function NativeThread({ conversation, cookie }: Props) {
           <View style={styles.dateRow} accessibilityRole="header">
             <View style={[styles.datePill, { backgroundColor: colors.lilac }]}><Text style={[styles.dateText, { color: colors.muted }]}>{item.label}</Text></View>
           </View>
+        ) : isSystemPlaintext(item.message.plaintext) ? (
+          <View style={styles.dateRow} accessibilityRole="text">
+            <View style={[styles.datePill, { backgroundColor: colors.lilac }]}><Text style={[styles.dateText, { color: colors.muted }]}>{messagePreviewText(item.message.plaintext)}</Text></View>
+          </View>
         ) : (
           <SwipeableMessage
             message={item.message}
@@ -675,10 +845,12 @@ export function NativeThread({ conversation, cookie }: Props) {
             selected={replyIds.includes(item.message.id)}
             cluster={item.cluster}
             showSender={item.showSender}
+            readLabel={conversation.type === "GROUP" && item.message.fromMe ? readByLabel(readersOfMessage(item.message, conversation.members ?? [], myUserId)) : null}
             onReply={(message) => setReplyIds((current) => addReplyTarget(current, message.id))}
             onToggleSelect={(message) => setReplyIds((current) => toggleReplyTarget(current, message.id))}
             onOpenMenu={setMenuMessage}
             onDelete={setDeleteTarget}
+            onRetry={isWaitingPlaintext(item.message.plaintext) ? () => { void refreshConversation(); } : undefined}
           />
         )}
       />
@@ -716,8 +888,23 @@ export function NativeThread({ conversation, cookie }: Props) {
         onToggleReply={(messageId) => setReplyIds((current) => toggleReplyTarget(current, messageId))}
         onSelectingChange={setSelectingReplies}
         onSendPlaintext={sendPlaintext}
+        members={conversation.members}
+        conversationType={conversation.type}
       />
     )}
+    {conversation.type === "GROUP" ? (
+      <GroupInfoScreen
+        conversation={conversation}
+        messages={displayMessages}
+        selfUserId={myUserId}
+        visible={infoOpen}
+        onClose={() => setInfoOpen(false)}
+        onChanged={() => { void refreshConversation(); }}
+        onLeave={(actor) => leaveGroup(actor)}
+        onRemoveMember={(userId, label) => removeGroupMember(userId, label)}
+        onRenamed={(title) => announceRename(title)}
+      />
+    ) : null}
     {locked ? <View style={[styles.lockOverlay, { backgroundColor: colors.bg }]}>{unlockView}</View> : null}
     <Modal visible={Boolean(deleteTarget)} transparent animationType="slide" onRequestClose={() => setDeleteTarget(null)}>
       <Pressable style={[styles.scrim, { backgroundColor: colors.scrim }]} onPress={() => setDeleteTarget(null)} />
@@ -802,6 +989,11 @@ const styles = StyleSheet.create({
   listWrap: { flex: 1 },
   list: { flex: 1 },
   listContent: { flexGrow: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12 },
+  groupHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  groupAvatar: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  groupAvatarText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+  groupHeaderText: { flex: 1 },
+  groupTitle: { fontSize: 16, fontWeight: "700" },
   dateRow: { alignItems: "center", marginVertical: 10 },
   datePill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   dateText: { fontSize: 12, fontWeight: "700" },

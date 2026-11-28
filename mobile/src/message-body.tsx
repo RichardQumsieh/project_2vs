@@ -308,7 +308,7 @@ function ReplyView({ payload, fromMe }: { payload: ReplyChatPayload; fromMe: boo
       <View style={[styles.replyBox, { borderStartColor: fromMe ? "#E8DFF8" : colors.purple }]}>
         {payload.refs.map((ref) => (
           <Text key={ref.id} style={[styles.replyRef, { color: fromMe ? "#DDD5EB" : colors.muted }]} numberOfLines={2}>
-            {ref.fromMe ? "You" : "Member"} · {ref.preview}
+            {ref.sender?.trim() || (ref.fromMe ? "You" : "Member")} · {ref.preview}
           </Text>
         ))}
       </View>
@@ -317,7 +317,7 @@ function ReplyView({ payload, fromMe }: { payload: ReplyChatPayload; fromMe: boo
   );
 }
 
-export function NativeMessageBody({ conversationId, plaintext, fromMe }: { conversationId: string; plaintext: string; fromMe: boolean }) {
+export function NativeMessageBody({ conversationId, plaintext, fromMe, onRetry }: { conversationId: string; plaintext: string; fromMe: boolean; onRetry?: () => void }) {
   const colors = useColors();
   const payload = parseChatPayload(plaintext);
   if (payload.type === "image") return <EncryptedPhotoView conversationId={conversationId} payload={payload} fromMe={fromMe} />;
@@ -327,6 +327,19 @@ export function NativeMessageBody({ conversationId, plaintext, fromMe }: { conve
   if (payload.type === "file") return <EncryptedFileView conversationId={conversationId} payload={payload} fromMe={fromMe} />;
   if (payload.type === "reply") return <ReplyView payload={payload} fromMe={fromMe} />;
   if (payload.type === "call") return <CallView payload={payload} fromMe={fromMe} />;
+  if (payload.type === "system") return null;
+  if (payload.type === "waiting") {
+    return (
+      <View style={styles.mediaBlock}>
+        <Text style={{ color: fromMe ? "#FFFFFF" : colors.ink }}>{t("waitingMessage")}</Text>
+        {onRetry ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={t("retry")} onPress={onRetry} style={styles.retry}>
+            <Text style={[styles.retryText, { color: fromMe ? "#FFFFFF" : colors.purple }]}>{t("retry")}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
   if (payload.type === "location") {
     return <Text style={[styles.body, { color: fromMe ? "#FFFFFF" : colors.ink }]}>{payload.name?.trim() || "Shared location"}</Text>;
   }

@@ -11,3 +11,11 @@ export function shouldFetchPairwiseWireHistory(
 ): boolean {
   return conversationType === "DIRECT";
 }
+
+/** A GROUP thread rejected a pairwise envelope fetch. Skip it; do not fail history sync. */
+export function isGroupEnvelopeRejection(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const status = "status" in error ? error.status : undefined;
+  const message = "message" in error && typeof error.message === "string" ? error.message : "";
+  return status === 409 && /MLS blobs, not pairwise envelopes/i.test(message);
+}

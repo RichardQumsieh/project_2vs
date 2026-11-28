@@ -183,12 +183,15 @@ export type Conversation = {
   id: string;
   type: "DIRECT" | "GROUP";
   title?: string | null;
+  createdAt?: string;
   memberUserIds?: string[];
   members?: {
     userId: string;
     username: string;
     displayName: string | null;
+    avatarUrl?: string | null;
     role: "ADMIN" | "MEMBER";
+    readCursor?: { blobId: string; createdAt: string } | null;
   }[];
   updatedAt: string;
   peer: PublicUser | null;
@@ -587,6 +590,14 @@ export const api = {
     );
   },
 
+  renameGroup: (conversationId: string, title: string) => {
+    assertGroupE2eeEnabled();
+    return request<{ ok: true; title: string; previousTitle: string | null }>(
+      `/conversations/${encodeURIComponent(conversationId)}`,
+      { method: "PATCH", body: JSON.stringify({ title }) },
+    );
+  },
+
   markGroupRead: (conversationId: string, blobId?: string) => {
     assertGroupE2eeEnabled();
     return request<{ ok: true; blobId: string | null }>(
@@ -621,7 +632,7 @@ export const api = {
     },
   ) => {
     assertGroupE2eeEnabled();
-    return request<{ id: string; kind: string; payload: string }>(
+    return request<{ id: string; kind: string; payload: string; createdAt?: string }>(
       `/conversations/${encodeURIComponent(conversationId)}/mls`,
       { method: "POST", body: JSON.stringify(body) },
     );

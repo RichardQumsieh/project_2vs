@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { I18nManager, Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { memberColor, memberInitials } from "../../frontend/lib/group-presentation";
 import type { LocalMessage } from "../../frontend/lib/crypto/types";
 import type { Conversation } from "./api";
 import { t } from "./i18n";
@@ -35,6 +36,8 @@ type Props = {
   onToggleSelect: (message: LocalMessage) => void;
   onOpenMenu: (message: LocalMessage) => void;
   onDelete: (message: LocalMessage) => void;
+  readLabel?: string | null;
+  onRetry?: () => void;
 };
 
 function senderName(message: LocalMessage, conversation: Conversation) {
@@ -59,6 +62,8 @@ export function SwipeableMessage({
   onToggleSelect,
   onOpenMenu,
   onDelete,
+  readLabel,
+  onRetry,
 }: Props) {
   const colors = useColors();
   const tx = useSharedValue(0);
@@ -120,6 +125,8 @@ export function SwipeableMessage({
   const tail = cluster === "single" || cluster === "last";
   const mine = Boolean(message.fromMe);
   const name = senderName(message, conversation);
+  const color = memberColor(message.senderUserId || message.senderDeviceId || message.id);
+  const group = conversation.type === "GROUP";
 
   return (
     <View
@@ -161,6 +168,13 @@ export function SwipeableMessage({
             style={[styles.line, mine ? styles.lineMine : styles.linePeer]}
           >
             {selecting ? <View style={[styles.checkbox, { borderColor: colors.line, backgroundColor: colors.paper }, selected && { backgroundColor: colors.purple, borderColor: colors.purple }]} /> : null}
+            {group && !mine ? (
+              showSender ? (
+                <View style={[styles.avatar, { backgroundColor: color }]} accessibilityElementsHidden>
+                  <Text style={styles.avatarText}>{memberInitials(name)}</Text>
+                </View>
+              ) : <View style={styles.avatarSpacer} />
+            ) : null}
             <View
               style={[
                 styles.bubble,
@@ -170,11 +184,13 @@ export function SwipeableMessage({
                 selected && { borderWidth: 2, borderColor: colors.lilac2 },
               ]}
             >
-              {showSender && conversation.type === "GROUP" ? <Text style={[styles.sender, { color: colors.purple }]}>{name}</Text> : null}
-              <NativeMessageBody conversationId={conversation.id} plaintext={message.plaintext} fromMe={mine} />
+              {showSender && group ? <Text style={[styles.sender, { color }]}>{name}</Text> : null}
+              <NativeMessageBody conversationId={conversation.id} plaintext={message.plaintext} fromMe={mine} onRetry={onRetry} />
               <View style={styles.meta}>
                 <Text style={[styles.time, { color: mine ? "#DDD5EB" : colors.faint }]}>{pending ? "…" : time}</Text>
-                {mine && !pending ? <Ionicons name="checkmark-done" size={13} color="#DCD2ED" /> : null}
+                {mine && !pending && !group ? <Ionicons name="checkmark-done" size={13} color="#DCD2ED" /> : null}
+                {mine && !pending && group ? <Ionicons name="checkmark" size={13} color="#DCD2ED" accessibilityLabel={t("sent")} /> : null}
+                {readLabel ? <Text style={[styles.time, { color: mine ? "#DDD5EB" : colors.faint }]}>{readLabel}</Text> : null}
               </View>
             </View>
           </Pressable>
@@ -200,6 +216,9 @@ const styles = StyleSheet.create({
   tailMine: { borderBottomEndRadius: 6 },
   tailPeer: { borderBottomStartRadius: 6 },
   sender: { fontSize: 12, fontWeight: "700", marginBottom: 2 },
+  avatar: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", marginBottom: 2 },
+  avatarSpacer: { width: 28 },
+  avatarText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
   meta: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 4, marginTop: 3 },
   time: { fontSize: 11 },
 });

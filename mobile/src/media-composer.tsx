@@ -34,6 +34,8 @@ import {
   type NativeMediaAsset,
 } from "./prepare-chat-media";
 import { assertOutgoingLinksSafe } from "./url-safety";
+import { applyMention, memberLabel, mentionQuery, mentionSuggestions, type MentionMember } from "../../frontend/lib/group-presentation";
+import { sendGroupTyping } from "../../frontend/lib/group-typing-client";
 import { encodeMultiQuote } from "./reply-selection";
 import { NativeVoiceRecorder, VoiceRecordingBar } from "./voice-recorder";
 import { C } from "./ui";
@@ -58,6 +60,8 @@ type Props = {
   onToggleReply: (messageId: string) => void;
   onSelectingChange: (selecting: boolean) => void;
   onSendPlaintext: (plaintext: string) => Promise<void>;
+  members?: readonly (MentionMember & { userId: string })[];
+  conversationType?: "DIRECT" | "GROUP";
 };
 
 export function NativeMediaComposer({
@@ -72,8 +76,11 @@ export function NativeMediaComposer({
   onToggleReply,
   onSelectingChange,
   onSendPlaintext,
+  members = [],
+  conversationType = "DIRECT",
 }: Props) {
   const [draft, setDraft] = useState("");
+  const [caret, setCaret] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -361,7 +368,10 @@ export function NativeMediaComposer({
       } else if (selectedReplyIds.length > 0) {
         if (hasAttachment) throw new Error("Send the reply or the attachment separately.");
         await assertOutgoingLinksSafe(caption);
-        plaintext = encodeMultiQuote(messages, selectedReplyIds, caption);
+        plaintext = encodeMultiQuote(messages, selectedReplyIds, caption, (message) => {
+          if (message.fromMe) return undefined;
+          return memberLabel(members.find((member) => member.userId === message.senderUserId), "Member");
+        });
       } else {
         if (!caption) return;
         await assertOutgoingLinksSafe(caption);
@@ -511,9 +521,39 @@ export function NativeMediaComposer({
         >
           <Ionicons name="happy-outline" size={20} color={C.muted} />
         </Pressable>
+        {conversationType === "GROUP" && (() => {
+          const query = mentionQuery(draft, caret || draft.length);
+          const matches = query ? mentionSuggestions(members, query.query) : [];
+          if (!query || matches.length === 0) return null;
+          return (
+            <View style={styles.mentions}>
+              {matches.map((member) => (
+                <Pressable
+                  key={member.username}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Mention @${member.username}`}
+                  onPress={() => {
+                    const next = applyMention(draft, query.start, caret || draft.length, member.username);
+                    setDraft(next.text);
+                    setCaret(next.caret);
+                  }}
+                  style={styles.mentionRow}
+                >
+                  <Text style={styles.mentionName}>{member.displayName?.trim() || member.username}</Text>
+                  <Text style={styles.mentionUser}>@{member.username}</Text>
+                </Pressable>
+              ))}
+            </View>
+          );
+        })()}
         <TextInput
           value={draft}
-          onChangeText={setDraft}
+          onSelectionChange={(event) => setCaret(event.nativeEvent.selection.start)}
+          onChangeText={(value) => {
+            setDraft(value);
+            setCaret(value.length);
+            if (conversationType === "GROUP" && value.trim()) sendGroupTyping(conversationId);
+          }}
           placeholder={
             hasAttachment
               ? "Add a caption…"
@@ -708,4 +748,8 @@ const styles = StyleSheet.create({
   charCount: { color: C.faint, fontSize: 10, marginStart: "auto" },
   status: { color: C.muted, fontSize: 11, textAlign: "center" },
   error: { color: "#B42318", fontSize: 12, textAlign: "center" },
+  mentions: { maxHeight: 160, borderRadius: 14, borderWidth: 1, borderColor: C.line, backgroundColor: C.paper, overflow: "hidden" },
+  mentionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
+  mentionName: { color: C.ink, fontSize: 14, fontWeight: "600" },
+  mentionUser: { color: C.muted, fontSize: 12 },
 });

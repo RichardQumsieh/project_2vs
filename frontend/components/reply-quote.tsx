@@ -35,7 +35,7 @@ export function ReplyQuoteBlock({
             }`}
           >
             <span className="mr-1.5 font-medium opacity-70">
-              {ref.fromMe ? "You" : "Them"} ·
+              {ref.sender?.trim() || (ref.fromMe ? "You" : "Them")} ·
             </span>
             {ref.preview}
           </div>
