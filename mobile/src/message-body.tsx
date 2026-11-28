@@ -346,10 +346,12 @@ export function NativeMessageBody({
   conversationId,
   plaintext,
   fromMe,
+  color,
 }: {
   conversationId: string;
   plaintext: string;
   fromMe: boolean;
+  color?: string;
 }) {
   const payload = parseChatPayload(plaintext);
   if (payload.type === "image") {
@@ -380,7 +382,7 @@ export function NativeMessageBody({
       </Text>
     );
   }
-  return <Text selectable style={[styles.body, fromMe && styles.captionMine]}>{payload.text}</Text>;
+  return <Text selectable style={[styles.body, fromMe && styles.captionMine, color ? { color } : null]}>{payload.text}</Text>;
 }
 
 const styles = StyleSheet.create({

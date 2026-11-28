@@ -50,7 +50,10 @@ import {
 import { api, setApiCookie, type Conversation } from "./api";
 import { registerCallLogSender, takeQueuedCallLogs } from "./call-log-bridge";
 import { useCallControls } from "./call-session";
+import { consumeQuickReply } from "../../frontend/lib/notifications/reply-store";
 import { NativeMediaComposer } from "./media-composer";
+import { screenColors } from "./theme-surface";
+import { useMobileTheme } from "./theme-provider";
 import { deleteScopes, type DeleteScope } from "./message-actions";
 import { addReplyTarget, removeReplyTarget, toggleReplyTarget } from "./reply-selection";
 import { SwipeableMessage } from "./swipeable-message";
@@ -96,6 +99,9 @@ function mergeMessages(current: LocalMessage[], next: LocalMessage[]) {
 }
 
 export function NativeThread({ conversation, cookie }: Props) {
+  const mobileTheme = useMobileTheme();
+  const screen = screenColors(mobileTheme.theme, mobileTheme.scheme);
+  const [replySeed, setReplySeed] = useState<string | null>(null);
   const [unlocked, setUnlocked] = useState(isUnlocked());
   const [vaultPassword, setVaultPassword] = useState("");
   const [historyRecoveryInput, setHistoryRecoveryInput] = useState("");
@@ -432,6 +438,12 @@ export function NativeThread({ conversation, cookie }: Props) {
 
   useEffect(() => {
     if (!unlocked) return;
+    const text = consumeQuickReply(conversation.id);
+    if (text) setReplySeed(text);
+  }, [unlocked, conversation.id]);
+
+  useEffect(() => {
+    if (!unlocked) return;
     const unregister = registerCallLogSender(async (conversationId, plaintext) => {
       if (conversationId !== conversation.id) return;
       await sendPlaintext(plaintext);
@@ -538,7 +550,7 @@ export function NativeThread({ conversation, cookie }: Props) {
     </View>;
   }
 
-  return <View style={styles.root}>
+  return <View style={[styles.root, screen && { backgroundColor: screen.backgroundColor }]}>
     {!!recoveryCode && <View style={styles.recoveryCard}>
       <View style={styles.recoveryTitleRow}><Ionicons name="key-outline" size={17} color={C.amber} /><Text style={styles.recoveryTitle}>Save your history recovery code</Text></View>
       <Text style={styles.recoveryCopy}>Keep this code somewhere private. It can restore your encrypted chat history if you forget your messaging vault password. Press and hold the code to copy it.</Text>
@@ -637,6 +649,7 @@ export function NativeThread({ conversation, cookie }: Props) {
         onToggleReply={(messageId) => setReplyIds((current) => toggleReplyTarget(current, messageId))}
         onSelectingChange={setSelectingReplies}
         onSendPlaintext={sendPlaintext}
+        seed={replySeed}
       />
     )}
   </View>;

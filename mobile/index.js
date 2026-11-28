@@ -21,5 +21,6 @@ if (typeof global.atob !== "function") global.atob = base64.decode;
 if (typeof global.btoa !== "function") global.btoa = base64.encode;
 
 require("fast-text-encoding");
+require("./src/notification-task");
 
 require("expo").registerRootComponent(require("./App").default);

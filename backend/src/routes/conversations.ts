@@ -20,6 +20,7 @@ import {
   canDeleteMessages,
   messageDeletionRecordIds,
 } from "../message-deletion.js";
+import { queueMessagePush } from "../notifications-dispatch.js";
 
 export async function conversationRoutes(app: FastifyInstance) {
   app.post("/conversations/direct", async (request, reply) => {
@@ -781,6 +782,27 @@ export async function conversationRoutes(app: FastifyInstance) {
       );
     });
     await Promise.all(publications);
+    const recipientIds = new Set<string>();
+    for (const message of messages) {
+      const recipientId = message.recipientDevice?.userId;
+      if (recipientId && recipientId !== session.sub) recipientIds.add(recipientId);
+    }
+    if (recipientIds.size === 0) {
+      const members = legacyMembers.length > 0
+        ? legacyMembers
+        : await prisma.conversationMember.findMany({
+            where: { conversationId: id },
+            select: { userId: true },
+          });
+      for (const member of members) {
+        if (member.userId !== session.sub) recipientIds.add(member.userId);
+      }
+    }
+    void queueMessagePush({
+      conversationId: id,
+      senderUserId: session.sub,
+      recipientUserIds: [...recipientIds],
+    });
 
     return {
       logicalMessageId,

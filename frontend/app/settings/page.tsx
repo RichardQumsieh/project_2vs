@@ -18,6 +18,8 @@ export default function SettingsPage() {
             body={t("appearance.cardBody")}
           />
         ) : null}
+        <ModuleCard href="/settings/themes" title={t("themes.cardTitle")} body={t("themes.cardBody")} />
+        <ModuleCard href="/settings/notifications" title={t("notifications.cardTitle")} body={t("notifications.cardBody")} />
         <ModuleCard href="/inbox?hub=assistant" title={t("settings.sophia.title")} body={t("settings.sophia.body")} />
         <ModuleCard href="/settings/integrations" title={t("settings.integrations.title")} body={t("settings.integrations.body")} />
         <ModuleCard href="/settings/privacy" title={t("settings.privacy.title")} body={t("settings.privacy.body")} />

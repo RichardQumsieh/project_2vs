@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { reloadAppAsync } from "expo";
+import * as Notifications from "expo-notifications";
 import * as Haptics from "expo-haptics";
 import * as Localization from "expo-localization";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -29,13 +30,19 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { api, API_URL, ApiError, clearApiCookie, restoreApiCookie, setApiCookie, WEB_URL, type Conversation, type DailyBrief, type SessionUser, type Task, type TotpSetup, type User, type Workspace, type WorkspaceInvite, type WorkspaceMember } from "./src/api";
 import { CallProvider } from "./src/call-session";
 import { NativeThread } from "./src/native-thread";
+import { NotificationSettings } from "./src/notification-settings";
+import { registerBackgroundNotifications } from "./src/notification-task";
+import { currentPushToken, registerPushIfGranted } from "./src/push-registration";
+import { MobileThemeProvider } from "./src/theme-provider";
+import { ThemeStudio } from "./src/theme-studio";
+import { rememberQuickReply } from "../frontend/lib/notifications/reply-store";
 import { lockDevice } from "../frontend/lib/session";
 import { ActionButton, Avatar, C, Card, EmptyState, Eyebrow, FadeIn, Heading, Input, LoadingLine, Notice, RoundAction } from "./src/ui";
 
 const NativeWebView: any = WebView;
 
 type Tab = "today" | "inbox" | "plan" | "spaces" | "you";
-type Page = Tab | "assistant" | "chat" | "web";
+type Page = Tab | "assistant" | "chat" | "web" | "themes" | "notifications";
 const TABS: { id: Tab; title: string; icon: keyof typeof Ionicons.glyphMap; selected: keyof typeof Ionicons.glyphMap }[] = [
   { id: "today", title: "Today", icon: "sunny-outline", selected: "sunny" },
   { id: "inbox", title: "Inbox", icon: "chatbubbles-outline", selected: "chatbubbles" },
@@ -114,16 +121,52 @@ function AppContent() {
 
   const signOut = useCallback(async () => {
     const session = cookie;
+    const token = currentPushToken();
     await lockDevice();
     setCookie(null); setProfile(null); setPage("today"); setActiveConversation(null);
+    if (session && token) await api.unregisterPushDevice(token, session).catch(() => undefined);
     if (session) await api.logout(session).catch(() => undefined);
     await clearApiCookie().catch(() => undefined);
   }, [cookie]);
 
   useEffect(() => {
+    if (!cookie) return;
+    void registerBackgroundNotifications();
+    void registerPushIfGranted(cookie);
+    void api.clearNotificationBadge(cookie).then(() => Notifications.setBadgeCountAsync(0)).catch(() => undefined);
+    const opened = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as { conversationId?: unknown; kind?: unknown };
+      const conversationId = typeof data.conversationId === "string" ? data.conversationId : "";
+      const reply = typeof response.userText === "string" ? response.userText.trim() : "";
+      if (conversationId && reply) rememberQuickReply(conversationId, reply);
+      if (!conversationId || data.kind === "call") return;
+      void api.conversations(cookie).then((result) => {
+        const match = result.conversations.find((item) => item.id === conversationId);
+        if (!match) return;
+        setActiveConversation(match);
+        setPage("chat");
+      }).catch(() => undefined);
+    });
+    return () => opened.remove();
+  }, [cookie]);
+
+  useEffect(() => {
+    if (!cookie) return;
+    const conversationId = page === "chat" ? activeConversation?.id ?? null : null;
+    const timer = setInterval(() => {
+      void api.setNotificationPresence({ conversationId, foreground: true }, cookie).catch(() => undefined);
+    }, 20_000);
+    void api.setNotificationPresence({ conversationId, foreground: true }, cookie).catch(() => undefined);
+    return () => {
+      clearInterval(timer);
+      void api.setNotificationPresence({ conversationId: null, foreground: false }, cookie).catch(() => undefined);
+    };
+  }, [cookie, page, activeConversation?.id]);
+
+  useEffect(() => {
     if (Platform.OS !== "android") return;
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (page === "chat" || page === "assistant" || page === "web") { setPage(page === "chat" ? "inbox" : page === "assistant" ? "today" : "you"); return true; }
+      if (page === "chat" || page === "assistant" || page === "web" || page === "themes" || page === "notifications") { setPage(page === "chat" ? "inbox" : "you"); return true; }
       if (page !== "today") { setPage("today"); setActiveTab("today"); return true; }
       return false;
     });
@@ -144,9 +187,9 @@ function AppContent() {
   if (booting) return <Startup />;
   if (!cookie || !profile) return <Login onSignedIn={signIn} />;
 
-  const isSubpage = page === "assistant" || page === "chat" || page === "web";
-  const title = page === "assistant" ? "Ask Sophia" : page === "web" ? "Connected tools" : page === "chat" ? activeConversation ? conversationName(activeConversation) : "Conversation" : null;
-  return <CallProvider cookie={cookie} userId={profile.id}><SafeAreaView style={styles.safe}>
+  const isSubpage = page === "assistant" || page === "chat" || page === "web" || page === "themes" || page === "notifications";
+  const title = page === "assistant" ? "Ask Sophia" : page === "themes" ? "Themes" : page === "notifications" ? "Notifications" : page === "web" ? "Connected tools" : page === "chat" ? activeConversation ? conversationName(activeConversation) : "Conversation" : null;
+  return <MobileThemeProvider cookie={cookie}><CallProvider cookie={cookie} userId={profile.id}><SafeAreaView style={styles.safe}>
     <StatusBar barStyle="dark-content" />
     <View style={styles.appHeader}>
       {isSubpage ? <RoundAction icon="chevron-back" accessibilityLabel="Go back" onPress={() => navigate(page === "chat" ? "inbox" : page === "assistant" ? "today" : "you")} /> : <Brand />}
@@ -162,8 +205,10 @@ function AppContent() {
       {page === "inbox" && <Inbox cookie={cookie} onOpen={openConversation} />}
       {page === "plan" && <Plan cookie={cookie} />}
       {page === "spaces" && <Spaces cookie={cookie} myUserId={profile.id} onOpenConversation={openConversation} />}
-      {page === "you" && <You profile={profile} onSignOut={signOut} onAsk={() => navigate("assistant")} onTools={() => navigate("web")} />}
+      {page === "you" && <You profile={profile} onSignOut={signOut} onAsk={() => navigate("assistant")} onTools={() => navigate("web")} onThemes={() => navigate("themes")} onNotifications={() => navigate("notifications")} />}
       {page === "assistant" && <AskSophia cookie={cookie} />}
+      {page === "themes" && <ThemeStudio cookie={cookie} />}
+      {page === "notifications" && <NotificationSettings cookie={cookie} />}
       {page === "chat" && activeConversation && <NativeChat conversation={activeConversation} cookie={cookie} />}
       {page === "web" && <NativeWebPage path="/settings/integrations" />}
     </KeyboardAvoidingView>
@@ -177,7 +222,7 @@ function AppContent() {
         </Pressable>;
       })}
     </View>}
-  </SafeAreaView></CallProvider>;
+  </SafeAreaView></CallProvider></MobileThemeProvider>;
 }
 
 function Startup() {
@@ -742,7 +787,7 @@ function Spaces({ cookie, myUserId, onOpenConversation }: { cookie: string; myUs
   </ScrollPage>;
 }
 
-function You({ profile, onSignOut, onAsk, onTools }: { profile: SessionUser; onSignOut: () => void; onAsk: () => void; onTools: () => void }) {
+function You({ profile, onSignOut, onAsk, onTools, onThemes, onNotifications }: { profile: SessionUser; onSignOut: () => void; onAsk: () => void; onTools: () => void; onThemes: () => void; onNotifications: () => void }) {
   const [busy, setBusy] = useState(false);
   async function signOut() {
     setBusy(true);
@@ -757,6 +802,8 @@ function You({ profile, onSignOut, onAsk, onTools }: { profile: SessionUser; onS
       <Eyebrow>YOUR SOPHIA</Eyebrow>
       <Pressable style={styles.settingRow} onPress={onAsk}><View style={[styles.settingIcon,{backgroundColor:C.lilac}]}><Ionicons name="sparkles-outline" size={18} color={C.purple} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>Cloud Sophia</Text><Text style={styles.settingMeta}>Consent and personal context</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>
       <Pressable style={styles.settingRow} onPress={() => Alert.alert("Your privacy", "Sophia stores encrypted message content. Your message text stays on your devices; the server routes encrypted envelopes.")}><View style={[styles.settingIcon,{backgroundColor:C.greenWash}]}><Ionicons name="lock-closed-outline" size={18} color={C.green} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>Privacy & security</Text><Text style={styles.settingMeta}>End-to-end encrypted conversations</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>
+      <Pressable style={styles.settingRow} onPress={onThemes}><View style={[styles.settingIcon,{backgroundColor:C.lilac}]}><Ionicons name="color-palette-outline" size={18} color={C.purple} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>Themes</Text><Text style={styles.settingMeta}>Generate a palette and wallpaper</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>
+      <Pressable style={styles.settingRow} onPress={onNotifications}><View style={[styles.settingIcon,{backgroundColor:C.greenWash}]}><Ionicons name="notifications-outline" size={18} color={C.green} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>Notifications</Text><Text style={styles.settingMeta}>Alerts without message text</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>
       <Pressable style={styles.settingRow} onPress={onTools}><View style={[styles.settingIcon,{backgroundColor:C.amberWash}]}><Ionicons name="link-outline" size={18} color={C.amber} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>Connected tools</Text><Text style={styles.settingMeta}>Calendar, email, work apps</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>
       <Card style={styles.deviceInfo}><Ionicons name="phone-portrait-outline" size={17} color={C.muted} /><Text style={styles.deviceInfoText}>This app is signed in with a protected session. Message keys are set up separately on this device when you open a conversation.</Text></Card>
       <ActionButton title="Sign out" icon="log-out-outline" onPress={() => void signOut()} busy={busy} secondary />

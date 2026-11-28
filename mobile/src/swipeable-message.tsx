@@ -6,6 +6,7 @@ import type { LocalMessage } from "../../frontend/lib/crypto/types";
 import type { Conversation } from "./api";
 import { deleteScopes, swipeOpenAction } from "./message-actions";
 import { NativeMessageBody } from "./message-body";
+import { useBubbleStyle } from "./theme-provider";
 import { C } from "./ui";
 
 type Props = {
@@ -40,6 +41,7 @@ export function SwipeableMessage({
   onBeginSelect,
   onDelete,
 }: Props) {
+  const bubble = useBubbleStyle(message.fromMe);
   const swipeRef = useRef<SwipeableMethods>(null);
   const sender = message.fromMe
     ? "You"
@@ -78,9 +80,9 @@ export function SwipeableMessage({
         style={[styles.messageRow, message.fromMe ? styles.messageRowMine : styles.messageRowPeer]}
       >
         {selecting ? <View style={[styles.checkbox, selected && styles.checkboxOn]} /> : null}
-        <View style={[styles.messageBubble, message.fromMe ? styles.messageBubbleMine : styles.messageBubblePeer, selected && styles.selected]}>
+        <View style={[styles.messageBubble, message.fromMe ? styles.messageBubbleMine : styles.messageBubblePeer, bubble && { backgroundColor: bubble.backgroundColor, borderRadius: bubble.borderRadius }, selected && styles.selected]}>
           {conversation.type === "GROUP" && !message.fromMe ? <Text style={styles.senderName}>{sender}</Text> : null}
-          <NativeMessageBody conversationId={conversation.id} plaintext={message.plaintext} fromMe={message.fromMe} />
+          <NativeMessageBody conversationId={conversation.id} plaintext={message.plaintext} fromMe={message.fromMe} color={bubble?.color} />
           <View style={styles.messageMeta}>
             <Text style={[styles.messageTime, message.fromMe && styles.messageTimeMine]}>{pending ? "Waiting to send" : time}</Text>
             {message.fromMe && !pending ? <Ionicons name="checkmark-done" size={13} color="#DCD2ED" /> : null}

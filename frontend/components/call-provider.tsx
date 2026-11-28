@@ -18,6 +18,7 @@ import {
   PhoneOff,
 } from "lucide-react";
 import { api, type PublicUser, wsUrl } from "@/lib/api";
+import { callActionFromMessage, incomingCallDecision } from "@/lib/calls/incoming-alert";
 import { Button } from "@/components/ui/button";
 
 type CallMode = "audio" | "video";
@@ -236,6 +237,27 @@ export function CallProvider({
     finishCallRef.current = finishCall;
   }, [finishCall]);
 
+  useEffect(() => {
+    if (!call || typeof Notification === "undefined") return;
+    const decision = incomingCallDecision({
+      direction: call.direction,
+      phase: call.phase,
+      documentHidden: document.hidden,
+      permission: Notification.permission,
+    });
+    if (!decision.notify) return;
+    const notification = new Notification(decision.title, {
+      body: decision.body,
+      tag: `call:${call.callId}`,
+      requireInteraction: decision.requireInteraction,
+    });
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+    return () => notification.close();
+  }, [call]);
+
   const createPeerConnection = useCallback(async (
     current: CallView,
   ) => {
@@ -376,6 +398,42 @@ export function CallProvider({
     showError,
     updateCall,
   ]);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      const action = callActionFromMessage(event.data);
+      const data = event.data as { type?: string; callId?: string } | null;
+      if (!action && data?.type === "sophia-open-call" && data.callId) {
+        void api.callInvite(data.callId).then((response) => {
+          if (callRef.current || response.invite.scope !== "direct" || !response.invite.offer) return;
+          const peer: PublicUser = {
+            id: response.invite.senderId,
+            username: "call",
+            displayName: null,
+            avatarUrl: null,
+          };
+          incomingOfferRef.current = response.invite.offer;
+          updateCall({
+            callId: response.invite.callId,
+            conversationId: response.invite.conversationId,
+            peer,
+            mode: response.invite.mode,
+            direction: "incoming",
+            phase: "ringing",
+          });
+        }).catch(() => undefined);
+        return;
+      }
+      if (!action) return;
+      const current = callRef.current;
+      if (!current || current.callId !== action.callId) return;
+      if (action.action === "accept") void acceptCall();
+      else sendTerminalSignal("call:reject");
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [acceptCall, sendTerminalSignal, updateCall]);
 
   const handleSignal = useCallback((value: unknown) => {
     if (!isCallSignal(value)) return;
@@ -640,7 +698,11 @@ function CallOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={`${incoming ? "Incoming" : call.phase === "active" ? "Active" : "Outgoing"} ${call.mode} call with ${call.peer.displayName ?? call.peer.username}`}
-      className="fixed inset-3 z-[100] mx-auto flex max-h-[calc(100dvh-1.5rem)] max-w-4xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#101114]/95 shadow-[0_32px_120px_rgba(0,0,0,0.65)] backdrop-blur-2xl sm:inset-8 sm:max-h-[calc(100dvh-4rem)]"
+      className={`fixed z-[200] mx-auto flex flex-col overflow-hidden border border-white/10 bg-[#101114]/95 shadow-[0_32px_120px_rgba(0,0,0,0.65)] backdrop-blur-2xl ${
+        incoming
+          ? "inset-0 max-h-none max-w-none rounded-none"
+          : "inset-3 max-h-[calc(100dvh-1.5rem)] max-w-4xl rounded-[2rem] sm:inset-8 sm:max-h-[calc(100dvh-4rem)]"
+      }`}
     >
       <header className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
         <div className="min-w-0">

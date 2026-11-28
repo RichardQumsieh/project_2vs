@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import { GroupThread, GroupUnavailable, NewGroupForm } from "@/components/group-thread";
 import { groupE2eeEnabled } from "@/lib/group-e2ee-flag";
 import { api } from "@/lib/api";
+import { useChatWallpaper } from "@/components/generated-theme-provider";
+import { forgetWebPushToken, storedWebPushToken } from "@/lib/notifications/web-push";
 import { BidiText, LtrIsolate } from "@/lib/i18n/bidi";
 import { localizedRuntimeMessage } from "@/lib/i18n/action-summary";
 import { useI18n } from "@/lib/i18n/locale";
@@ -440,6 +442,9 @@ export function InboxShell({
     setUnlockedUserId(null);
     queryClient.clear();
     try {
+      const pushToken = storedWebPushToken();
+      if (pushToken) await api.unregisterPushDevice(pushToken).catch(() => undefined);
+      forgetWebPushToken();
       await api.logout();
       window.location.replace("/login");
     } catch (error) {
@@ -868,6 +873,26 @@ function ThreadConversation({
   const queryClient = useQueryClient();
   const reduceMotion = useReducedMotion();
   const calls = useCallControls();
+  const chatWallpaper = useChatWallpaper(conversationId);
+  useEffect(() => {
+    let stopped = false;
+    const beat = () => {
+      if (stopped || document.visibilityState === "hidden") {
+        void api.setNotificationPresence({ conversationId: null, foreground: false }).catch(() => undefined);
+        return;
+      }
+      void api.setNotificationPresence({ conversationId, foreground: true }).catch(() => undefined);
+    };
+    beat();
+    const timer = window.setInterval(beat, 20_000);
+    document.addEventListener("visibilitychange", beat);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", beat);
+      void api.setNotificationPresence({ conversationId: null, foreground: document.visibilityState !== "hidden" }).catch(() => undefined);
+    };
+  }, [conversationId]);
   const [olderMessages, setOlderMessages] = useState<LocalMessage[]>([]);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(true);
@@ -4322,6 +4347,7 @@ function ThreadConversation({
           }
         }}
         className="thread-scroll absolute inset-0 space-y-3 overflow-y-auto overscroll-contain px-3 py-3 sm:px-6 sm:py-6"
+        style={chatWallpaper}
       >
         {loadingOlderMessages ? (
           <p role="status" className="py-2 text-center text-xs text-white/45">
