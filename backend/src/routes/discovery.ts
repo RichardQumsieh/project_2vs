@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { requireUser } from "../auth.js";
 import { prisma } from "../db.js";
 import { personLikePattern, rankPeople } from "../people-lookup.js";
+import { Prisma } from "@prisma/client";
+import { updateAvatarSchema } from "../avatar.js";
 import { updateProfileSchema, userLookupQuery } from "../schemas.js";
 import { publicUser } from "../util.js";
 
@@ -10,6 +12,9 @@ type RecommendedUser = {
   username: string;
   displayName: string | null;
   avatarUrl: string | null;
+  avatarConfig: unknown;
+  greetingText: string | null;
+  greetingAnimation: string | null;
   interests: string[];
   sharedInterestCount: number;
 };
@@ -51,6 +56,47 @@ export async function discoveryRoutes(app: FastifyInstance) {
     },
   );
 
+  app.patch(
+    "/me/avatar",
+    {
+      config: {
+        rateLimit: {
+          max: 20,
+          timeWindow: "1 minute",
+        },
+      },
+    },
+    async (request, reply) => {
+      const session = await requireUser(request, reply);
+      if (!session) return;
+      const parsed = updateAvatarSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "Invalid avatar" });
+      }
+      const user = await prisma.user.update({
+        where: { id: session.sub },
+        data: {
+          avatarConfig: parsed.data.avatarConfig === null ? Prisma.DbNull : parsed.data.avatarConfig,
+          greetingText: parsed.data.greetingText && parsed.data.greetingText.length > 0
+            ? parsed.data.greetingText
+            : null,
+          greetingAnimation: parsed.data.greetingAnimation,
+        },
+        select: {
+          id: true,
+          username: true,
+          displayName: true,
+          avatarUrl: true,
+          avatarConfig: true,
+          greetingText: true,
+          greetingAnimation: true,
+        },
+      });
+      reply.header("Cache-Control", "no-store");
+      return { user: publicUser(user) };
+    },
+  );
+
   app.get(
     "/users/lookup",
     {
@@ -73,8 +119,11 @@ export async function discoveryRoutes(app: FastifyInstance) {
         username: string;
         displayName: string | null;
         avatarUrl: string | null;
+        avatarConfig: unknown;
+        greetingText: string | null;
+        greetingAnimation: string | null;
       }>>`
-        SELECT "id", "username", "displayName", "avatarUrl"
+        SELECT "id", "username", "displayName", "avatarUrl", "avatarConfig", "greetingText", "greetingAnimation"
         FROM "User"
         WHERE "id" <> ${session.sub}
           AND (
@@ -124,6 +173,9 @@ export async function discoveryRoutes(app: FastifyInstance) {
           candidate."username",
           candidate."displayName",
           candidate."avatarUrl",
+          candidate."avatarConfig",
+          candidate."greetingText",
+          candidate."greetingAnimation",
           candidate."interests",
           (
             SELECT COUNT(*)::int

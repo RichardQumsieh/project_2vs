@@ -26,10 +26,18 @@ import {
 } from "react-native";
 import { WebView } from "react-native-webview";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { messagePreviewText } from "../frontend/lib/chat-payload";
+import { conversationPlaintext, isUnlocked, lockDevice } from "../frontend/lib/session";
 import { api, API_URL, ApiError, clearApiCookie, restoreApiCookie, setApiCookie, WEB_URL, type Conversation, type DailyBrief, type SessionUser, type Task, type TotpSetup, type User, type Workspace, type WorkspaceInvite, type WorkspaceMember } from "./src/api";
-import { CallProvider } from "./src/call-session";
+import { currentLockDelayMs, type LockDelayMs } from "./src/app-lock";
+import { loadLockDelayMs, saveLockDelayMs } from "./src/app-lock-store";
+import { CallProvider, useCallControls } from "./src/call-session";
+import { t } from "./src/i18n";
+import { wipeDecryptedCache } from "./src/media-cache";
 import { NativeThread } from "./src/native-thread";
-import { lockDevice } from "../frontend/lib/session";
+import { useColors } from "./src/theme";
+import { AvatarCreator } from "./src/avatar-creator";
+import { PersonBadge } from "./src/person-badge";
 import { ActionButton, Avatar, C, Card, EmptyState, Eyebrow, FadeIn, Heading, Input, LoadingLine, Notice, RoundAction } from "./src/ui";
 
 const NativeWebView: any = WebView;
@@ -86,6 +94,7 @@ function AppContent() {
   const [page, setPage] = useState<Page>("today");
   const [activeTab, setActiveTab] = useState<Tab>("today");
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
+  const colors = useColors();
 
   useEffect(() => {
     let alive = true;
@@ -112,8 +121,13 @@ function AppContent() {
     setPage("today");
   }, []);
 
+  useEffect(() => {
+    void loadLockDelayMs().catch(() => undefined);
+  }, []);
+
   const signOut = useCallback(async () => {
     const session = cookie;
+    await wipeDecryptedCache().catch(() => undefined);
     await lockDevice();
     setCookie(null); setProfile(null); setPage("today"); setActiveConversation(null);
     if (session) await api.logout(session).catch(() => undefined);
@@ -145,24 +159,25 @@ function AppContent() {
   if (!cookie || !profile) return <Login onSignedIn={signIn} />;
 
   const isSubpage = page === "assistant" || page === "chat" || page === "web";
+  const themedChrome = page === "chat" || page === "inbox";
   const title = page === "assistant" ? "Ask Sophia" : page === "web" ? "Connected tools" : page === "chat" ? activeConversation ? conversationName(activeConversation) : "Conversation" : null;
-  return <CallProvider cookie={cookie} userId={profile.id}><SafeAreaView style={styles.safe}>
-    <StatusBar barStyle="dark-content" />
-    <View style={styles.appHeader}>
+  return <CallProvider cookie={cookie} userId={profile.id}><SafeAreaView style={[styles.safe, themedChrome && { backgroundColor: colors.bg }]}>
+    <StatusBar barStyle={themedChrome ? colors.statusBar : "dark-content"} />
+    <View style={[styles.appHeader, themedChrome && { backgroundColor: colors.bg, borderBottomColor: colors.line }]}>
       {isSubpage ? <RoundAction icon="chevron-back" accessibilityLabel="Go back" onPress={() => navigate(page === "chat" ? "inbox" : page === "assistant" ? "today" : "you")} /> : <Brand />}
-      {isSubpage ? <Text numberOfLines={1} style={styles.subpageTitle}>{title}</Text> : <Text style={styles.headerWordmark}>sophia</Text>}
-      {isSubpage && page === "chat" ? <View style={styles.securePill}><Ionicons name="shield-checkmark" size={13} color={C.green} /><Text style={styles.securePillText}>Private</Text></View> :
+      {isSubpage ? <Text numberOfLines={1} style={[styles.subpageTitle, themedChrome && { color: colors.ink }]}>{title}</Text> : <Text style={styles.headerWordmark}>sophia</Text>}
+      {page === "chat" && activeConversation ? <ChatHeaderActions conversation={activeConversation} /> :
         <Pressable accessibilityRole="button" accessibilityLabel="Open your profile" onPress={() => navigate("you")} style={styles.profileButton}>
-          <Avatar title={profile.displayName || profile.username} size={36} />
+          <PersonBadge person={profile} size={36} />
         </Pressable>}
     </View>
 
-    <KeyboardAvoidingView style={styles.main} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={88}>
+    <KeyboardAvoidingView style={[styles.main, themedChrome && { backgroundColor: colors.bg }]} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}>
       {page === "today" && <Today cookie={cookie} profile={profile} onAsk={() => navigate("assistant")} onPlan={() => navigate("plan")} />}
       {page === "inbox" && <Inbox cookie={cookie} onOpen={openConversation} />}
       {page === "plan" && <Plan cookie={cookie} />}
       {page === "spaces" && <Spaces cookie={cookie} myUserId={profile.id} onOpenConversation={openConversation} />}
-      {page === "you" && <You profile={profile} onSignOut={signOut} onAsk={() => navigate("assistant")} onTools={() => navigate("web")} />}
+      {page === "you" && cookie && <You profile={profile} cookie={cookie} onProfile={setProfile} onSignOut={signOut} onAsk={() => navigate("assistant")} onTools={() => navigate("web")} />}
       {page === "assistant" && <AskSophia cookie={cookie} />}
       {page === "chat" && activeConversation && <NativeChat conversation={activeConversation} cookie={cookie} />}
       {page === "web" && <NativeWebPage path="/settings/integrations" />}
@@ -182,6 +197,20 @@ function AppContent() {
 
 function Startup() {
   return <SafeAreaView style={[styles.safe, styles.center]}><StatusBar barStyle="dark-content" /><Brand large /><ActivityIndicator color={C.purple} style={{ marginTop: 26 }} /><Text style={styles.startupLabel}>Preparing your space</Text></SafeAreaView>;
+}
+
+function ChatHeaderActions({ conversation }: { conversation: Conversation }) {
+  const calls = useCallControls();
+  const colors = useColors();
+  return <View style={styles.headerActions}>
+    <Pressable accessibilityRole="button" accessibilityLabel={t("voiceCall")} onPress={() => void calls.startCall(conversation, "audio")} style={styles.headerIcon}>
+      <Ionicons name="call-outline" size={20} color={colors.purple} />
+    </Pressable>
+    <Pressable accessibilityRole="button" accessibilityLabel={t("videoCall")} onPress={() => void calls.startCall(conversation, "video")} style={styles.headerIcon}>
+      <Ionicons name="videocam-outline" size={20} color={colors.purple} />
+    </Pressable>
+    <View style={styles.securePill}><Ionicons name="shield-checkmark" size={13} color={C.green} /><Text style={styles.securePillText}>{t("private")}</Text></View>
+  </View>;
 }
 
 function Brand({ large = false }: { large?: boolean }) {
@@ -394,7 +423,9 @@ function TaskRow({ task, cookie, onChanged }: { task: Task; cookie: string; onCh
 }
 
 function Inbox({ cookie, onOpen }: { cookie: string; onOpen: (conversation: Conversation) => void }) {
+  const colors = useColors();
   const [rows, setRows] = useState<Conversation[]>([]);
+  const [previews, setPreviews] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -406,11 +437,29 @@ function Inbox({ cookie, onOpen }: { cookie: string; onOpen: (conversation: Conv
     finally { setLoading(false); setRefreshing(false); }
   }, [cookie]);
   useEffect(() => { void load(); }, [load]);
-  return <View style={styles.fill}>
+  useEffect(() => {
+    if (!rows.length || !isUnlocked()) return;
+    let alive = true;
+    void (async () => {
+      const next: Record<string, string> = {};
+      for (const row of rows.slice(0, 40)) {
+        try {
+          const recent = await conversationPlaintext(row.id, 1);
+          const last = recent[recent.length - 1];
+          if (last) next[row.id] = messagePreviewText(last.plaintext);
+        } catch {
+          next[row.id] = t("encryptedPreview");
+        }
+      }
+      if (alive) setPreviews(next);
+    })();
+    return () => { alive = false; };
+  }, [rows]);
+  return <View style={[styles.fill, { backgroundColor: colors.bg }]}>
     <ScrollPage refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} contentStyle={styles.inboxPage}>
       <FadeIn><Heading title="Your people." subtitle="A quieter place for the conversations that matter." right={<RoundAction icon="create-outline" accessibilityLabel="Start a conversation" active onPress={() => setShowPeople(true)} />} />
         <View style={styles.encryptionCallout}><Ionicons name="lock-closed" size={16} color={C.green} /><Text style={styles.encryptionCopy}>Private conversations are end-to-end encrypted. Only you and the people in them can read messages.</Text></View>
-        {loading ? <Card><LoadingLine label="Bringing your inbox together" /></Card> : error ? <Notice text={error} /> : rows.length ? <View style={styles.conversationList}>{rows.map((row) => <ConversationRow key={row.id} conversation={row} onPress={() => onOpen(row)} />)}</View> : <Card><EmptyState icon="chatbubbles-outline" title="Your inbox starts here" detail="Find someone you trust and start a private conversation." action={<Pressable style={styles.emptyAction} onPress={() => setShowPeople(true)}><Text style={styles.emptyActionText}>Find someone</Text></Pressable>} /></Card>}
+        {loading ? <InboxSkeleton /> : error ? <Notice text={error} /> : rows.length ? <View style={[styles.conversationList, { backgroundColor: colors.paper, borderColor: colors.line }]}>{rows.map((row) => <ConversationRow key={row.id} conversation={row} preview={previews[row.id]} onPress={() => onOpen(row)} />)}</View> : <Card><EmptyState icon="chatbubbles-outline" title="Your inbox starts here" detail="Find someone you trust and start a private conversation." action={<Pressable accessibilityRole="button" style={styles.emptyAction} onPress={() => setShowPeople(true)}><Text style={styles.emptyActionText}>Find someone</Text></Pressable>} /></Card>}
         <Text style={styles.inboxFootnote}>Messages are encrypted on your device before they leave it.</Text>
       </FadeIn>
     </ScrollPage>
@@ -418,13 +467,28 @@ function Inbox({ cookie, onOpen }: { cookie: string; onOpen: (conversation: Conv
   </View>;
 }
 
-function ConversationRow({ conversation, onPress }: { conversation: Conversation; onPress: () => void }) {
+function InboxSkeleton() {
+  const colors = useColors();
+  return <View style={[styles.conversationList, { backgroundColor: colors.paper, borderColor: colors.line }]}>
+    {Array.from({ length: 6 }, (_, index) => <View key={index} style={styles.conversationRow}>
+      <View style={[styles.skeletonAvatar, { backgroundColor: colors.lilac }]} />
+      <View style={styles.conversationCopy}>
+        <View style={[styles.skeletonLine, { width: "46%", backgroundColor: colors.lilac }]} />
+        <View style={[styles.skeletonLine, { width: "78%", backgroundColor: colors.line }]} />
+      </View>
+    </View>)}
+  </View>;
+}
+
+function ConversationRow({ conversation, preview, onPress }: { conversation: Conversation; preview?: string; onPress: () => void }) {
+  const colors = useColors();
   const name = conversationName(conversation);
   const group = conversation.type === "GROUP";
-  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.conversationRow, pressed && styles.rowPressed]}>
-    <Avatar title={name} group={group} size={52} />
-    <View style={styles.conversationCopy}><View style={styles.conversationTitleRow}><Text numberOfLines={1} style={styles.conversationTitle}>{name}</Text><Text style={styles.conversationTime}>{conversation.lastMessageAt ? prettyTime(conversation.lastMessageAt) : ""}</Text></View>
-      <View style={styles.conversationSubRow}><Text style={styles.conversationSubtitle} numberOfLines={1}>{group ? "Family & team space" : conversation.peer?.username ? `@${conversation.peer.username}` : "Private conversation"}</Text>{!!conversation.unreadCount && <View style={styles.unreadBadge}><Text style={styles.unreadText}>{conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}</Text></View>}</View>
+  const subtitle = preview || (group ? "Family & team space" : conversation.peer?.username ? `@${conversation.peer.username}` : "Private conversation");
+  return <Pressable accessibilityRole="button" accessibilityLabel={name} onPress={onPress} style={({ pressed }) => [styles.conversationRow, pressed && styles.rowPressed]}>
+    {group ? <Avatar title={name} group size={52} /> : <PersonBadge person={conversation.peer} title={name} size={52} />}
+    <View style={styles.conversationCopy}><View style={styles.conversationTitleRow}><Text numberOfLines={1} style={[styles.conversationTitle, { color: colors.ink }]}>{name}</Text><Text style={[styles.conversationTime, { color: colors.faint }]}>{conversation.lastMessageAt ? prettyTime(conversation.lastMessageAt) : ""}</Text></View>
+      <View style={styles.conversationSubRow}><Text style={[styles.conversationSubtitle, { color: colors.muted }]} numberOfLines={1}>{subtitle}</Text>{!!conversation.unreadCount && <View style={styles.unreadBadge}><Text style={styles.unreadText}>{conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}</Text></View>}</View>
     </View>
   </Pressable>;
 }
@@ -481,7 +545,7 @@ function PeopleSheet({ visible, cookie, onClose, onOpen }: { visible: boolean; c
         {busy ? <LoadingLine label="Finding people" /> : error ? <Notice text={error} /> : query.trim().length < 2 ? <Text style={styles.searchHint}>{mode === "group" ? "Choose at least two people. Groups can have up to eight members including you." : "Enter at least two characters to search."}</Text> : people.length ? people.map((person) => {
           const selected = selectedPeople.some((item) => item.id === person.id);
           return <Pressable key={person.id} onPress={() => mode === "group" ? toggleGroupMember(person) : void start(person)} style={styles.personRow}>
-          <Avatar title={person.displayName || person.username} size={45} /><View style={{ flex: 1 }}><Text style={styles.personName}>{person.displayName || person.username}</Text><Text style={styles.personUsername}>@{person.username}</Text></View>{mode === "group" ? <View style={[styles.memberCheck, selected && styles.memberCheckOn]}>{selected && <Ionicons name="checkmark" size={15} color="white" />}</View> : starting === person.id ? <ActivityIndicator color={C.purple} /> : <Ionicons name="arrow-forward-circle-outline" size={23} color={C.purple} />}
+          <PersonBadge person={person} size={45} /><View style={{ flex: 1 }}><Text style={styles.personName}>{person.displayName || person.username}</Text><Text style={styles.personUsername}>@{person.username}</Text></View>{mode === "group" ? <View style={[styles.memberCheck, selected && styles.memberCheckOn]}>{selected && <Ionicons name="checkmark" size={15} color="white" />}</View> : starting === person.id ? <ActivityIndicator color={C.purple} /> : <Ionicons name="arrow-forward-circle-outline" size={23} color={C.purple} />}
         </Pressable>;
         }) : <Text style={styles.searchHint}>No one found yet. Check the spelling and try again.</Text>}
       </View>
@@ -742,27 +806,53 @@ function Spaces({ cookie, myUserId, onOpenConversation }: { cookie: string; myUs
   </ScrollPage>;
 }
 
-function You({ profile, onSignOut, onAsk, onTools }: { profile: SessionUser; onSignOut: () => void; onAsk: () => void; onTools: () => void }) {
+function You({ profile, cookie, onProfile, onSignOut, onAsk, onTools }: { profile: SessionUser; cookie: string; onProfile: (user: SessionUser) => void; onSignOut: () => void; onAsk: () => void; onTools: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [editingAvatar, setEditingAvatar] = useState(false);
   async function signOut() {
     setBusy(true);
     try { await onSignOut(); } finally { setBusy(false); }
   }
   return <ScrollPage>
     <FadeIn><Heading title="A space that’s yours." subtitle="Your account, privacy, and Sophia." />
-      <Card style={styles.profileCard}><Avatar title={profile.displayName || profile.username} size={62} />
+      <Card style={styles.profileCard}><PersonBadge person={profile} size={62} />
         <View style={{ flex: 1 }}><Text style={styles.profileName}>{profile.displayName || profile.username}</Text><Text style={styles.profileHandle}>@{profile.username}</Text></View>
         <View style={styles.verifiedMark}><Ionicons name="shield-checkmark" size={17} color={C.green} /></View>
       </Card>
+      <Pressable style={styles.settingRow} onPress={() => setEditingAvatar(true)}><View style={[styles.settingIcon,{backgroundColor:C.lilac}]}><Ionicons name="person-circle-outline" size={18} color={C.purple} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>3D avatar</Text><Text style={styles.settingMeta}>Portrait, greeting, and motion</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>
+      <Modal visible={editingAvatar} animationType="slide" onRequestClose={() => setEditingAvatar(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
+          <AvatarCreator cookie={cookie} profile={profile} onSaved={onProfile} onClose={() => setEditingAvatar(false)} />
+        </SafeAreaView>
+      </Modal>
       <Eyebrow>YOUR SOPHIA</Eyebrow>
       <Pressable style={styles.settingRow} onPress={onAsk}><View style={[styles.settingIcon,{backgroundColor:C.lilac}]}><Ionicons name="sparkles-outline" size={18} color={C.purple} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>Cloud Sophia</Text><Text style={styles.settingMeta}>Consent and personal context</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>
       <Pressable style={styles.settingRow} onPress={() => Alert.alert("Your privacy", "Sophia stores encrypted message content. Your message text stays on your devices; the server routes encrypted envelopes.")}><View style={[styles.settingIcon,{backgroundColor:C.greenWash}]}><Ionicons name="lock-closed-outline" size={18} color={C.green} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>Privacy & security</Text><Text style={styles.settingMeta}>End-to-end encrypted conversations</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>
+      <LockDelayRow />
       <Pressable style={styles.settingRow} onPress={onTools}><View style={[styles.settingIcon,{backgroundColor:C.amberWash}]}><Ionicons name="link-outline" size={18} color={C.amber} /></View><View style={{flex:1}}><Text style={styles.settingTitle}>Connected tools</Text><Text style={styles.settingMeta}>Calendar, email, work apps</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>
       <Card style={styles.deviceInfo}><Ionicons name="phone-portrait-outline" size={17} color={C.muted} /><Text style={styles.deviceInfoText}>This app is signed in with a protected session. Message keys are set up separately on this device when you open a conversation.</Text></Card>
       <ActionButton title="Sign out" icon="log-out-outline" onPress={() => void signOut()} busy={busy} secondary />
       <Text style={styles.versionText}>Sophia Mobile · Connected to Sophia securely</Text>
     </FadeIn>
   </ScrollPage>;
+}
+
+function LockDelayRow() {
+  const [delay, setDelay] = useState<LockDelayMs>(currentLockDelayMs());
+  useEffect(() => {
+    void loadLockDelayMs().then(setDelay).catch(() => undefined);
+  }, []);
+  const label = delay === 0 ? t("lockImmediate") : delay === 30_000 ? t("lock30") : t("lock60");
+  function choose(next: LockDelayMs) {
+    setDelay(next);
+    void saveLockDelayMs(next).catch(() => undefined);
+  }
+  return <Pressable accessibilityRole="button" accessibilityLabel={t("lockTitle")} style={styles.settingRow} onPress={() => Alert.alert(t("lockTitle"), t("lockHelp"), [
+    { text: t("lockImmediate"), onPress: () => choose(0) },
+    { text: t("lock30"), onPress: () => choose(30_000) },
+    { text: t("lock60"), onPress: () => choose(60_000) },
+    { text: t("cancel"), style: "cancel" },
+  ])}><View style={[styles.settingIcon, { backgroundColor: C.lilac }]}><Ionicons name="time-outline" size={18} color={C.purple} /></View><View style={{ flex: 1 }}><Text style={styles.settingTitle}>{t("lockTitle")}</Text><Text style={styles.settingMeta}>{label}</Text></View><Ionicons name="chevron-forward" size={17} color={C.faint} /></Pressable>;
 }
 
 function AskSophia({ cookie }: { cookie: string }) {
@@ -847,7 +937,11 @@ const styles = StyleSheet.create({
   authScrollContent: { flexGrow: 1 }, authenticatorCard: { gap: 12, padding: 14 }, authenticatorTitle: { color: C.ink, fontSize: 14, fontWeight: "700" }, authenticatorCopy: { color: C.muted, fontSize: 12, lineHeight: 18 }, authenticatorSecret: { color: C.purple, backgroundColor: C.lilac, borderRadius: 12, padding: 13, textAlign: "center", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontWeight: "700", letterSpacing: 1 }, recoveryCodesCard: { gap: 14, padding: 15 }, recoveryCodes: { color: C.ink, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 13, lineHeight: 24, textAlign: "center" }, recoverySavedRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 }, recoverySavedText: { color: C.ink, fontSize: 12, lineHeight: 18, flex: 1 },
   appHeader: { minHeight: 59, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 12 }, brandMark: { width: 30, height: 30, borderRadius: 11, backgroundColor: C.purple, alignItems: "center", justifyContent: "center" }, brandLetter: { color: "white", fontFamily: "Georgia", fontStyle: "italic", fontSize: 22, marginTop: -2 }, brandLarge: { color: C.ink, fontFamily: "Georgia", fontSize: 25, letterSpacing: -0.6 }, headerWordmark: { color: C.ink, fontFamily: "Georgia", fontSize: 20, letterSpacing: -0.5, marginLeft: 1, marginRight: "auto" }, profileButton: { marginLeft: "auto", padding: 3 }, profileImage: { width: 36, height: 36, borderRadius: 13 }, subpageTitle: { color: C.ink, fontSize: 15, fontWeight: "700", flex: 1, textAlign: "center" },
-  securePill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: C.greenWash, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 20 }, securePillText: { color: C.green, fontSize: 10, fontWeight: "700" },
+  securePill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: C.greenWash, paddingHorizontal: 9, minHeight: 32, borderRadius: 20 }, securePillText: { color: C.green, fontSize: 10, fontWeight: "700" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 2 },
+  headerIcon: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  skeletonAvatar: { width: 52, height: 52, borderRadius: 18 },
+  skeletonLine: { height: 10, borderRadius: 6 },
   tabBar: { minHeight: 67, flexDirection: "row", backgroundColor: "#FFFEFC", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line, paddingHorizontal: 6, paddingTop: 5, paddingBottom: Platform.OS === "ios" ? 1 : 6 }, tab: { flex: 1, alignItems: "center", justifyContent: "center", gap: 2, minHeight: 56 }, tabIcon: { height: 29, minWidth: 51, borderRadius: 15, alignItems: "center", justifyContent: "center" }, tabIconActive: { backgroundColor: C.lilac }, tabText: { color: C.muted, fontSize: 10, fontWeight: "600" }, tabTextActive: { color: C.purple, fontWeight: "700" },
   startupLabel: { color: C.muted, fontSize: 13, marginTop: 14 }, loginScreen: { flex: 1, justifyContent: "center", paddingHorizontal: 27, paddingBottom: 30 }, loginTitle: { color: C.ink, fontFamily: "Georgia", fontSize: 41, lineHeight: 47, letterSpacing: -1.5, marginTop: 13 }, loginCopy: { color: C.muted, fontSize: 15, lineHeight: 23, marginTop: 12, maxWidth: 290 }, loginForm: { gap: 17, marginTop: 30 }, loginFoot: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 27 }, loginFootText: { color: C.muted, fontSize: 11 }, textAction: { alignItems: "center", padding: 10 }, textActionLabel: { color: C.purple, fontSize: 13, fontWeight: "600" },
   pageContent: { paddingHorizontal: 22, paddingTop: 25, paddingBottom: 34, gap: 14 }, dateLine: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 17 }, todayDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.green }, todayGreeting: { color: C.ink, fontFamily: "Georgia", fontSize: 31, lineHeight: 38, letterSpacing: -0.8 }, todayName: { color: C.purple, fontFamily: "Georgia", fontSize: 36, lineHeight: 43, letterSpacing: -1.1 }, todayIntro: { color: C.muted, fontSize: 14, marginTop: 4 },

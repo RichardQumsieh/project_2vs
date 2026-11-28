@@ -39,14 +39,8 @@ async function uploadCiphertext(
     throw new Error("The encrypted attachment could not be uploaded safely.");
   }
   const upload = await api.mediaUpload(conversationId, ciphertext.byteLength, kind);
-  const response = await fetch(upload.uploadUrl, {
-    method: "PUT",
-    headers: upload.headers,
-    body: ciphertext.buffer,
-  });
-  if (!response.ok) {
-    throw new Error(`The encrypted ${kind} could not be uploaded.`);
-  }
+  const { uploadCiphertextFile } = await import("./media-cache");
+  await uploadCiphertextFile(upload.uploadUrl, upload.headers, ciphertext);
   return upload.mediaId;
 }
 

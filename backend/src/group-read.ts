@@ -2,6 +2,40 @@ import { prisma } from "./db.js";
 import { countUnreadGroupApplications, type GroupUnreadBlob } from "./group-e2ee.js";
 
 /**
+ * Each member's group read cursor, with the blob time so clients can tell
+ * which messages that member has opened. Absent cursors stay null.
+ */
+export async function readCursorsFor(
+  conversationIds: readonly string[],
+): Promise<Map<string, Map<string, { blobId: string; createdAt: string }>>> {
+  const byConversation = new Map<string, Map<string, { blobId: string; createdAt: string }>>();
+  if (conversationIds.length === 0) return byConversation;
+  const members = await prisma.conversationMember.findMany({
+    where: {
+      conversationId: { in: [...conversationIds] },
+      groupReadBlobId: { not: null },
+    },
+    select: { conversationId: true, userId: true, groupReadBlobId: true },
+  });
+  const blobIds = members.flatMap((member) => (member.groupReadBlobId ? [member.groupReadBlobId] : []));
+  if (blobIds.length === 0) return byConversation;
+  const blobs = await prisma.groupMlsBlob.findMany({
+    where: { id: { in: blobIds } },
+    select: { id: true, createdAt: true },
+  });
+  const createdAt = new Map(blobs.map((blob) => [blob.id, blob.createdAt.toISOString()]));
+  for (const member of members) {
+    if (!member.groupReadBlobId) continue;
+    const at = createdAt.get(member.groupReadBlobId);
+    if (!at) continue;
+    const cursors = byConversation.get(member.conversationId) ?? new Map();
+    cursors.set(member.userId, { blobId: member.groupReadBlobId, createdAt: at });
+    byConversation.set(member.conversationId, cursors);
+  }
+  return byConversation;
+}
+
+/**
  * Unread counts from application-blob metadata. Payloads are not loaded.
  */
 export async function unreadCountsFor(

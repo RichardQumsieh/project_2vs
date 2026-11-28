@@ -15,7 +15,7 @@ import {
 import { b64ToBytes, bytesToB64, directKeyFor, publicUser } from "../util.js";
 import { redis } from "../redis.js";
 import { canListConversation } from "../conversation-visibility.js";
-import { unreadCountsFor } from "../group-read.js";
+import { readCursorsFor, unreadCountsFor } from "../group-read.js";
 import {
   canDeleteMessages,
   messageDeletionRecordIds,
@@ -95,9 +95,15 @@ export async function conversationRoutes(app: FastifyInstance) {
       .filter((conversation: { type: string }) => conversation.type === "GROUP")
       .map((conversation: { id: string }) => conversation.id);
     const unread = await unreadCountsFor(session.sub, groupIds);
+    const readCursors = await readCursorsFor(groupIds);
     return {
       conversations: visible.map((conversation: any) =>
-        serializeConversation(conversation, session.sub, unread.get(conversation.id) ?? 0),
+        serializeConversation(
+          conversation,
+          session.sub,
+          unread.get(conversation.id) ?? 0,
+          readCursors.get(conversation.id),
+        ),
       ),
     };
   });
@@ -835,30 +841,52 @@ export function serializeConversation(
     id: string;
     type: "DIRECT" | "GROUP";
     title?: string | null;
+    createdAt?: Date;
     updatedAt: Date;
     members: {
       userId: string;
       role?: "ADMIN" | "MEMBER";
-      user: { id: string; username: string; displayName: string | null; avatarUrl: string | null };
+      groupReadBlobId?: string | null;
+      user: {
+        id: string;
+        username: string;
+        displayName: string | null;
+        avatarUrl: string | null;
+        avatarConfig?: unknown;
+        greetingText?: string | null;
+        greetingAnimation?: string | null;
+      };
     }[];
     messages?: { createdAt: Date }[];
   },
   userId: string,
   unreadCount = 0,
+  readCursors?: ReadonlyMap<string, { blobId: string; createdAt: string }>,
 ) {
   const peer = conversation.members.find((member) => member.userId !== userId)?.user;
   return {
     id: conversation.id,
     type: conversation.type,
     title: conversation.title ?? null,
+    ...(conversation.createdAt ? { createdAt: conversation.createdAt.toISOString() } : {}),
     memberUserIds: conversation.members.map((member) => member.userId).sort(),
     members: conversation.members
-      .map((member) => ({
+      .map((member) => {
+        const profile = publicUser(member.user);
+        return {
         userId: member.userId,
-        username: member.user.username,
-        displayName: member.user.displayName,
+        username: profile.username,
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+        avatarConfig: profile.avatarConfig,
+        greetingText: profile.greetingText,
+        greetingAnimation: profile.greetingAnimation,
         role: member.role ?? "MEMBER",
-      }))
+        ...(conversation.type === "GROUP"
+          ? { readCursor: readCursors?.get(member.userId) ?? null }
+          : {}),
+        };
+      })
       .sort((left, right) => left.username.localeCompare(right.username)),
     updatedAt: conversation.updatedAt.toISOString(),
     peer: peer ? publicUser(peer) : null,

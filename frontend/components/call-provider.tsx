@@ -17,6 +17,7 @@ import {
   Phone,
   PhoneOff,
 } from "lucide-react";
+import { PersonAvatar } from "@/components/avatar/person-avatar";
 import { api, type PublicUser, wsUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
@@ -629,12 +630,6 @@ function CallOverlay({
     : call.phase === "active"
       ? "Connected"
       : "Connecting…";
-  const initials = (call.peer.displayName ?? call.peer.username)
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-
   return (
     <section
       role="dialog"
@@ -671,9 +666,7 @@ function CallOverlay({
         )}
         {call.mode === "audio" || !remoteStream?.getVideoTracks().some((track) => track.readyState === "live") ? (
           <div className="flex flex-col items-center gap-4 text-center">
-            <div className="flex size-28 items-center justify-center rounded-full border border-white/15 bg-white/10 text-3xl font-semibold text-white/85 shadow-[0_0_80px_rgba(216,178,110,0.12)]">
-              {initials}
-            </div>
+            <PersonAvatar person={call.peer} size={112} />
             <p className="text-sm text-white/55">
               {incoming ? "Answer to connect" : connectingLabel}
             </p>

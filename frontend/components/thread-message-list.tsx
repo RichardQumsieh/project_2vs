@@ -11,13 +11,16 @@ import { EncryptedVoiceNote } from "@/components/encrypted-voice-note";
 import { LinkSafetyText } from "@/components/link-safety-text";
 import { CallLogBlock } from "@/components/call-log";
 import { ReplyQuoteBlock } from "@/components/reply-quote";
+import { PersonAvatar } from "@/components/avatar/person-avatar";
 import { parseChatPayload } from "@/lib/chat-payload";
 import type { LocalMessage } from "@/lib/crypto/types";
+import type { PublicUser } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/locale";
 
 type ThreadMessageListProps = {
   messages: readonly LocalMessage[];
   conversationId: string;
+  peer?: PublicUser | null;
   replySelectMode: boolean;
   selectedReplyIds: readonly string[];
   confirmDeleteId: string | null;
@@ -32,6 +35,7 @@ type ThreadMessageListProps = {
 export const ThreadMessageList = memo(function ThreadMessageList({
   messages,
   conversationId,
+  peer = null,
   replySelectMode,
   selectedReplyIds,
   confirmDeleteId,
@@ -45,9 +49,13 @@ export const ThreadMessageList = memo(function ThreadMessageList({
   const selected = useMemo(() => new Set(selectedReplyIds), [selectedReplyIds]);
   return (
     <>
-      {messages.map((message) => (
+      {messages.map((message, index) => {
+        const previous = messages[index - 1];
+        const showPeer = Boolean(peer) && !message.fromMe && (!previous || previous.fromMe);
+        return (
+        <div key={message.id} className={`flex w-full items-end gap-2 ${message.fromMe ? "justify-end" : ""}`}>
+          {showPeer ? <PersonAvatar person={peer} size={28} /> : !message.fromMe ? <span className="w-7 shrink-0" aria-hidden="true" /> : null}
         <MessageRow
-          key={message.id}
           message={message}
           conversationId={conversationId}
           replySelectMode={replySelectMode}
@@ -60,7 +68,9 @@ export const ThreadMessageList = memo(function ThreadMessageList({
           onConfirmDelete={onConfirmDelete}
           onCancelDelete={onCancelDelete}
         />
-      ))}
+        </div>
+        );
+      })}
     </>
   );
 });
@@ -124,6 +134,10 @@ const MessageRow = memo(function MessageRow({
         <ReplyQuoteBlock payload={payload} fromMe={message.fromMe} />
       ) : payload.type === "call" ? (
         <CallLogBlock payload={payload} />
+      ) : payload.type === "system" ? (
+        <p>{payload.actor ? `${payload.actor}: ` : ""}{payload.event}</p>
+      ) : payload.type === "waiting" ? (
+        <p>Waiting for this message</p>
       ) : (
         <LinkSafetyText text={payload.text} />
       )}

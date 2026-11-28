@@ -43,7 +43,8 @@ import {
   type AccountArchiveMaterial,
   type AccountArchiveDriveBackup,
 } from "./crypto/account-archive";
-import { shouldFetchPairwiseWireHistory } from "./recovery-wire-sync";
+import { isWaitingPlaintext } from "./chat-payload";
+import { isGroupEnvelopeRejection, shouldFetchPairwiseWireHistory } from "./recovery-wire-sync";
 
 import {
   getLocalMessage,
@@ -471,7 +472,9 @@ export async function archiveGroupMessages(messages: LocalMessage[]) {
     const stored = (await listAllLocalMessages()).filter((message) => message.conversationId === conversationId);
     const pending = messages.filter((message) => message.conversationId === conversationId);
     try {
-      await archiveLocalMessages([...stored, ...pending]);
+      await archiveLocalMessages(
+        [...stored, ...pending].filter((message) => !isWaitingPlaintext(message.plaintext)),
+      );
       pendingGroupArchiveConversations.delete(conversationId);
     } catch (error) {
       pendingGroupArchiveConversations.add(conversationId);
@@ -568,33 +571,37 @@ export async function syncConversationRecoveryHistory(
 
       const savedCursor = await loadWireCursor(conversation.id);
       let after: { id: string } | undefined = savedCursor ? { id: savedCursor } : undefined;
-      while (true) {
-        const { messages } = await api.messages(
-          conversation.id,
-          activeDeviceId,
-          undefined,
-          !after,
-          after?.id,
-          100,
-        );
-        if (messages.length === 0) break;
-        await ingestWireMessages(messages, { strict: true });
-        const last = messages[messages.length - 1];
-        if (last) await saveWireCursor(conversation.id, last.id);
-        if (recoveryBackupError) {
-          throw new Error(
-            `Encrypted recovery backup failed: ${recoveryBackupError}`,
+      try {
+        while (true) {
+          const { messages } = await api.messages(
+            conversation.id,
+            activeDeviceId,
+            undefined,
+            !after,
+            after?.id,
+            100,
           );
+          if (messages.length === 0) break;
+          await ingestWireMessages(messages, { strict: true });
+          const last = messages[messages.length - 1];
+          if (last) await saveWireCursor(conversation.id, last.id);
+          if (recoveryBackupError) {
+            throw new Error(
+              `Encrypted recovery backup failed: ${recoveryBackupError}`,
+            );
+          }
+          messagesSynced += messages.length;
+          onProgress?.({
+            conversation: index + 1,
+            total: conversations.length,
+            messages: messagesSynced,
+          });
+          if (!last || messages.length < 100) break;
+          after = { id: last.id };
+          await new Promise((resolve) => setTimeout(resolve, 600));
         }
-        messagesSynced += messages.length;
-        onProgress?.({
-          conversation: index + 1,
-          total: conversations.length,
-          messages: messagesSynced,
-        });
-        if (!last || messages.length < 100) break;
-        after = { id: last.id };
-        await new Promise((resolve) => setTimeout(resolve, 600));
+      } catch (error) {
+        if (!isGroupEnvelopeRejection(error)) throw error;
       }
     }
     await syncLocalRecoveryRecords();

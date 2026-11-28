@@ -13,6 +13,7 @@ import {
   leaveGroupCall,
   type GroupCallRecord,
 } from "./group-call.js";
+import { relayGroupTyping } from "./group-typing.js";
 import { callSignalSchema } from "./schemas.js";
 
 type CallState = {
@@ -85,6 +86,9 @@ export async function relayCallSignal(
                 username: true,
                 displayName: true,
                 avatarUrl: true,
+                avatarConfig: true,
+                greetingText: true,
+                greetingAnimation: true,
               },
             },
           },
@@ -209,6 +213,9 @@ async function relayGroupCallSignal(userId: string, signal: GroupSignal) {
                 username: true,
                 displayName: true,
                 avatarUrl: true,
+                avatarConfig: true,
+                greetingText: true,
+                greetingAnimation: true,
               },
             },
           },
@@ -362,11 +369,19 @@ export function attachCallSignaling(
         typeof payload !== "object" ||
         payload === null ||
         !("type" in payload) ||
-        typeof payload.type !== "string" ||
-        !payload.type.startsWith("call:")
+        typeof payload.type !== "string"
       ) {
         return;
       }
+      if (payload.type === "typing") {
+        try {
+          await relayGroupTyping(userId, payload);
+        } catch {
+          // Typing is best-effort presence and must not affect calls.
+        }
+        return;
+      }
+      if (!payload.type.startsWith("call:")) return;
 
       try {
         await relayCallSignal(userId, payload);

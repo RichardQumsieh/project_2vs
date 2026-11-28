@@ -5,7 +5,7 @@
     "scheme": "sophia",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.sophia.messenger",
@@ -52,7 +52,7 @@
         {
           "android": {
             "minSdkVersion": 33,
-            "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**"
+            "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**\n-keep class expo.modules.gl.** { *; }\n-keep class expo.modules.speech.** { *; }"
           }
         }
       ],
@@ -66,7 +66,17 @@
         }
       ],
       "expo-video",
-      "expo-asset"
+      "expo-asset",
+      "expo-image",
+      "expo-sharing",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Sophia uses your photo library so you can send encrypted photos and videos.",
+          "savePhotosPermission": "Sophia can save media you choose to keep on this device.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
     ],
     "locales": {
       "en": "./locales/en.json",

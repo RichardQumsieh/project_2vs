@@ -35,6 +35,8 @@ import {
   prepareFileAttachment,
 } from "@/lib/prepare-chat-media";
 import type { EncryptedFileAttachment } from "@/lib/crypto/file-attachment";
+import { applyMention, memberLabel, mentionQuery, mentionSuggestions, type MentionMember } from "@/lib/group-presentation";
+import { sendGroupTyping } from "@/lib/group-typing-client";
 import { assertOutgoingLinksSafe } from "@/lib/url-safety";
 
 const COMPOSER_EMOJIS = [
@@ -49,12 +51,14 @@ export function GroupComposer({
   conversationId,
   joined,
   messages,
+  members = [],
   disabled,
   onSendPlaintext,
 }: {
   conversationId: string;
   joined: boolean;
   messages: readonly LocalMessage[];
+  members?: readonly (MentionMember & { userId?: string })[];
   disabled: boolean;
   onSendPlaintext: (plaintext: string) => Promise<void>;
 }) {
@@ -76,6 +80,7 @@ export function GroupComposer({
   const [preparingFile, setPreparingFile] = useState(false);
   const [replySelectMode, setReplySelectMode] = useState(false);
   const [selectedReplyIds, setSelectedReplyIds] = useState<string[]>([]);
+  const [caret, setCaret] = useState(0);
   const composerInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -240,6 +245,9 @@ export function GroupComposer({
             id: message.logicalMessageId ?? message.id,
             preview: messagePreviewText(message.plaintext),
             fromMe: message.fromMe,
+            sender: message.fromMe
+              ? undefined
+              : memberLabel(members.find((member) => member.userId === message.senderUserId), "Member"),
           }));
         if (!refs.length) throw new Error("Select at least one message to reply to.");
         plaintext = encodeReplyPayload({ refs, body: caption });
@@ -450,6 +458,35 @@ export function GroupComposer({
         </div>
       ) : null}
 
+      {(() => {
+        const query = mentionQuery(draft, caret);
+        const matches = query ? mentionSuggestions(members, query.query) : [];
+        if (!query || matches.length === 0) return null;
+        return (
+          <ul className="mb-2 overflow-hidden rounded-xl border border-white/10 bg-[#12151c]" aria-label="Mention a member">
+            {matches.map((member) => {
+              const label = member.displayName?.trim() || member.username;
+              return (
+                <li key={member.username}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-white/85 hover:bg-white/10"
+                    onClick={() => {
+                      const next = applyMention(draft, query.start, caret, member.username);
+                      setDraft(next.text);
+                      setCaret(next.caret);
+                    }}
+                  >
+                    <span>{label}</span>
+                    <span className="text-xs text-white/45">@{member.username}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        );
+      })()}
+
       <form className="flex items-end gap-2" onSubmit={(event) => void submit(event)}>
         <Button
           type="button"
@@ -512,7 +549,12 @@ export function GroupComposer({
           }
           value={draft}
           disabled={!joined || sending}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setCaret(event.target.selectionStart ?? event.target.value.length);
+            if (joined && event.target.value.trim()) sendGroupTyping(conversationId);
+          }}
+          onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? draft.length)}
           maxLength={16000}
           className="h-11 min-w-0 flex-1 rounded-2xl border-white/10 bg-white/[0.035]"
         />

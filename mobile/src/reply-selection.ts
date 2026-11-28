@@ -22,28 +22,32 @@ export function toggleReplyTarget(current: readonly string[], messageId: string,
 }
 
 export function quoteRefs(
-  messages: readonly Pick<LocalMessage, "id" | "logicalMessageId" | "plaintext" | "fromMe">[],
+  messages: readonly Pick<LocalMessage, "id" | "logicalMessageId" | "plaintext" | "fromMe" | "senderUserId">[],
   ids: readonly string[],
+  senderName?: (message: Pick<LocalMessage, "fromMe" | "senderUserId">) => string | undefined,
 ): ReplyChatPayload["refs"] {
   return ids.slice(0, maxReplyRefs).flatMap((id) => {
     const message = messages.find((item) => item.id === id);
     if (!message) return [];
     const preview = messagePreviewText(message.plaintext).slice(0, 280);
     if (!preview) return [];
+    const sender = senderName?.(message);
     return [{
       id: message.logicalMessageId ?? message.id,
       preview,
       fromMe: Boolean(message.fromMe),
+      ...(sender ? { sender } : {}),
     }];
   });
 }
 
 export function encodeMultiQuote(
-  messages: readonly Pick<LocalMessage, "id" | "logicalMessageId" | "plaintext" | "fromMe">[],
+  messages: readonly Pick<LocalMessage, "id" | "logicalMessageId" | "plaintext" | "fromMe" | "senderUserId">[],
   ids: readonly string[],
   body: string,
+  senderName?: (message: Pick<LocalMessage, "fromMe" | "senderUserId">) => string | undefined,
 ) {
-  const refs = quoteRefs(messages, ids);
+  const refs = quoteRefs(messages, ids, senderName);
   if (!refs.length) throw new Error("Select at least one message to reply to.");
   const text = body.trim();
   if (!text) throw new Error("Write a reply before sending.");
