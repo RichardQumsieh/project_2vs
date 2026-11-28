@@ -1,4 +1,4 @@
-const { AndroidConfig, createRunOncePlugin, withAndroidManifest, withDangerousMod, withMainApplication } = require("@expo/config-plugins");
+const { AndroidConfig, createRunOncePlugin, withAndroidManifest, withAppBuildGradle, withDangerousMod, withMainApplication } = require("@expo/config-plugins");
 const fs = require("fs");
 const path = require("path");
 
@@ -12,7 +12,20 @@ const PERMISSIONS = [
   "android.permission.FOREGROUND_SERVICE_CAMERA",
 ];
 
-function googleServicesPath(projectRoot) {
+// Matches expo-notifications' Firebase Messaging artifact so the app module can compile
+// SophiaFirebaseMessagingService. The library declares it as implementation, which is not
+// visible to app sources.
+const FIREBASE_MESSAGING = "com.google.firebase:firebase-messaging:25.0.1";
+
+/**
+ * EAS file env vars expose GOOGLE_SERVICES_JSON as a filesystem path.
+ * Prefer that path when it exists; otherwise use mobile/google-services.json.
+ */
+function resolveGoogleServicesPath(projectRoot, env = process.env) {
+  const fromEnv = typeof env.GOOGLE_SERVICES_JSON === "string" ? env.GOOGLE_SERVICES_JSON.trim() : "";
+  if (fromEnv && fs.existsSync(fromEnv)) {
+    return path.resolve(fromEnv);
+  }
   return path.join(projectRoot, "google-services.json");
 }
 
@@ -30,7 +43,7 @@ function copyNative(config) {
         if (!file.endsWith(".kt")) continue;
         fs.copyFileSync(path.join(source, file), path.join(destination, file));
       }
-      if (fs.existsSync(googleServicesPath(next.modRequest.projectRoot))) {
+      if (fs.existsSync(resolveGoogleServicesPath(next.modRequest.projectRoot))) {
         const firebase = path.join(next.modRequest.projectRoot, "native/call-firebase/SophiaFirebaseMessagingService.kt");
         if (fs.existsSync(firebase)) fs.copyFileSync(firebase, path.join(destination, "SophiaFirebaseMessagingService.kt"));
       }
@@ -82,7 +95,7 @@ function manifest(config) {
         },
       });
     }
-    if (fs.existsSync(googleServicesPath(path.resolve(__dirname, "..")))) {
+    if (fs.existsSync(resolveGoogleServicesPath(next.modRequest.projectRoot))) {
       application.service = application.service || [];
       if (!application.service.some((item) => item.$?.["android:name"] === ".call.SophiaFirebaseMessagingService")) {
         application.service.push({
@@ -107,16 +120,38 @@ function manifest(config) {
   });
 }
 
+function withFirebaseMessagingDependency(config) {
+  return withAppBuildGradle(config, (next) => {
+    if (!fs.existsSync(resolveGoogleServicesPath(next.modRequest.projectRoot))) return next;
+    if (next.modResults.contents.includes("com.google.firebase:firebase-messaging")) return next;
+    if (next.modResults.language !== "groovy") {
+      throw new Error("Sophia call plugin could not add Firebase messaging because app/build.gradle is not Groovy.");
+    }
+    if (!/dependencies\s*\{/.test(next.modResults.contents)) {
+      throw new Error("Sophia call plugin could not find the app dependencies block.");
+    }
+    next.modResults.contents = next.modResults.contents.replace(
+      /dependencies\s*\{/,
+      `dependencies {\n    implementation "${FIREBASE_MESSAGING}"`,
+    );
+    return next;
+  });
+}
+
 function withCallNotifications(config) {
   config = AndroidConfig.Permissions.withPermissions(config, PERMISSIONS);
   config = manifest(config);
   config = copyNative(config);
   config = registerPackage(config);
-  if (fs.existsSync(googleServicesPath(path.resolve(__dirname, "..")))) {
+  config = withFirebaseMessagingDependency(config);
+  const googleServicesFile = resolveGoogleServicesPath(path.resolve(__dirname, ".."));
+  if (fs.existsSync(googleServicesFile)) {
     config.android = config.android || {};
-    config.android.googleServicesFile = "./google-services.json";
+    config.android.googleServicesFile = googleServicesFile;
   }
   return config;
 }
 
-module.exports = createRunOncePlugin(withCallNotifications, "sophia-call-notifications");
+const plugin = createRunOncePlugin(withCallNotifications, "sophia-call-notifications");
+plugin.resolveGoogleServicesPath = resolveGoogleServicesPath;
+module.exports = plugin;

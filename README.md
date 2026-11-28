@@ -164,7 +164,7 @@ The adapter does not send a training opt-in, and it does not write prompt bodies
 
 Theme generation uses the same `SOPHIA_MODEL_API_KEY`, `SOPHIA_MODEL_BASE_URL`, and `SOPHIA_MODEL_NAME`. Without a key, the server returns a deterministic palette and does not call the model. See [docs/themes.md](docs/themes.md).
 
-Message alerts and incoming-call wake use `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` for web push. Android push needs a Firebase `google-services.json` and an FCM V1 key uploaded to EAS. Neither file is committed. See [docs/notifications.md](docs/notifications.md) and [docs/incoming-calls.md](docs/incoming-calls.md).
+Message alerts and incoming-call wake use `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` for web push. Android push needs a Firebase `google-services.json` (EAS file variable `GOOGLE_SERVICES_JSON` on preview and production, or `mobile/google-services.json` locally) and an FCM V1 key uploaded to EAS. Neither file is committed. See [docs/notifications.md](docs/notifications.md) and [docs/incoming-calls.md](docs/incoming-calls.md).
 
 Settings → Activity records sign-in, this consent, settings changes from these controls, approved email sends, approved email drafts, approved calendar reschedules, and approved calendar deletes. It does not record every button, message bodies, recipients, or tokens. The account owner can export JSON or delete the whole log. Individual rows are not editable.
 
