@@ -241,6 +241,41 @@ export const api = {
     }),
   callIceServers: () =>
     request<{ iceServers: { urls?: string | string[]; username?: string; credential?: string }[] }>("/calls/ice-servers"),
+  generateTheme: (body: { prompt: string; tweak?: string; previous?: unknown }, cookie?: string | null) =>
+    request<{ theme: unknown; adjustments: { path: string }[]; source: "model" | "mock" }>("/themes/generate", { method: "POST", body: JSON.stringify(body) }, cookie),
+  saveTheme: (body: { prompt: string; theme: unknown }, cookie?: string | null) =>
+    request<Record<string, unknown>>("/themes", { method: "POST", body: JSON.stringify(body) }, cookie),
+  myThemes: (cookie?: string | null) => request<{ themes: Record<string, unknown>[] }>("/themes", {}, cookie),
+  themeGallery: (query: string, cookie?: string | null) =>
+    request<{ themes: Record<string, unknown>[] }>(`/themes/gallery${query ? `?q=${encodeURIComponent(query)}` : ""}`, {}, cookie),
+  publishTheme: (id: string, published: boolean, cookie?: string | null) =>
+    request<Record<string, unknown>>(`/themes/${id}`, { method: "PATCH", body: JSON.stringify({ published }) }, cookie),
+  installTheme: (id: string, cookie?: string | null) =>
+    request<Record<string, unknown>>(`/themes/${id}/install`, { method: "POST" }, cookie),
+  likeTheme: (id: string, cookie?: string | null) =>
+    request<{ liked: boolean }>(`/themes/${id}/like`, { method: "POST" }, cookie),
+  reportTheme: (id: string, cookie?: string | null) =>
+    request<{ ok: true }>(`/themes/${id}/report`, { method: "POST", body: JSON.stringify({ reason: "other" }) }, cookie),
+  appliedThemes: (cookie?: string | null) =>
+    request<{ app: { wallpaperOnly: boolean; theme: Record<string, unknown> } | null; chats: { conversationId: string; wallpaperOnly: boolean; theme: Record<string, unknown> }[] }>("/themes/applied", {}, cookie),
+  applyTheme: (body: { themeId: string; scope: "app" | "chat"; conversationId?: string; wallpaperOnly?: boolean }, cookie?: string | null) =>
+    request<{ ok: true }>("/themes/applied", { method: "PUT", body: JSON.stringify(body) }, cookie),
+  notificationSettings: (cookie?: string | null) =>
+    request<{ hidePreviews: boolean; badgeCount: number }>("/notifications/settings", {}, cookie),
+  saveNotificationSettings: (hidePreviews: boolean, cookie?: string | null) =>
+    request<{ hidePreviews: boolean }>("/notifications/settings", { method: "PUT", body: JSON.stringify({ hidePreviews }) }, cookie),
+  registerPushDevice: (body: { platform: "ios" | "android" | "web"; token: string }, cookie?: string | null) =>
+    request<{ id: string }>("/notifications/devices", { method: "POST", body: JSON.stringify(body) }, cookie),
+  unregisterPushDevice: (token: string, cookie?: string | null) =>
+    request<{ ok: true }>("/notifications/devices", { method: "DELETE", body: JSON.stringify({ token }) }, cookie),
+  setNotificationPresence: (body: { conversationId: string | null; foreground: boolean }, cookie?: string | null) =>
+    request<{ ok: true }>("/notifications/presence", { method: "PUT", body: JSON.stringify(body) }, cookie),
+  clearNotificationBadge: (cookie?: string | null) =>
+    request<{ badgeCount: number }>("/notifications/badge/clear", { method: "POST" }, cookie),
+  setConversationMute: (conversationId: string, muted: boolean, cookie?: string | null) =>
+    request<{ muted: boolean }>(`/notifications/mutes/${conversationId}`, { method: "PUT", body: JSON.stringify({ muted, mutedUntil: null }) }, cookie),
+  callInvite: (callId: string, cookie?: string | null) =>
+    request<{ invite: { callId: string; conversationId: string; senderId: string; mode: "audio" | "video"; scope: "direct" | "group"; offer?: { type: "offer"; sdp: string } } }>(`/calls/${callId}/invite`, {}, cookie),
 };
 
 export function wsUrl() {

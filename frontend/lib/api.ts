@@ -1606,6 +1606,93 @@ export const api = {
         syncedAt: string;
       }[];
     }>("/integrations/collab/channels"),
+
+  generateTheme: (body: { prompt: string; tweak?: string; previous?: unknown }) =>
+    request<{ theme: unknown; adjustments: { path: string; from: string; to: string }[]; source: "model" | "mock" }>(
+      "/themes/generate",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  saveTheme: (body: { prompt: string; theme: unknown }) =>
+    request<Record<string, unknown>>("/themes", { method: "POST", body: JSON.stringify(body) }),
+
+  myThemes: () => request<{ themes: Record<string, unknown>[] }>("/themes"),
+
+  deleteTheme: (id: string) =>
+    request<{ ok: true }>(`/themes/${id}`, { method: "DELETE" }),
+
+  publishTheme: (id: string, published: boolean) =>
+    request<Record<string, unknown>>(`/themes/${id}`, { method: "PATCH", body: JSON.stringify({ published }) }),
+
+  themeGallery: (query?: { q?: string; cursor?: string }) => {
+    const params = new URLSearchParams();
+    if (query?.q) params.set("q", query.q);
+    if (query?.cursor) params.set("cursor", query.cursor);
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return request<{ themes: Record<string, unknown>[]; nextCursor: string | null }>(`/themes/gallery${suffix}`);
+  },
+
+  likeTheme: (id: string) =>
+    request<{ liked: boolean; likeCount: number }>(`/themes/${id}/like`, { method: "POST" }),
+
+  unlikeTheme: (id: string) =>
+    request<{ liked: boolean; likeCount: number }>(`/themes/${id}/like`, { method: "DELETE" }),
+
+  reportTheme: (id: string, reason: "spam" | "offensive" | "copyright" | "other") =>
+    request<{ ok: true; flagged: boolean }>(`/themes/${id}/report`, { method: "POST", body: JSON.stringify({ reason }) }),
+
+  installTheme: (id: string) =>
+    request<Record<string, unknown>>(`/themes/${id}/install`, { method: "POST" }),
+
+  appliedThemes: () =>
+    request<{
+      app: { wallpaperOnly: boolean; theme: Record<string, unknown> } | null;
+      chats: { conversationId: string; wallpaperOnly: boolean; theme: Record<string, unknown> }[];
+    }>("/themes/applied"),
+
+  applyTheme: (body: { themeId: string; scope: "app" | "chat"; conversationId?: string; wallpaperOnly?: boolean }) =>
+    request<{ ok: true }>("/themes/applied", { method: "PUT", body: JSON.stringify(body) }),
+
+  clearAppliedTheme: (body: { scope: "app" | "chat"; conversationId?: string }) =>
+    request<{ ok: true }>("/themes/applied", { method: "DELETE", body: JSON.stringify(body) }),
+
+  notificationSettings: () =>
+    request<{ hidePreviews: boolean; badgeCount: number; devices: number; webPushConfigured: boolean; vapidPublicKey: string | null }>(
+      "/notifications/settings",
+    ),
+
+  saveNotificationSettings: (hidePreviews: boolean) =>
+    request<{ hidePreviews: boolean }>("/notifications/settings", { method: "PUT", body: JSON.stringify({ hidePreviews }) }),
+
+  registerPushDevice: (body: { platform: "ios" | "android" | "web"; token: string; keys?: { endpoint: string; p256dh: string; auth: string } }) =>
+    request<{ id: string; platform: string }>("/notifications/devices", { method: "POST", body: JSON.stringify(body) }),
+
+  unregisterPushDevice: (token: string) =>
+    request<{ ok: true }>("/notifications/devices", { method: "DELETE", body: JSON.stringify({ token }) }),
+
+  setNotificationPresence: (body: { conversationId: string | null; foreground: boolean }) =>
+    request<{ ok: true }>("/notifications/presence", { method: "PUT", body: JSON.stringify(body) }),
+
+  clearNotificationBadge: () =>
+    request<{ badgeCount: number }>("/notifications/badge/clear", { method: "POST" }),
+
+  setConversationMute: (conversationId: string, body: { muted: boolean; mutedUntil?: string | null }) =>
+    request<{ muted: boolean; mutedUntil: string | null }>(`/notifications/mutes/${conversationId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  callInvite: (callId: string) =>
+    request<{
+      invite: {
+        callId: string;
+        conversationId: string;
+        senderId: string;
+        mode: "audio" | "video";
+        scope: "direct" | "group";
+        offer?: { type: "offer"; sdp: string };
+      };
+    }>(`/calls/${callId}/invite`),
 };
 
 export function wsUrl() {

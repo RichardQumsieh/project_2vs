@@ -3,7 +3,7 @@ import { requestRecordingPermissionsAsync } from "expo-audio";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as VideoThumbnails from "expo-video-thumbnails";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -60,6 +60,7 @@ type Props = {
   onToggleReply: (messageId: string) => void;
   onSelectingChange: (selecting: boolean) => void;
   onSendPlaintext: (plaintext: string) => Promise<void>;
+  seed?: string | null;
   members?: readonly (MentionMember & { userId: string })[];
   conversationType?: "DIRECT" | "GROUP";
 };
@@ -76,11 +77,15 @@ export function NativeMediaComposer({
   onToggleReply,
   onSelectingChange,
   onSendPlaintext,
+  seed,
   members = [],
   conversationType = "DIRECT",
 }: Props) {
   const [draft, setDraft] = useState("");
   const [caret, setCaret] = useState(0);
+  useEffect(() => {
+    if (seed) setDraft(seed);
+  }, [seed]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);

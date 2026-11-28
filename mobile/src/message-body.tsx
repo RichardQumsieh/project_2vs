@@ -317,7 +317,19 @@ function ReplyView({ payload, fromMe }: { payload: ReplyChatPayload; fromMe: boo
   );
 }
 
-export function NativeMessageBody({ conversationId, plaintext, fromMe, onRetry }: { conversationId: string; plaintext: string; fromMe: boolean; onRetry?: () => void }) {
+export function NativeMessageBody({
+  conversationId,
+  plaintext,
+  fromMe,
+  onRetry,
+  color,
+}: {
+  conversationId: string;
+  plaintext: string;
+  fromMe: boolean;
+  onRetry?: () => void;
+  color?: string;
+}) {
   const colors = useColors();
   const payload = parseChatPayload(plaintext);
   if (payload.type === "image") return <EncryptedPhotoView conversationId={conversationId} payload={payload} fromMe={fromMe} />;
@@ -340,10 +352,11 @@ export function NativeMessageBody({ conversationId, plaintext, fromMe, onRetry }
       </View>
     );
   }
+const ink = color ?? (fromMe ? "#FFFFFF" : colors.ink);
   if (payload.type === "location") {
-    return <Text style={[styles.body, { color: fromMe ? "#FFFFFF" : colors.ink }]}>{payload.name?.trim() || "Shared location"}</Text>;
+    return <Text style={[styles.body, { color: ink }]}>{payload.name?.trim() || "Shared location"}</Text>;
   }
-  return <Text selectable style={[styles.body, { color: fromMe ? "#FFFFFF" : colors.ink }]}>{payload.text}</Text>;
+  return <Text selectable style={[styles.body, { color: ink }]}>{payload.text}</Text>;
 }
 
 const styles = StyleSheet.create({

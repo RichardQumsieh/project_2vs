@@ -11,6 +11,7 @@ import type { Conversation } from "./api";
 import { t } from "./i18n";
 import { clusterSpacing, type MessageCluster } from "./thread-rows";
 import { NativeMessageBody } from "./message-body";
+import { useBubbleStyle } from "./theme-provider";
 import { swipeIntent } from "./message-actions";
 import { useColors } from "./theme";
 
@@ -67,6 +68,7 @@ export function SwipeableMessage({
   onRetry,
 }: Props) {
   const colors = useColors();
+  const bubble = useBubbleStyle(message.fromMe);
   const tx = useSharedValue(0);
   const tripped = useRef(false);
   const rtl = I18nManager.isRTL;
@@ -138,7 +140,7 @@ export function SwipeableMessage({
         pointerEvents="none"
         style={[styles.reveal, rtl ? styles.revealEnd : styles.revealStart, { backgroundColor: "#B42318" }, leadingStyle]}
       >
-        <View style={styles.action}>
+<View style={styles.action}>
           <Ionicons name="trash" size={18} color="#FFFFFF" />
           <Text style={styles.actionText}>{t("delete")}</Text>
         </View>
@@ -183,14 +185,15 @@ export function SwipeableMessage({
             <View
               style={[
                 styles.bubble,
-                mine ? { backgroundColor: colors.mine } : { backgroundColor: colors.paper, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+                mine ? { backgroundColor: bubble?.backgroundColor ?? colors.mine } : { backgroundColor: bubble?.backgroundColor ?? colors.paper, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+                bubble ? { borderRadius: bubble.borderRadius } : null,
                 tail && mine && styles.tailMine,
                 tail && !mine && styles.tailPeer,
                 selected && { borderWidth: 2, borderColor: colors.lilac2 },
               ]}
             >
               {showSender && group ? <Text style={[styles.sender, { color }]}>{name}</Text> : null}
-              <NativeMessageBody conversationId={conversation.id} plaintext={message.plaintext} fromMe={mine} onRetry={onRetry} />
+              <NativeMessageBody conversationId={conversation.id} plaintext={message.plaintext} fromMe={mine} onRetry={onRetry} color={bubble?.color} />
               <View style={styles.meta}>
                 <Text style={[styles.time, { color: mine ? "#DDD5EB" : colors.faint }]}>{pending ? "…" : time}</Text>
                 {mine && !pending && !group ? <Ionicons name="checkmark-done" size={13} color="#DCD2ED" /> : null}

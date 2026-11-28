@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { setAudioModeAsync } from "expo-audio";
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   MediaStream,
   RTCIceCandidate,
@@ -14,6 +14,9 @@ import { encodeCallPayload } from "../../frontend/lib/chat-payload";
 import { api, openSignalingSocket, type Conversation } from "./api";
 import { deliverCallLog } from "./call-log-bridge";
 import { assertDtlsSrtp, shouldCreateGroupOffer } from "./call-media";
+import { dismissCallAlert, enterCallPictureInPicture, presentIncomingCall, presentOngoingCall, sophiaCall } from "./call-native";
+import { parseCallAction } from "./call-alert";
+import { rememberQuickReply } from "../../frontend/lib/notifications/reply-store";
 
 const maxGroupCallParticipants = 4;
 
@@ -106,6 +109,7 @@ export function CallProvider({ cookie, userId, children }: { cookie: string; use
   const [localUrl, setLocalUrl] = useState<string | null>(null);
   const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
   const [groupTiles, setGroupTiles] = useState<{ id: string; url: string }[]>([]);
+  const [minimized, setMinimized] = useState(false);
   const callRef = useRef<LiveCall | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const directRef = useRef<RTCPeerConnection | null>(null);
@@ -189,6 +193,8 @@ export function CallProvider({ cookie, userId, children }: { cookie: string; use
     setMuted(false);
     setCameraOn(true);
     try { inCallManager()?.stop(); } catch { /* native audio route is optional */ }
+    dismissCallAlert();
+    setMinimized(false);
     updateCall(null);
   }, [updateCall]);
 
@@ -663,10 +669,97 @@ export function CallProvider({ cookie, userId, children }: { cookie: string; use
     setCameraOn(next);
   }
 
+  useEffect(() => {
+    if (!call) return;
+    if (call.direction === "incoming" && call.phase === "ringing") {
+      void presentIncomingCall({
+        callId: call.callId,
+        conversationId: call.conversationId,
+        mode: call.mode,
+        scope: call.kind,
+        appState: AppState.currentState ?? "unknown",
+      });
+    }
+    if (call.phase === "active") presentOngoingCall(call.callId, call.conversationId);
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") return;
+      const current = callRef.current;
+      if (!current) return;
+      if (current.phase === "ringing" && current.direction === "incoming") {
+        void presentIncomingCall({
+          callId: current.callId,
+          conversationId: current.conversationId,
+          mode: current.mode,
+          scope: current.kind,
+          appState: state,
+        });
+      }
+      if (current.phase === "active" && current.mode === "video") enterCallPictureInPicture();
+    });
+    return () => sub.remove();
+  }, [call]);
+
+  useEffect(() => {
+    let stopped = false;
+    const apply = async () => {
+      const pending = parseCallAction(await sophiaCall()?.consumePendingAction());
+      if (stopped || !pending) return;
+      if (pending.action === "reply" && pending.reply && pending.conversationId) {
+        rememberQuickReply(pending.conversationId, pending.reply);
+        return;
+      }
+      if (pending.action === "mute") {
+        const tracks = localStreamRef.current?.getAudioTracks() ?? [];
+        const enabled = tracks.some((track) => track.enabled);
+        tracks.forEach((track) => { track.enabled = !enabled; });
+        setMuted(enabled);
+        return;
+      }
+      if (!callRef.current && pending.callId && (pending.action === "accept" || pending.action === "decline" || pending.action === "hangup")) {
+        try {
+          const loaded = await api.callInvite(pending.callId, cookie);
+          const invite = loaded.invite;
+          if (invite.offer?.sdp) incomingOfferRef.current = { type: "offer", sdp: invite.offer.sdp };
+          updateCall({
+            callId: invite.callId,
+            conversationId: invite.conversationId,
+            mode: invite.mode,
+            direction: "incoming",
+            phase: "ringing",
+            kind: invite.scope === "group" ? "group" : "direct",
+            title: "Incoming call",
+            peerId: invite.senderId,
+            participants: [{ id: invite.senderId, username: "call", displayName: null }],
+          });
+        } catch {
+          return;
+        }
+      }
+      if (pending.action === "accept") void accept();
+      if (pending.action === "decline" || pending.action === "hangup") {
+        if (pending.action === "hangup") end();
+        else decline();
+      }
+    };
+    void apply();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void apply();
+    });
+    return () => {
+      stopped = true;
+      sub.remove();
+    };
+  }, [accept, cookie, decline, end, updateCall]);
+
   return (
     <CallContext.Provider value={{ startCall }}>
       {children}
-      <Modal visible={Boolean(call)} animationType="slide" presentationStyle="fullScreen" onRequestClose={end}>
+      {call && minimized && call.phase === "active" ? (
+        <Pressable accessibilityRole="button" accessibilityLabel="Return to call" onPress={() => setMinimized(false)} style={styles.mini}>
+          {call.mode === "video" && remoteUrl ? <RTCView streamURL={remoteUrl} style={styles.miniVideo} objectFit="cover" /> : <Text style={styles.miniText}>On a call</Text>}
+        </Pressable>
+      ) : null}
+      <Modal visible={Boolean(call) && !minimized} animationType="slide" presentationStyle="fullScreen" onRequestClose={end}>
         {call ? (
           <View style={styles.root} accessibilityViewIsModal>
             <Text style={styles.title}>{call.title}</Text>
@@ -693,6 +786,7 @@ export function CallProvider({ cookie, userId, children }: { cookie: string; use
                   <Round icon={speaker ? "volume-high" : "volume-medium"} label={speaker ? "Speaker on" : "Speaker"} onPress={toggleSpeaker} />
                   {call.mode === "video" ? <Round icon="camera-reverse" label="Flip camera" onPress={flipCamera} /> : null}
                   {call.mode === "video" ? <Round icon={cameraOn ? "videocam" : "videocam-off"} label={cameraOn ? "Camera on" : "Camera off"} onPress={toggleCamera} /> : null}
+                  <Round icon="contract" label="Minimize" onPress={() => setMinimized(true)} />
                   <Round icon="call" label="End" danger onPress={end} />
                 </>
               )}
@@ -725,4 +819,7 @@ const styles = StyleSheet.create({
   round: { width: 62, height: 62, borderRadius: 31, backgroundColor: "#2A3142", alignItems: "center", justifyContent: "center" },
   danger: { backgroundColor: "#B42318" },
   error: { position: "absolute", left: 16, right: 16, bottom: 24, color: "#F8D0D0", textAlign: "center" },
+  mini: { position: "absolute", right: 16, bottom: 96, width: 148, height: 96, borderRadius: 18, overflow: "hidden", backgroundColor: "#1A1D27", alignItems: "center", justifyContent: "center" },
+  miniVideo: { width: "100%", height: "100%" },
+  miniText: { color: "#FFFFFF" },
 });

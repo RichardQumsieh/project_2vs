@@ -17,6 +17,7 @@ import {
   type GroupGateFailure,
   type GroupMlsBlobKind,
 } from "../group-e2ee.js";
+import { queueMessagePush } from "../notifications-dispatch.js";
 import {
   addGroupMemberSchema,
   createGroupSchema,
@@ -346,6 +347,15 @@ export async function groupRoutes(app: FastifyInstance) {
       throw error;
     }
     await notifyMembers(conversation.members.map((member) => member.userId), id, parsed.data.kind);
+    if (parsed.data.kind === "application") {
+      void queueMessagePush({
+        conversationId: id,
+        senderUserId: session.sub,
+        recipientUserIds: conversation.members
+          .map((member) => member.userId)
+          .filter((userId) => userId !== session.sub),
+      });
+    }
     return serializeBlob(created);
   });
 

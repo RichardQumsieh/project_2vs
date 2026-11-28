@@ -34,6 +34,8 @@ import { dailyBriefRoutes, startDailyBriefScheduler } from "./routes/daily-brief
 import { billingWebhookRoutes } from "./routes/billing-webhook.js";
 import { workspaceRoutes } from "./routes/workspaces.js";
 import { waitlistRoutes } from "./routes/waitlist.js";
+import { themeRoutes } from "./routes/themes.js";
+import { notificationRoutes } from "./routes/notifications.js";
 import { registerRealtime } from "./ws.js";
 
 const app = Fastify({
@@ -145,6 +147,8 @@ await app.register(dailyBriefRoutes);
 await app.register(workspaceRoutes);
 await app.register(waitlistRoutes);
 await app.register(billingWebhookRoutes);
+await app.register(themeRoutes);
+await app.register(notificationRoutes);
 startDailyBriefScheduler((fields) => {
   app.log.info(fields, "daily brief scheduler");
 });

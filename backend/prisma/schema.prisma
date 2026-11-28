@@ -156,6 +156,14 @@ model User {
   invitesCreated       WorkspaceInvite[] @relation("InviteCreator")
   invitesRedeemed      WorkspaceInvite[] @relation("InviteRedeemer")
   sophiaAgentPreference SophiaAgentPreference?
+  themes                  ThemeRecord[]
+  themeLikes              ThemeLike[]
+  themeReports            ThemeReport[]
+  themeApplications       ThemeApplication[]
+  pushDevices             PushDevice[]
+  notificationPreference  NotificationPreference?
+  conversationMutes       ConversationMute[]
+  notificationState       NotificationState?
 
   @@index([interests], type: Gin)
 }
@@ -821,6 +829,114 @@ model BillingWebhookEvent {
   receivedAt DateTime @default(now())
 
   @@index([provider, receivedAt])
+}
+
+/// AI theme tokens. Wallpaper is a motif plus hex colors, never an image or logo.
+model ThemeRecord {
+  id            String   @id @default(uuid())
+  ownerUserId   String
+  name          String
+  emoji         String
+  prompt        String
+  tokens        Json
+  published     Boolean  @default(false)
+  flagged       Boolean  @default(false)
+  likeCount     Int      @default(0)
+  sourceThemeId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  owner        User               @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  likes        ThemeLike[]
+  reports      ThemeReport[]
+  applications ThemeApplication[]
+
+  @@index([ownerUserId, updatedAt])
+  @@index([published, flagged, likeCount])
+}
+
+model ThemeLike {
+  themeId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  theme ThemeRecord @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([themeId, userId])
+}
+
+model ThemeReport {
+  id        String   @id @default(uuid())
+  themeId   String
+  userId    String
+  reason    String
+  createdAt DateTime @default(now())
+
+  theme ThemeRecord @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([themeId, userId])
+}
+
+/// scope is "app" or "chat". conversationId is empty for the app-wide theme.
+model ThemeApplication {
+  userId         String
+  scope          String
+  conversationId String   @default("")
+  themeId        String
+  wallpaperOnly  Boolean  @default(false)
+  updatedAt      DateTime @updatedAt
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  theme ThemeRecord @relation(fields: [themeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, scope, conversationId])
+  @@index([themeId])
+}
+
+model PushDevice {
+  id         String    @id @default(uuid())
+  userId     String
+  platform   String
+  token      String
+  keys       Json?
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])
+  @@index([userId, revokedAt])
+}
+
+model NotificationPreference {
+  userId       String   @id
+  hidePreviews Boolean  @default(true)
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ConversationMute {
+  userId         String
+  conversationId String
+  mutedUntil     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, conversationId])
+}
+
+model NotificationState {
+  userId             String    @id
+  badgeCount         Int       @default(0)
+  openConversationId String?
+  openUntil          DateTime?
+  foregroundUntil    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 /// Public "Join as design partner" waitlist. Email only, no account required.

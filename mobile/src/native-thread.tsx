@@ -54,10 +54,13 @@ import {
 import { api, openSignalingSocket, setApiCookie, type Conversation } from "./api";
 import { asActivityState, currentLockDelayMs, createLockController, externalActivityActive, subscribeExternalActivity } from "./app-lock";
 import { registerCallLogSender, takeQueuedCallLogs } from "./call-log-bridge";
+import { consumeQuickReply } from "../../frontend/lib/notifications/reply-store";
 import { appLocale, t } from "./i18n";
 import { sweepDecryptedCache, wipeDecryptedCache } from "./media-cache";
 import { GroupInfoScreen } from "./group-info";
 import { NativeMediaComposer } from "./media-composer";
+import { screenColors } from "./theme-surface";
+import { useMobileTheme } from "./theme-provider";
 import { deleteScopes, type DeleteScope } from "./message-actions";
 import { encodeSystemPayload, encodeWaitingPayload, isSystemPlaintext, isWaitingPlaintext, messagePreviewText } from "../../frontend/lib/chat-payload";
 import { addReplyTarget, removeReplyTarget, toggleReplyTarget } from "./reply-selection";
@@ -108,6 +111,9 @@ function mergeMessages(current: LocalMessage[], next: LocalMessage[]) {
 
 export function NativeThread({ conversation, cookie }: Props) {
   const colors = useColors();
+  const mobileTheme = useMobileTheme();
+  const screen = screenColors(mobileTheme.theme, mobileTheme.scheme);
+  const [replySeed, setReplySeed] = useState<string | null>(null);
   const initiallyOpen = isUnlocked();
   const hasSession = useRef(initiallyOpen);
   const [locked, setLocked] = useState(!initiallyOpen);
@@ -640,6 +646,12 @@ export function NativeThread({ conversation, cookie }: Props) {
 
   useEffect(() => {
     if (locked || !isUnlocked()) return;
+    const text = consumeQuickReply(conversation.id);
+    if (text) setReplySeed(text);
+  }, [locked, conversation.id]);
+
+  useEffect(() => {
+    if (locked || !isUnlocked()) return;
     const unregister = registerCallLogSender(async (conversationId, plaintext) => {
       if (conversationId !== conversation.id) return;
       await sendPlaintext(plaintext);
@@ -773,13 +785,13 @@ export function NativeThread({ conversation, cookie }: Props) {
     </View>
   );
 
-  if (locked && !hasSession.current) return unlockView;
+if (locked && !hasSession.current) return unlockView;
 
   const deleteEveryone = deleteTarget
     ? deleteScopes({ fromMe: Boolean(deleteTarget.fromMe), pending: pendingSends.some((send) => send.id === deleteTarget.id) }).includes("everyone")
     : false;
 
-  return <View style={[styles.root, { backgroundColor: colors.bg }]}>
+  return <View style={[styles.root, { backgroundColor: screen?.backgroundColor ?? colors.bg }]}>
     {!!recoveryCode && <View style={styles.recoveryCard}>
       <View style={styles.recoveryTitleRow}><Ionicons name="key-outline" size={17} color={C.amber} /><Text style={styles.recoveryTitle}>Save your history recovery code</Text></View>
       <Text style={styles.recoveryCopy}>Keep this code somewhere private. It can restore your encrypted chat history if you forget your messaging vault password. Press and hold the code to copy it.</Text>
@@ -898,6 +910,7 @@ export function NativeThread({ conversation, cookie }: Props) {
         onToggleReply={(messageId) => setReplyIds((current) => toggleReplyTarget(current, messageId))}
         onSelectingChange={setSelectingReplies}
         onSendPlaintext={sendPlaintext}
+        seed={replySeed}
         members={conversation.members}
         conversationType={conversation.type}
       />

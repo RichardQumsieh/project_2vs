@@ -927,6 +927,19 @@ main.grid > aside {
   color: #f8fafc !important;
 }
 
+html[data-generated-theme="on"] .thread-message.ms-auto {
+  background: var(--bubble-mine) !important;
+  color: var(--bubble-mine-text) !important;
+  border-radius: var(--theme-radius, 1.35rem) !important;
+  font-weight: var(--theme-font-weight, 500);
+}
+
+html[data-generated-theme="on"] .thread-message:not(.ms-auto) {
+  background: var(--bubble-theirs) !important;
+  color: var(--bubble-theirs-text) !important;
+  border-radius: var(--theme-radius, 1.35rem) !important;
+}
+
 @keyframes companion-pulse {
   0% {
     opacity: .7;

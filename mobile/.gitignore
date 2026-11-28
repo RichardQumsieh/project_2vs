@@ -2,3 +2,5 @@
 .expo-chat-export/
 web-build/
 eas-build/
+android/
+ios/

@@ -37,6 +37,9 @@ id_ed25519
 id_ed25519.*
 credentials.json
 service-account*.json
+google-services.json
+**/google-services.json
+GoogleService-Info.plist
 **/secrets/
 
 # Logs and caches

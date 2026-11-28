@@ -15,6 +15,9 @@ import {
 } from "./group-call.js";
 import { relayGroupTyping } from "./group-typing.js";
 import { callSignalSchema } from "./schemas.js";
+import { isStoredInvite, readRingingInvite, type DirectCallState, type StoredCallInvite } from "./call-invite.js";
+import { queueCallPush } from "./notifications-dispatch.js";
+import { z } from "zod";
 
 type CallState = {
   conversationId: string;
@@ -119,7 +122,16 @@ export async function relayCallSignal(
     );
     if (created !== "OK") throw new Error("This call could not be started.");
 
+    const invite: StoredCallInvite = {
+      callId: signal.callId,
+      conversationId: signal.conversationId,
+      senderId: userId,
+      mode: signal.mode,
+      scope: "direct",
+      offer: signal.offer,
+    };
     try {
+      await redis.set(`call-invite:${signal.callId}`, JSON.stringify(invite), "EX", ringingTtlSeconds);
       await redis.publish(`user:${callee.userId}`, JSON.stringify({
         ...signal,
         senderId: userId,
@@ -127,8 +139,17 @@ export async function relayCallSignal(
       }));
     } catch (error) {
       await redis.del(`call:${signal.callId}`);
+      await redis.del(`call-invite:${signal.callId}`);
       throw error;
     }
+    void queueCallPush({
+      conversationId: signal.conversationId,
+      senderUserId: userId,
+      recipientUserIds: [callee.userId],
+      callId: signal.callId,
+      mode: signal.mode,
+      scope: "direct",
+    });
     return;
   }
 
@@ -168,8 +189,10 @@ export async function relayCallSignal(
       throw new Error("This call cannot be declined.");
     }
     await redis.del(`call:${signal.callId}`);
+    await redis.del(`call-invite:${signal.callId}`);
   } else {
     await redis.del(`call:${signal.callId}`);
+    await redis.del(`call-invite:${signal.callId}`);
   }
 
   await redis.publish(`user:${targetUserId}`, JSON.stringify({
@@ -241,7 +264,15 @@ async function relayGroupCallSignal(userId: string, signal: GroupSignal) {
     );
     if (created !== "OK") throw new Error("This call could not be started.");
     const participants = conversation.members.map((member) => member.user);
+    const invite: StoredCallInvite = {
+      callId: signal.callId,
+      conversationId: signal.conversationId,
+      senderId: userId,
+      mode: signal.mode,
+      scope: "group",
+    };
     try {
+      await redis.set(`call-invite:${signal.callId}`, JSON.stringify(invite), "EX", ringingTtlSeconds);
       await Promise.all(memberIds.filter((id) => id !== userId).map((memberId) =>
         publishCall(memberId, {
           type: "call:group-invite",
@@ -255,8 +286,17 @@ async function relayGroupCallSignal(userId: string, signal: GroupSignal) {
       ));
     } catch (error) {
       await redis.del(`call:${signal.callId}`);
+      await redis.del(`call-invite:${signal.callId}`);
       throw error;
     }
+    void queueCallPush({
+      conversationId: signal.conversationId,
+      senderUserId: userId,
+      recipientUserIds: memberIds.filter((id) => id !== userId),
+      callId: signal.callId,
+      mode: signal.mode,
+      scope: "group",
+    });
     return;
   }
 
@@ -294,6 +334,7 @@ async function relayGroupCallSignal(userId: string, signal: GroupSignal) {
       result.state,
       result.state?.status === "active" ? activeTtlSeconds : ringingTtlSeconds,
     );
+    if (!result.state) await redis.del(`call-invite:${signal.callId}`);
     await Promise.all(result.notifyIds.map((memberId) =>
       publishCall(memberId, {
         type: "call:group-leave",
@@ -336,6 +377,39 @@ export async function registerCallIceServerRoute(app: FastifyInstance) {
       });
     }
     return { iceServers };
+  });
+
+  app.get("/calls/:callId/invite", async (request, reply) => {
+    const session = await requireUser(request, reply);
+    if (!session) return;
+    const { callId } = request.params as { callId: string };
+    if (!z.string().uuid().safeParse(callId).success) {
+      return reply.code(400).send({ error: "Invalid call." });
+    }
+    const [stateJson, inviteJson] = await Promise.all([
+      redis.get(`call:${callId}`),
+      redis.get(`call-invite:${callId}`),
+    ]);
+    let state: unknown = null;
+    let invite: unknown = null;
+    try {
+      state = stateJson ? JSON.parse(stateJson) : null;
+      invite = inviteJson ? JSON.parse(inviteJson) : null;
+    } catch {
+      return reply.code(404).send({ error: "This call has ended." });
+    }
+    const parsedState = isGroupCallRecord(state)
+      ? state
+      : state && typeof state === "object"
+        ? state as DirectCallState
+        : null;
+    const decision = readRingingInvite({
+      userId: session.sub,
+      state: parsedState,
+      invite: isStoredInvite(invite) ? invite : null,
+    });
+    if (!decision.ok) return reply.code(decision.status).send({ error: decision.error });
+    return { invite: decision.invite };
   });
 }
 

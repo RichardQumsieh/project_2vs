@@ -136,6 +136,13 @@ const envSchema = z.object({
     (value) => value === "" ? undefined : value,
     z.string().min(32).optional(),
   ),
+  /**
+   * Web Push (VAPID). Set all three or leave all empty.
+   * The public key is safe to expose to the browser. The private key is not.
+   */
+  VAPID_PUBLIC_KEY: optionalEnvironmentValue,
+  VAPID_PRIVATE_KEY: optionalEnvironmentValue,
+  VAPID_SUBJECT: optionalEnvironmentValue,
   GMAIL_SENDER: z.preprocess(
     (value) => value === "" ? undefined : value,
     z.string().email().optional(),
@@ -187,6 +194,27 @@ const envSchema = z.object({
       code: "custom",
       message: "Set both TURN_URLS and TURN_SHARED_SECRET, or leave both empty",
       path: ["TURN_URLS"],
+    });
+  }
+
+  const vapidValues = [values.VAPID_PUBLIC_KEY, values.VAPID_PRIVATE_KEY, values.VAPID_SUBJECT];
+  const vapidCount = vapidValues.filter(Boolean).length;
+  if (vapidCount !== 0 && vapidCount !== 3) {
+    context.addIssue({
+      code: "custom",
+      message: "Set VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, and VAPID_SUBJECT together, or leave all empty",
+      path: ["VAPID_PUBLIC_KEY"],
+    });
+  }
+  if (
+    values.VAPID_SUBJECT &&
+    !/^mailto:[^\s@]+@[^\s@]+$/.test(values.VAPID_SUBJECT) &&
+    !values.VAPID_SUBJECT.startsWith("https://")
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "VAPID_SUBJECT must be a mailto: address or an https URL",
+      path: ["VAPID_SUBJECT"],
     });
   }
 

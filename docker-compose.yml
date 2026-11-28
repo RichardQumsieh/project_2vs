@@ -54,6 +54,9 @@ services:
       SAFETY_NUMBERS_ENABLED: ${SAFETY_NUMBERS_ENABLED:-true}
       # Daily brief stays on unless this is exactly false.
       DAILY_BRIEF_ENABLED: ${DAILY_BRIEF_ENABLED:-true}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       # Billing stays off. mock never calls a provider. See docs/billing.md.
       BILLING_ENABLED: ${BILLING_ENABLED:-false}
       BILLING_PROVIDER: ${BILLING_PROVIDER:-mock}
